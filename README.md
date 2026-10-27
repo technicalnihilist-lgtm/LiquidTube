@@ -5,8 +5,8 @@ A liquid-glass YouTube client for Android — the whole UI is one self-contained
 **[⬇ Download the APK](https://github.com/technicalnihilist-lgtm/LiquidTube/releases/latest)**
 
 ![Platform](https://img.shields.io/badge/platform-Android%205.0%2B-3ddc84)
-![Version](https://img.shields.io/badge/version-1.2-ff2d55)
-![Size](https://img.shields.io/badge/APK-61%20KB-6a3bff)
+![Version](https://img.shields.io/badge/version-1.3-ff2d55)
+![Size](https://img.shields.io/badge/APK-158%20KB-6a3bff)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 ## Screenshots
@@ -19,7 +19,9 @@ A liquid-glass YouTube client for Android — the whole UI is one self-contained
 |:---:|:---:|:---:|
 | <img src="screenshots/04-player.png" width="240"> | <img src="screenshots/05-settings.png" width="240"> | <img src="screenshots/06-suggestions-off.png" width="240"> |
 
-<p align="center"><img src="screenshots/icon-512.png" width="120" alt="LiquidTube icon"></p>
+<p align="center"><img src="screenshots/icon-512.png" width="128" alt="LiquidTube icon"></p>
+
+The icon is drawn in the same language as the app: the gradient runs through the palette of the background blobs (pink → red → purple → indigo), the tile is frosted glass with a bright rim and a soft drop shadow, and the play mark carries the red-to-magenta accent used by the app's active states.
 
 ## What it does
 
@@ -38,6 +40,11 @@ Everything is live YouTube data, not a demo list — real thumbnails, real chann
 - **Library** — history, watch later, liked videos, playlists, subscriptions and comments are saved on the device.
 - **Player extras** — captions, loop, fill-screen, native fullscreen, share sheet, dislike, block.
 - **Graceful offline** — the app shell is bundled, and if the feed can't load it falls back to a starter list instead of an empty screen.
+
+## What's new in 1.3
+
+- **New icon.** The old flat red play button is replaced by a liquid-glass mark in the app's own palette: a pink → red → purple → indigo gradient (the same colours as the background blobs), a frosted white tile floating on a soft shadow, and the play triangle filled with the app's red-to-magenta accent. It ships as a full adaptive icon (vector gradient background + glass foreground layer) plus legacy icons for older Android, so it looks right on every launcher and shape mask.
+- The in-app logo badge in the header now uses the same gradient as the icon.
 
 ## What's new in 1.2
 
