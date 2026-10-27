@@ -198,8 +198,24 @@ try{const p=JSON.parse(localStorage.getItem('lt')||'{}');Object.assign(S,p);S.op
 const save=()=>{try{localStorage.setItem('lt',JSON.stringify(S))}catch(e){}};
 
 const V={},CH={},FEED={trending:null,loading:false,error:''};
+let SHELF={},SHELF_LIMIT=false;
+try{SHELF=JSON.parse(localStorage.getItem('lt_shelf')||'{}')||{}}catch(e){SHELF={}}
+const saveShelf=()=>{try{localStorage.setItem('lt_shelf',JSON.stringify(SHELF))}catch(e){}};
+function shelfItems(sh){
+  const e=SHELF[sh.id];
+  if(!e||!e.items||!e.items.length)return null;
+  if(Date.now()-(e.at||0)>SHELF_TTL)return null;
+  e.items.forEach(it=>vObj(it.id,it));
+  return e.items.map(it=>V[it.id]).filter(Boolean);
+}
 FALL.forEach(v=>V[v.id]=v);
 let tab='home',cat='All',q='',cur=null,chanId='',chanTok='',chanBusy=false;
+const SHELVES=[
+  {id:'calm',title:'Calm music',sub:'Soft piano, ambient, sleep',q:'calm relaxing music playlist'},
+  {id:'aimusic',title:'AI music',sub:'Songs made with AI',q:'AI generated music song'},
+  {id:'calmvids',title:'Calm videos',sub:'Slow visuals, quiet places',q:'calm relaxing videos nature ambient'}
+];
+const SHELF_TTL=12*3600e3;
 const TABS=[['home','🏠','Home'],['shorts','🎬','Shorts'],['search','🔍','Search'],['subs','📺','Subs'],['lib','📚','Library']];
 const CATS=['Music','Viral','Chill','Rock','Animation','Kids'];
 
@@ -220,8 +236,13 @@ function vObj(id,d){d=d||{};id=id||'';const v=Object.assign({id:id,e:'🎬',cat:
   if(d.desc!=null)v.desc=dec(d.desc);if(d.views!=null)v.views=d.views;if(d.pub)v.pub=d.pub;
   V[id]=v;return v}
 
-window.PH=function(n){const ch=String(n||'?').charAt(0).toUpperCase();
-  return 'data:image/svg+xml;utf8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff9a9e"/><stop offset="1" stop-color="#a18cd1"/></linearGradient></defs><rect width="80" height="80" fill="url(#g)"/><text x="40" y="53" font-size="34" font-family="sans-serif" font-weight="700" fill="#ffffff" text-anchor="middle">'+ch+'</text></svg>')};
+window.PH=function(n){
+  let ch='?';
+  try{ch=(Array.from(String(n||'?').trim())[0]||'?').toUpperCase()}catch(e){}
+  if(ch==='<'||ch==='>'||ch==='&')ch='?';
+  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff9a9e"/><stop offset="1" stop-color="#a18cd1"/></linearGradient></defs><rect width="80" height="80" fill="url(#g)"/><text x="40" y="53" font-size="34" font-family="sans-serif" font-weight="700" fill="#ffffff" text-anchor="middle">'+ch+'</text></svg>';
+  try{return 'data:image/svg+xml;utf8,'+encodeURIComponent(svg)}catch(e){return ''}
+};
 const cdn=u=>String(u||'').replace('//yt3.ggpht.com/','//yt3.googleusercontent.com/');
 function cObj(c){const sn=c.snippet||{},st=c.statistics||{},cd=c.contentDetails||{},br=c.brandingSettings||{};
   return{id:c.id,title:dec(sn.title),av:cdn((sn.thumbnails&&(sn.thumbnails.medium||sn.thumbnails.default)||{}).url),
@@ -263,6 +284,50 @@ async function loadTrending(){
   }catch(e){FEED.error=e.message||'offline'}
   FEED.loading=false;
   return FEED.trending}
+
+async function loadShelf(sh){
+  const cached=shelfItems(sh);
+  if(cached)return cached;
+  const j=await yt('search',{part:'snippet',type:'video',maxResults:10,q:sh.q});
+  const list=(j.items||[]).filter(it=>it.id&&it.id.videoId).map(it=>vObj(it.id.videoId,
+    {t:it.snippet.title,c:it.snippet.channelTitle,ch:it.snippet.channelId,
+     img:bestTh(it.snippet.thumbnails),pub:it.snippet.publishedAt,cat:sh.title}));
+  await loadChannels(list.map(v=>v.ch));
+  try{const st=await yt('videos',{part:'statistics',id:list.slice(0,10).map(v=>v.id).join(',')});
+    (st.items||[]).forEach(it=>{if(V[it.id]&&it.statistics)V[it.id].views=it.statistics.viewCount})}catch(e){}
+  SHELF[sh.id]={at:Date.now(),items:list.map(v=>({id:v.id,t:v.t,c:v.c,ch:v.ch,img:v.img,pub:v.pub,views:v.views}))};
+  saveShelf();
+  return list;
+}
+const shelfRow=sh=>{
+  const list=(shelfItems(sh)||[]).filter(ok).slice(0,8);
+  if(!list.length)return '<div class="hint">Nothing here right now.</div>';
+  return list.map(v=>'<div class="mini glass" data-v="'+v.id+'">'+thumb(v,'mini').replace('<div class="pl">▶</div>','')+'<b>'+esc(v.t)+'</b></div>').join('')
+    +'<button class="chip glass" data-shelfq="'+esc(sh.q)+'" style="align-self:center">See all</button>';
+};
+async function loadShelves(){
+  for(const sh of SHELVES){
+    if(shelfItems(sh))continue;
+    const box=document.getElementById('sh-'+sh.id);
+    if(!box)continue;
+    if(SHELF_LIMIT){
+      box.innerHTML='<div class="hint">YouTube\'s daily search limit is used up — this row refreshes after midnight PT.</div>';
+      continue;
+    }
+    try{
+      await loadShelf(sh);
+      const b=document.getElementById('sh-'+sh.id);
+      if(b)b.innerHTML=shelfRow(sh);
+    }catch(e){
+      const msg=String((e&&e.message)||'');
+      if(/quota/i.test(msg))SHELF_LIMIT=true;
+      const b=document.getElementById('sh-'+sh.id);
+      if(b)b.innerHTML='<div class="hint">'+(/quota/i.test(msg)
+        ? "YouTube's daily search limit is used up — this row refreshes after midnight PT."
+        : 'Could not load right now.')+'</div>';
+    }
+  }
+}
 
 async function loadVideo(id){
   if(V[id]&&V[id].desc!=null&&V[id].ch)return V[id];
@@ -319,7 +384,9 @@ function render(){
     h='<div class="chips">'+cs.map(c=>'<button class="chip glass '+(c===cat?'on':'')+'" data-c="'+esc(c)+'">'+esc(c)+'</button>').join('')+'<button class="chip glass" id="nc">＋ New</button></div>';
     if(S.cats[cat])h+='<div class="hint" style="display:flex;justify-content:space-between;align-items:center">'+esc(S.cats[cat].kw?'Topic keywords: '+S.cats[cat].kw:'Manual category')+'<button class="act glass" id="dc">Delete</button></div>';
     if(cat==='All'&&S.opt.sg&&list.length)h+='<h2 style="margin:4px 4px 10px">🔥 Trending now</h2><div class="chips" style="margin-bottom:6px">'+list.slice(0,7).map(v=>'<div class="mini glass" data-v="'+v.id+'">'+thumb(v,'mini').replace('<div class="pl">▶</div>','')+'<b>'+esc(v.t)+'</b></div>').join('')+'</div>';
-    if(cat==='All')h+='<h2 style="margin:4px 4px 2px">'+(FEED.trending?'Popular in India':'Start here')+'</h2>';
+    if(cat==='All')h+=SHELVES.map(sh=>'<h2 style="margin:14px 4px 8px">'+sh.title+' <span class="vw" style="font-weight:600">'+esc(sh.sub)+'</span></h2>'+
+      '<div class="chips" id="sh-'+sh.id+'" style="margin-bottom:8px">'+(shelfItems(sh)?shelfRow(sh):'<div class="skel" style="width:150px;height:84px;flex:none;border-radius:20px;margin:0"></div><div class="skel" style="width:150px;height:84px;flex:none;border-radius:20px;margin:0"></div><div class="skel" style="width:150px;height:84px;flex:none;border-radius:20px;margin:0"></div>')+'</div>').join('');
+    if(cat==='All')h+='<h2 style="margin:14px 4px 2px">'+(FEED.trending?'Popular in India':'Start here')+'</h2>';
     if(FEED.loading&&!FEED.trending)h+='<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
     h+=list.map(card).join('')||'<div class="empty">Nothing here yet. Open a video and tap Category to add it.</div>';
     if(FEED.error&&!FEED.trending)h+='<div class="hint">Showing the offline starter list — live feed unavailable ('+esc(FEED.error)+').</div>';
@@ -349,9 +416,10 @@ function render(){
       '<button class="act glass '+(S.opt.cmt?'on':'')+'" id="tcm" style="margin:0 6px 8px 0">Comments: '+(S.opt.cmt?'on':'off')+'</button>'+
       '<button class="act glass '+(S.opt.sg?'on':'')+'" id="tsg" style="margin:0 6px 8px 0">Suggestions: '+(S.opt.sg?'on':'off')+'</button>'+
       '<div class="hint">Suggestions also controls the Trending strip and the Up next list in the player.</div></div>';
-    h+='<h2>Settings</h2><div class="set glass"><b>Preferences</b><button class="act glass '+(S.ns?'on':'')+'" id="ns" style="margin:10px 8px 0 0">Block Shorts: '+(S.ns?'on':'off')+'</button><button class="act glass" id="au" style="margin:10px 8px 0 0">Autoplay: '+(S.opt.auto?'on':'off')+'</button><button class="act glass" id="ck" style="margin-top:10px">Clear history</button><div class="hint" style="margin-top:10px">Network: HTTPS only · host allowlist on · no third-party requests</div></div>';
+    h+='<h2>Settings</h2><div class="set glass"><b>Preferences</b><button class="act glass '+(S.ns?'on':'')+'" id="ns" style="margin:10px 8px 0 0">Block Shorts: '+(S.ns?'on':'off')+'</button><button class="act glass" id="au" style="margin:10px 8px 0 0">Autoplay: '+(S.opt.auto?'on':'off')+'</button><button class="act glass" id="ck" style="margin-top:10px">Clear history</button></div>';
   }
   m.innerHTML=h;m.style.display=tab==='shorts'?'none':'block';
+  if(tab==='home'&&cat==='All')setTimeout(loadShelves,60);
   shorts();
   if($('#nc'))$('#nc').onclick=catForm;
   if($('#dc'))$('#dc').onclick=()=>{delete S.cats[cat];save();cat='All';render()};
@@ -395,12 +463,18 @@ async function find(go){
   const box=$('#api');box.innerHTML='<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
   const seq=++searchSeq;
   try{
-    const [j,cj]=await Promise.all([
-      yt('search',{part:'snippet',type:'video',maxResults:20,q:q}),
-      yt('search',{part:'snippet',type:'channel',maxResults:6,q:q}).catch(()=>null)]);
+    const j=await yt('search',{part:'snippet',type:'video',maxResults:20,q:q});
     if(seq!==searchSeq)return;
     const list=(j.items||[]).filter(it=>it.id&&it.id.videoId).map(it=>vObj(it.id.videoId,{t:it.snippet.title,c:it.snippet.channelTitle,ch:it.snippet.channelId,img:bestTh(it.snippet.thumbnails),pub:it.snippet.publishedAt,cat:'Result'}));
-    const chIds=(cj&&cj.items||[]).map(it=>(it.id&&it.id.channelId)||it.snippet.channelId).filter(Boolean);
+    /* channels come out of the video results — a second search only runs when the results are thin,
+       because YouTube meters search.list separately (100 calls/day) */
+    let chIds=[...new Set(list.map(v=>v.ch).filter(Boolean))].slice(0,6);
+    if(list.length<4){
+      try{
+        const cj=await yt('search',{part:'snippet',type:'channel',maxResults:6,q:q});
+        chIds=[...new Set(chIds.concat((cj.items||[]).map(it=>(it.id&&it.id.channelId)||it.snippet.channelId).filter(Boolean)))];
+      }catch(e){}
+    }
     await Promise.all([loadChannels(list.map(v=>v.ch)),loadChannels(chIds)]);
     try{const st=await yt('videos',{part:'statistics',id:list.slice(0,20).map(v=>v.id).join(',')});
       (st.items||[]).forEach(it=>{if(V[it.id]&&it.statistics)V[it.id].views=it.statistics.viewCount})}catch(e){}
@@ -414,7 +488,10 @@ async function find(go){
   }catch(e){
     if(seq!==searchSeq)return;
     window.LASTSTACK=(e&&e.stack)||String(e);
-    box.innerHTML='<div class="empty">Search failed. '+esc(e.message||'Check your connection.')+'</div>';
+    const msg=String((e&&e.message)||'');
+    box.innerHTML=/quota/i.test(msg)
+      ? '<div class="empty">YouTube\'s daily search limit is used up for this key.<br>Search works again after midnight PT — the feed, channels and playback keep working.</div>'
+      : '<div class="empty">Search failed. '+esc(msg||'Check your connection.')+'</div>';
   }
 }
 
@@ -602,6 +679,7 @@ document.addEventListener('click',e=>{
   const ch=e.target.closest('[data-ch]');if(ch&&!e.target.closest('button')){openChannel(ch.dataset.ch);return}
   const cs=e.target.closest('[data-chsub]');if(cs){toggle(S.subs,cs.dataset.chsub);toast(S.subs.includes(cs.dataset.chsub)?'Subscribed':'Unsubscribed');const h=$('#chhead');if(h&&CH[cs.dataset.chsub])h.innerHTML=channelHead(CH[cs.dataset.chsub]);return}
   const sb=e.target.closest('[data-sub]');if(sb){toggle(S.subs,sb.dataset.sub);render();return}
+  const sq=e.target.closest('[data-shelfq]');if(sq){tab='search';q=sq.dataset.shelfq;render();find(true);return}
   const rq=e.target.closest('[data-q]');if(rq){q=rq.dataset.q;render();find(true);return}
   const sl=e.target.closest('[data-sl]');if(sl){toggle(S.liked,sl.dataset.sl);sl.textContent=S.liked.includes(sl.dataset.sl)?'♥':'♡';return}
   const sw=e.target.closest('[data-sw]');if(sw){toggle(S.later,sw.dataset.sw);toast(S.later.includes(sw.dataset.sw)?'Saved to Watch later':'Removed');return}

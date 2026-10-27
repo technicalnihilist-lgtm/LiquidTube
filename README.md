@@ -5,8 +5,8 @@ A liquid-glass YouTube client for Android — the whole UI is one self-contained
 **[⬇ Download the APK](https://github.com/technicalnihilist-lgtm/LiquidTube/releases/latest)**
 
 ![Platform](https://img.shields.io/badge/platform-Android%205.0%2B-3ddc84)
-![Version](https://img.shields.io/badge/version-1.9-ff2d55)
-![Size](https://img.shields.io/badge/APK-210%20KB-6a3bff)
+![Version](https://img.shields.io/badge/version-1.8-ff2d55)
+![Size](https://img.shields.io/badge/APK-206%20KB-6a3bff)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 ## App metadata
@@ -17,9 +17,9 @@ A liquid-glass YouTube client for Android — the whole UI is one self-contained
 | **App ID / Package** | `com.liquidtube.app` |
 | **Author** | technicalnihilist-lgtm |
 | **Category** | Video players / Multimedia |
-| **Latest version** | 1.9 (versionCode 10) |
+| **Latest version** | 1.8 (versionCode 9) |
 | **Min Android** | 5.0 (API 21) |
-| **APK size** | 210 KB |
+| **APK size** | 206 KB |
 | **License** | MIT |
 | **Repo** | https://github.com/technicalnihilist-lgtm/LiquidTube |
 | **Releases** | https://github.com/technicalnihilist-lgtm/LiquidTube/releases |
@@ -73,31 +73,6 @@ Everything is live YouTube data, not a demo list — real thumbnails, real chann
 - **Library** — history, watch later, liked videos, playlists, subscriptions and comments are saved on the device.
 - **Player extras** — captions, loop, fill-screen, native fullscreen, share sheet, dislike, block.
 - **Graceful offline** — the app shell is bundled, and if the feed can't load it falls back to a starter list instead of an empty screen.
-
-## Security
-
-- **HTTPS only.** `usesCleartextTraffic="false"` plus a network security config that forbids cleartext on every domain — a plain-http request fails instead of quietly going through.
-- **Host allowlist.** The WebView refuses any request whose host is not `liquidtube.local` or a Google/YouTube domain (`googleapis.com`, `gstatic.com`, `googleusercontent.com`, `ggpht.com`, `ytimg.com`, `youtube.com`, `youtube-nocookie.com`, `googlevideo.com`, `youtu.be`, `google.com`). Trackers, ad networks and arbitrary endpoints get a 403 inside the app and never reach the network.
-- **Nothing else is open**: no file access, no content access, no form-data saving, geolocation off, and every WebView permission request is denied.
-- **No analytics, no ads, no background services.** `INTERNET` is the only permission used to reach the network.
-- Links that point outside the app open in your browser; the app itself never navigates away from its own origin.
-
-### About IP restriction on the API key
-
-An API key can be restricted by IP address, but that only works for keys used **from a server**. This app calls YouTube directly from the phone, and mobile IPs change constantly (Wi-Fi, 4G, CGNAT), so an IP restriction would simply break the app. The restriction that actually fits an Android app is:
-
-1. Google Cloud Console → APIs & Services → Credentials → your key
-2. **API restrictions** → restrict the key to *YouTube Data API v3*
-3. **Application restrictions** → *Android apps* → package name `com.liquidtube.app` + the signing SHA-1 below
-
-Then the key only works inside this APK, and the same key used from anywhere else is rejected.
-
-## What's new in 1.9
-
-- **Network allowlist.** Every request the WebView makes is checked against a short list of Google/YouTube hosts; anything else is refused inside the app, so no tracker or ad endpoint can be reached even if the page tried.
-- **HTTPS enforced** through a network security config — cleartext HTTP is blocked at the platform level.
-- Form-data saving and geolocation turned off; permission requests still denied.
-- The Settings screen now states the network policy.
 
 ## What's new in 1.8
 
@@ -195,7 +170,12 @@ The WebView is set up for media: autoplay without a user gesture, DOM storage on
 
 ## Quota
 
-A search costs two `search` calls (videos + channels) — 200 units of the free 10,000 per day. Everything else is cheap: one call for the trending feed, one batched call to resolve up to 50 channel avatars, one per opened video, one per channel page and one per 50 videos loaded. A normal session stays well inside the daily allowance; if you search heavily, the channel section is the part to drop.
+YouTube meters **`search.list` separately** from the 10,000-unit allowance: a free key gets **100 searches per day**, and that is the limit you hit first. The app is built around it:
+
+- A search is **one** call. Channels are derived from the video results; a second channel-type search only runs when the results are thin.
+- The home shelves (Calm music, AI music, Calm videos) are searched **once** and then cached on the device for 12 hours.
+- Everything else avoids `search` entirely: the trending feed (`chart=mostPopular`), channel data, channel uploads (`playlistItems`) and video details are all cheap non-search calls.
+- When the daily limit runs out the app says so plainly instead of showing an empty screen — the feed, channels and playback keep working, only new searches pause until midnight PT.
 
 ## About the API key
 
