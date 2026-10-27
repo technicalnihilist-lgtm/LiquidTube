@@ -52,10 +52,24 @@ h2{font-size:20px;margin:18px 4px 10px}
 .frame iframe{transition:transform .3s}.frame.fill iframe{transform:scale(1.2)}.frame.fill{border-radius:0;margin:0 -12px}.frame:fullscreen{border-radius:0;margin:0;background:#000}
 .empty{text-align:center;color:var(--tx2);padding:34px 18px;font-size:14px}
 .set{border-radius:22px;padding:14px;margin-top:10px}.set input{width:100%;height:42px;border-radius:14px;border:1px solid var(--edge2);background:var(--glass);color:var(--tx);padding:0 12px;font:inherit;margin-top:8px}
-nav{position:absolute;left:14px;right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:10;height:68px;border-radius:34px;display:flex;padding:6px;gap:2px}
-nav button{flex:1;border:0;background:none;border-radius:28px;color:var(--tx2);font:inherit;font-size:11px;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;transition:.3s}
-nav button i{font-style:normal;font-size:22px}
-nav button.on{color:var(--red);background:var(--glass2);box-shadow:inset 1.5px 1.5px 1px var(--edge),0 4px 14px var(--sh)}
+nav.dock{--d1:rgba(255,255,255,.80);--d2:rgba(255,255,255,.46);--de:rgba(255,255,255,.70);--dp1:rgba(255,255,255,.96);--dp2:rgba(255,255,255,.58);--dsh:rgba(40,50,110,.22);
+  position:absolute;left:14px;right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:10;height:72px;border-radius:36px;display:flex;padding:6px;gap:2px;
+  background:linear-gradient(165deg,var(--d1),var(--d2));
+  -webkit-backdrop-filter:blur(34px) saturate(185%);backdrop-filter:blur(34px) saturate(185%);
+  border:1px solid var(--de);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.95),inset 0 -1px 2px rgba(255,255,255,.32),0 14px 38px var(--dsh);
+  overflow:hidden}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) nav.dock{--d1:rgba(88,94,138,.86);--d2:rgba(24,28,46,.74);--de:rgba(255,255,255,.22);--dp1:rgba(255,255,255,.26);--dp2:rgba(255,255,255,.10);--dsh:rgba(0,0,0,.62)}}
+:root[data-theme="dark"] nav.dock{--d1:rgba(88,94,138,.86);--d2:rgba(24,28,46,.74);--de:rgba(255,255,255,.22);--dp1:rgba(255,255,255,.26);--dp2:rgba(255,255,255,.10);--dsh:rgba(0,0,0,.62)}
+.dock-pill{position:absolute;top:6px;bottom:6px;left:0;width:64px;border-radius:30px;z-index:0;pointer-events:none;
+  background:linear-gradient(165deg,var(--dp1),var(--dp2));
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.95),inset 0 -1px 1px rgba(255,255,255,.25),0 8px 20px rgba(255,45,85,.16);
+  transition:transform .44s cubic-bezier(.22,1,.36,1),width .44s cubic-bezier(.22,1,.36,1)}
+nav.dock button{position:relative;z-index:1;flex:1;border:0;background:none;border-radius:30px;color:var(--tx2);font:inherit;font-size:10.5px;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;transition:color .3s ease;-webkit-tap-highlight-color:transparent}
+nav.dock button svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;transition:transform .38s cubic-bezier(.22,1,.36,1)}
+nav.dock button.on{color:var(--red)}
+nav.dock button.on svg{transform:translateY(-1px) scale(1.08)}
+nav.dock button:active svg{transform:scale(.88)}
 .pl8{position:absolute;inset:0;z-index:30;background:var(--bg);transform:translateY(102%);transition:transform .45s cubic-bezier(.2,.9,.25,1.05);overflow-y:auto;padding:12px 12px 30px}
 .pl8.on{transform:none}
 .plh{display:flex;justify-content:space-between;align-items:center;padding:4px 4px 10px}
@@ -144,7 +158,7 @@ img.av{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:none;backg
   <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
   <div class="top"><div class="logo"><i>▶</i>LiquidTube</div><div style="display:flex;gap:8px"><button class="rb glass" id="rf" aria-label="Refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.49-6.01"/><path d="M20.5 3.6v5.6h-5.6"/></svg></button><button class="rb glass" id="th" aria-label="Toggle theme">🌗</button></div></div>
   <main id="main"></main>
-  <nav class="glass" id="nav"></nav>
+  <nav class="dock" id="nav"><span class="dock-pill" id="dockpill"></span></nav>
   <div id="shorts"></div>
   <div class="md" id="md"></div>
   <div class="pl8" id="pl"></div>
@@ -217,7 +231,7 @@ const SHELVES=[
   {id:'calmvids',title:'Calm videos',sub:'Slow visuals, quiet places',q:'calm relaxing videos nature ambient'}
 ];
 const SHELF_TTL=12*3600e3;
-const TABS=[['home','🏠','Home'],['shorts','🎬','Shorts'],['search','🔍','Search'],['subs','📺','Subs'],['lib','📚','Library']];
+const TABS=[['home','<svg viewBox="0 0 24 24"><path d="M4 10.6 12 4l8 6.6V19a1.6 1.6 0 0 1-1.6 1.6h-3.6v-6.2H9.2v6.2H5.6A1.6 1.6 0 0 1 4 19z"/></svg>','Home'],['shorts','<svg viewBox="0 0 24 24"><rect x="4.4" y="3.4" width="15.2" height="17.2" rx="5"/><path d="M10.4 9.3 15 12l-4.6 2.7z"/></svg>','Shorts'],['search','<svg viewBox="0 0 24 24"><circle cx="10.9" cy="10.9" r="6.4"/><path d="M15.7 15.7 20.4 20.4"/></svg>','Search'],['subs','<svg viewBox="0 0 24 24"><rect x="3.2" y="7.2" width="17.6" height="12.2" rx="3.4"/><path d="M8.3 3.8 12 6.6l3.7-2.8"/></svg>','Subs'],['lib','<svg viewBox="0 0 24 24"><rect x="4.1" y="4.8" width="4.1" height="14.4" rx="1.8"/><rect x="10" y="4.8" width="4.1" height="14.4" rx="1.8"/><path d="M16.4 6.2l3.3 12.4"/></svg>','Library']];
 const CATS=['Music','Viral','Chill','Rock','Animation','Kids'];
 
 /* ---------------- helpers ---------------- */
@@ -391,9 +405,20 @@ function feed(){return (FEED.trending&&FEED.trending.length?FEED.trending:FALL).
 function catVids(n){const c=S.cats[n];if(!c)return [];const k=c.kw.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
   return Object.values(V).filter(v=>ok(v)&&(c.ids.includes(v.id)||k.some(w=>(v.t+' '+v.c+' '+v.cat).toLowerCase().includes(w))))}
 
+/* ---------------- dock ---------------- */
+function movePill(first){
+  const nav=$('#nav'),pill=$('#dockpill');if(!nav||!pill)return;
+  const btn=nav.querySelector('button.on');if(!btn)return;
+  if(first){pill.style.transition='none'}
+  pill.style.width=btn.offsetWidth+'px';
+  pill.style.transform='translateX('+btn.offsetLeft+'px)';
+  if(first)requestAnimationFrame(()=>{pill.style.transition=''});
+}
+
 /* ---------------- views ---------------- */
 function render(){
-  $('#nav').innerHTML=TABS.filter(t=>!(S.ns&&t[0]==='shorts')).map(t=>'<button data-t="'+t[0]+'" class="'+(t[0]===tab?'on':'')+'"><i>'+t[1]+'</i>'+t[2]+'</button>').join('');
+  $('#nav').innerHTML='<span class="dock-pill" id="dockpill"></span>'+TABS.filter(t=>!(S.ns&&t[0]==='shorts')).map(t=>'<button data-t="'+t[0]+'" class="'+(t[0]===tab?'on':'')+'">'+t[1]+'<span>'+t[2]+'</span></button>').join('');
+  movePill();
   if(S.ns&&tab==='shorts')tab='home';
   const m=$('#main');let h='';
   if(tab==='home'){
@@ -762,6 +787,7 @@ function startSplash(){
 
 /* ---------------- boot ---------------- */
 $('#rf').onclick=doRefresh;
+addEventListener('resize',()=>movePill(true));
 startSplash();
 (function(){
   const m=$('#main'),ptr=$('#ptr'),txt=$('#ptrTxt'),ico=ptr?ptr.querySelector('svg'):null;
