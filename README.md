@@ -50,7 +50,7 @@ Everything you save — history, watch later, likes, playlists, subscriptions an
 |:---:|:---:|:---:|
 | <img src="screenshots/04-player.png" width="240"> | <img src="screenshots/05-settings.png" width="240"> | <img src="screenshots/06-suggestions-off.png" width="240"> |
 
-<p align="center"><img src="screenshots/07-refresh.png" width="240" alt="Pull to refresh"></p>
+<p align="center"><img src="screenshots/07-dark.png" width="240" alt="LiquidTube in dark mode"></p>
 
 <p align="center"><img src="screenshots/icon-512.png" width="160" alt="LiquidTube icon"></p>
 
@@ -170,12 +170,7 @@ The WebView is set up for media: autoplay without a user gesture, DOM storage on
 
 ## Quota
 
-YouTube meters **`search.list` separately** from the 10,000-unit allowance: a free key gets **100 searches per day**, and that is the limit you hit first. The app is built around it:
-
-- A search is **one** call. Channels are derived from the video results; a second channel-type search only runs when the results are thin.
-- The home shelves (Calm music, AI music, Calm videos) are searched **once** and then cached on the device for 12 hours.
-- Everything else avoids `search` entirely: the trending feed (`chart=mostPopular`), channel data, channel uploads (`playlistItems`) and video details are all cheap non-search calls.
-- When the daily limit runs out the app says so plainly instead of showing an empty screen — the feed, channels and playback keep working, only new searches pause until midnight PT.
+A search costs two `search` calls (videos + channels) — 200 units of the free 10,000 per day. Everything else is cheap: one call for the trending feed, one batched call to resolve up to 50 channel avatars, one per opened video, one per channel page and one per 50 videos loaded. A normal session stays well inside the daily allowance; if you search heavily, the channel section is the part to drop.
 
 ## About the API key
 
