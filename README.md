@@ -9,6 +9,35 @@ A liquid-glass YouTube client for Android — the whole UI is one self-contained
 ![Size](https://img.shields.io/badge/APK-206%20KB-6a3bff)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
+## App metadata
+
+| Field | Value |
+|---|---|
+| **Name** | LiquidTube |
+| **App ID / Package** | `com.liquidtube.app` |
+| **Author** | technicalnihilist-lgtm |
+| **Category** | Video players / Multimedia |
+| **Latest version** | 1.8 (versionCode 9) |
+| **Min Android** | 5.0 (API 21) |
+| **APK size** | 206 KB |
+| **License** | MIT |
+| **Repo** | https://github.com/technicalnihilist-lgtm/LiquidTube |
+| **Releases** | https://github.com/technicalnihilist-lgtm/LiquidTube/releases |
+
+### Short description (under 80 characters)
+
+> A liquid-glass YouTube client: live search, channels and playback in one small APK.
+
+### Store description
+
+LiquidTube is a YouTube client with a liquid-glass interface, wrapped in a tiny native shell — the whole UI is one self-contained HTML file, so the app installs at 206 KB and opens instantly.
+
+It runs on live YouTube data: the home feed is the most-popular chart for your region, search returns real thumbnails and channel avatars, and every channel page shows what YouTube's own About panel shows — subscribers, total views, video count, join date and country — plus that channel's complete upload history, 50 at a time.
+
+Watch in the built-in player with its real description, views and upload date; subscribe, like, save for later, or open the video in YouTube. Shorts get a full-screen snap feed. Three switches let you turn the description, comments and suggested videos off independently for a calmer player.
+
+Everything you save — history, watch later, likes, playlists, subscriptions and comments — stays on your device. No account, no ads, no analytics, no background services.
+
 ## Screenshots
 
 <p align="center"><img src="screenshots/00-splash.png" width="240" alt="LiquidTube splash screen"></p>
