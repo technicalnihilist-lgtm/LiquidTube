@@ -5,11 +5,13 @@ A liquid-glass YouTube client for Android — the whole UI is one self-contained
 **[⬇ Download the APK](https://github.com/technicalnihilist-lgtm/LiquidTube/releases/latest)**
 
 ![Platform](https://img.shields.io/badge/platform-Android%205.0%2B-3ddc84)
-![Version](https://img.shields.io/badge/version-1.7-ff2d55)
-![Size](https://img.shields.io/badge/APK-158%20KB-6a3bff)
+![Version](https://img.shields.io/badge/version-1.8-ff2d55)
+![Size](https://img.shields.io/badge/APK-206%20KB-6a3bff)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 ## Screenshots
+
+<p align="center"><img src="screenshots/00-splash.png" width="240" alt="LiquidTube splash screen"></p>
 
 | Home — live trending | Search — channels & videos | Channel page |
 |:---:|:---:|:---:|
@@ -42,6 +44,13 @@ Everything is live YouTube data, not a demo list — real thumbnails, real chann
 - **Library** — history, watch later, liked videos, playlists, subscriptions and comments are saved on the device.
 - **Player extras** — captions, loop, fill-screen, native fullscreen, share sheet, dislike, block.
 - **Graceful offline** — the app shell is bundled, and if the feed can't load it falls back to a starter list instead of an empty screen.
+
+## What's new in 1.8
+
+- **Launch animation.** The app now opens on a splash: the LiquidTube icon fades up out of a soft blur, scaling from 62% with a gentle overshoot over a warm red glow, then **“Meet the LiquidTube”** rises into place. The whole thing dissolves with a small scale-up and blur into the feed.
+- The intro is driven by the animation itself, not a stopwatch — the splash lifts only once the title has actually finished animating, so it never cuts off early on a slow device. If the system asks for reduced motion, the animation is skipped.
+- The first feed request is deferred until the splash lifts, so the intro plays without jank while thumbnails load behind it.
+- The icon used in the splash is the same supplied artwork, shipped as WebP so it costs 47 KB instead of 346 KB.
 
 ## What's new in 1.7
 
