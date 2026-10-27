@@ -50,7 +50,11 @@ Everything you save — history, watch later, likes, playlists, subscriptions an
 |:---:|:---:|:---:|
 | <img src="screenshots/04-player.png" width="240"> | <img src="screenshots/05-settings.png" width="240"> | <img src="screenshots/06-suggestions-off.png" width="240"> |
 
-<p align="center"><img src="screenshots/07-dark.png" width="240" alt="LiquidTube in dark mode"></p>
+<p align="center">
+  <img src="screenshots/07-dark.png" width="240" alt="LiquidTube in dark mode">
+  &nbsp;&nbsp;
+  <img src="screenshots/09-channel-playlist.png" width="240" alt="A channel playlist">
+</p>
 
 <p align="center"><img src="screenshots/icon-512.png" width="160" alt="LiquidTube icon"></p>
 

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>LiquidTube</title>
 <style>
-/* sheets */:root{--sh1:rgba(255,255,255,.86);--sh2:rgba(255,255,255,.70);--g1:rgba(255,255,255,.50);--g2:rgba(255,255,255,.20);--gedge:rgba(255,255,255,.62);--gshine:rgba(255,255,255,.85);--gdark:rgba(120,140,200,.16);--gblur:blur(30px) saturate(185%);
+/* sheets */:root{--sh1:rgba(255,255,255,.86);--sh2:rgba(255,255,255,.70);--g1:rgba(255,255,255,.50);--g2:rgba(255,255,255,.20);--gedge:rgba(255,255,255,.62);--gshine:rgba(255,255,255,.85);--gdark:rgba(120,140,200,.16);--gblur:blur(38px) saturate(190%);
 --bg:#eef0fa;--tx:#0b0c14;--tx2:#5b5f73;--glass:rgba(255,255,255,.42);--glass2:rgba(255,255,255,.66);--edge:rgba(255,255,255,.85);--edge2:rgba(255,255,255,.22);--sh:rgba(40,50,110,.2);--red:#ff2d55;--b1:#ff9a9e;--b2:#9db4ff;--b3:#ffd9a0;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0a0a14;--tx:#f4f5fb;--tx2:#a3a7bd;--glass:rgba(40,44,70,.42);--glass2:rgba(70,76,115,.62);--edge:rgba(255,255,255,.3);--edge2:rgba(255,255,255,.05);--sh:rgba(0,0,0,.55);--b1:#a3224a;--b2:#3a4fc4;--b3:#a8641c;color-scheme:dark;--g1:rgba(66,72,110,.46);--g2:rgba(24,28,46,.24);--gedge:rgba(255,255,255,.15);--gshine:rgba(255,255,255,.22);--gdark:rgba(0,0,0,.4);--sh1:rgba(44,48,76,.88);--sh2:rgba(22,26,42,.80)}}
 :root[data-theme="dark"]{--bg:#0a0a14;--tx:#f4f5fb;--tx2:#a3a7bd;--glass:rgba(40,44,70,.42);--glass2:rgba(70,76,115,.62);--edge:rgba(255,255,255,.3);--edge2:rgba(255,255,255,.05);--sh:rgba(0,0,0,.55);--b1:#a3224a;--b2:#3a4fc4;--b3:#a8641c;color-scheme:dark;--g1:rgba(66,72,110,.46);--g2:rgba(24,28,46,.24);--gedge:rgba(255,255,255,.15);--gshine:rgba(255,255,255,.22);--gdark:rgba(0,0,0,.4);--sh1:rgba(44,48,76,.88);--sh2:rgba(22,26,42,.80)}
@@ -22,6 +22,7 @@ body{display:flex;justify-content:center;align-items:center;overflow:hidden}
 @media(prefers-reduced-motion:reduce){.blob{animation:none}}
 .glass{
   background:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='0.06'/></svg>"),
     radial-gradient(130% 90% at 6% -10%, var(--gshine), transparent 58%),
     linear-gradient(158deg, var(--g1), var(--g2) 62%, var(--g1));
   -webkit-backdrop-filter:var(--gblur);backdrop-filter:var(--gblur);
@@ -159,6 +160,12 @@ img.av{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:none;backg
 @keyframes sk{to{background-position:-220% 0}}
 @media(prefers-reduced-motion:reduce){.skel{animation:none}}
 .badge{display:inline-block;padding:2px 9px;border-radius:11px;background:var(--glass2);font-size:11px;font-weight:800;color:var(--tx2);margin-left:6px}
+.plgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.plcard{border-radius:20px;overflow:hidden;cursor:pointer}
+.plcard .th{height:auto;aspect-ratio:16/9;font-size:34px}
+.plmeta{padding:8px 10px 11px}
+.plmeta b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;line-height:1.3}
+.plmeta span{font-size:11px;color:var(--tx2)}
 .loadmore{width:100%;height:44px;border-radius:22px;border:0;font:inherit;font-weight:800;background:var(--glass2);color:var(--tx);box-shadow:inset 1px 1px 1px var(--edge);margin:10px 0 20px;cursor:pointer}
 .tag{font-size:12px;color:var(--tx2);margin:2px 4px 10px}
 .about{border-radius:20px;padding:12px 14px;margin:0 0 10px;font-size:13px}
@@ -183,7 +190,7 @@ img.av{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:none;backg
 <div class="phone">
   <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
   <div class="topscrim"></div>
-  <div class="top"><div class="logo"><i>▶</i>LiquidTube<span class="gen">GEN 2</span></div><div style="display:flex;gap:8px"><button class="rb glass" id="rf" aria-label="Refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.49-6.01"/><path d="M20.5 3.6v5.6h-5.6"/></svg></button><button class="rb glass" id="th" aria-label="Toggle theme">🌗</button></div></div>
+  <div class="top"><div class="logo"><i>▶</i>LiquidTube<span class="gen">GEN 3</span></div><div style="display:flex;gap:8px"><button class="rb glass" id="rf" aria-label="Refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.49-6.01"/><path d="M20.5 3.6v5.6h-5.6"/></svg></button><button class="rb glass" id="th" aria-label="Toggle theme">🌗</button></div></div>
   <main id="main"></main>
   <nav class="glass" id="nav"></nav>
   <div id="shorts"></div>
@@ -240,7 +247,7 @@ const save=()=>{try{localStorage.setItem('lt',JSON.stringify(S))}catch(e){}};
 
 const V={},CH={},FEED={trending:null,loading:false,error:''};
 FALL.forEach(v=>V[v.id]=v);
-let tab='home',cat='All',q='',cur=null,chanId='',chanTok='',chanBusy=false;
+let tab='home',cat='All',q='',cur=null,chanId='';
 const TABS=[['home','🏠','Home'],['shorts','🎬','Shorts'],['search','🔍','Search'],['subs','📺','Subs'],['lib','📚','Library']];
 const CATS=['Music','Viral','Chill','Rock','Animation','Kids'];
 
@@ -573,34 +580,133 @@ async function openVideoChannel(vid){
   const id=(V[vid]||{}).ch;
   if(id)openChannel(id);else toast('Channel unavailable for this video');
 }
+let chanMode='sections',chanTok='',chanBusy=false,chanCache={},chanPlaylist=null;
+
+function chanSegs(){
+  const seg=(m,label)=>'<button class="chip glass '+(chanMode===m?'on':'')+'" data-chmode="'+m+'">'+label+'</button>';
+  return '<div class="chips" id="chseg" style="margin:6px 0 10px">'+seg('sections','Sections')+seg('latest','Latest')+seg('popular','Popular')+seg('oldest','Oldest')+'</div>';
+}
 async function openChannel(id){
-  chanId=id;chanTok='';chanBusy=false;
+  chanId=id;chanTok='';chanBusy=false;chanMode='sections';chanCache={};chanPlaylist=null;
   const p=$('#chp');p.classList.add('on');p.scrollTop=0;
-  p.innerHTML='<div class="plh"><button class="rb glass" id="chb" aria-label="Back">‹</button><b>Channel</b><span style="width:40px"></span></div><div id="chhead"><div class="skel" style="height:110px"></div></div><div id="chlist"></div>';
+  p.innerHTML='<div class="plh"><button class="rb glass" id="chb" aria-label="Back">‹</button><b>Channel</b><span style="width:40px"></span></div>'+
+    '<div id="chhead"><div class="skel" style="height:110px"></div></div><div id="chsegwrap"></div><div id="chlist"></div>';
   $('#chb').onclick=()=>{p.classList.remove('on');p.innerHTML=''};
   try{
     const c=await ensureChannel(id);
     $('#chhead').innerHTML=channelHead(c);
-    await channelPage(true);
+    $('#chsegwrap').innerHTML=chanSegs();
+    await loadChan('sections',true);
   }catch(e){$('#chhead').innerHTML='<div class="empty">Could not load this channel. '+esc(e.message||'')+'</div>'}
 }
-async function channelPage(first){
+
+async function loadChan(mode,first){
+  const c=CH[chanId];if(!c)return;
+  const listEl=$('#chlist');if(!listEl)return;
+  chanMode=mode;chanPlaylist=null;
+  const seg=$('#chsegwrap');if(seg)seg.innerHTML=chanSegs();
+  const more=$('#chmore');if(more)more.remove();
+  listEl.innerHTML='<div class="skel"></div><div class="skel"></div>';
+
+  /* ---- sections: exactly how the channel owner arranged the channel ---- */
+  if(mode==='sections'){
+    if(chanCache.sections){listEl.innerHTML=chanCache.sections;wirePlaylists();return}
+    try{
+      const j=await yt('playlists',{part:'snippet,contentDetails',channelId:chanId,maxResults:25});
+      const items=(j.items||[]);
+      if(!items.length){chanCache.sections='';loadChan('latest',true);return}
+      listEl.innerHTML='<div class="tag">How this channel is organised — its own playlists</div><div class="plgrid">'+items.map(pl=>{
+        const id=pl.id,sn=pl.snippet||{},cd=pl.contentDetails||{};
+        vObj(id,{t:sn.title,c:c.title,ch:chanId,img:bestTh(sn.thumbnails),cat:'Playlist'});
+        return '<div class="plcard glass" data-plist="'+id+'">'+thumb(V[id],'card').replace('<div class="pl">▶</div>','')+
+          '<div class="plmeta"><b>'+esc(sn.title)+'</b><span>'+(cd.itemCount||'?')+' videos</span></div></div>';
+      }).join('')+'</div>';
+      chanCache.sections=listEl.innerHTML;
+      wirePlaylists();
+    }catch(e){
+      listEl.innerHTML='<div class="empty">Could not load this channel\'s sections. '+esc(e.message||'')+'</div>';
+    }
+    return;
+  }
+
+  /* ---- popular: needs one search call (100 units) ---- */
+  if(mode==='popular'){
+    if(chanCache.popular){listEl.innerHTML=chanCache.popular;return}
+    try{
+      const j=await yt('search',{part:'snippet',type:'video',channelId:chanId,order:'viewCount',maxResults:25});
+      const list=(j.items||[]).filter(it=>it.id&&it.id.videoId).map(it=>vObj(it.id.videoId,
+        {t:it.snippet.title,c:c.title,ch:chanId,img:bestTh(it.snippet.thumbnails),pub:it.snippet.publishedAt,cat:'Channel'}));
+      await loadChannels([chanId]);
+      if(!list.length){listEl.innerHTML='<div class="empty">Nothing to show.</div>';return}
+      listEl.innerHTML='<div class="tag">Most viewed first</div>'+list.map(rowv).join('');
+      chanCache.popular=listEl.innerHTML;
+    }catch(e){
+      const q=/quota/i.test(String(e.message||''));
+      listEl.innerHTML='<div class="empty">'+(q?"YouTube's daily search limit is used up — Popular returns after midnight PT.":'Could not load. '+esc(e.message||''))+'</div>';
+    }
+    return;
+  }
+
+  /* ---- oldest: walk the uploads playlist to its tail ---- */
+  if(mode==='oldest'){
+    if(chanCache.oldest){listEl.innerHTML=chanCache.oldest;return}
+    if(!c.up){listEl.innerHTML='<div class="empty">This channel does not expose its uploads.</div>';return}
+    try{
+      listEl.innerHTML='<div class="skel"></div><div class="tag">Walking back through the uploads…</div>';
+      let token='',last=null,guard=0;
+      do{
+        const j=await yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:50,pageToken:token});
+        const items=(j.items||[]).map(it=>vObj(it.snippet.resourceId.videoId,{t:it.snippet.title,c:c.title,ch:chanId,img:bestTh(it.snippet.thumbnails),pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,cat:'Channel'}));
+        if(items.length)last=items;
+        token=j.nextPageToken||'';
+        guard++;
+      }while(token&&guard<20);
+      if(!last){listEl.innerHTML='<div class="empty">This channel has no public videos.</div>';return}
+      const tail=last.slice().reverse();
+      listEl.innerHTML='<div class="tag">Earliest uploads on this channel</div>'+tail.map(rowv).join('');
+      chanCache.oldest=listEl.innerHTML;
+    }catch(e){listEl.innerHTML='<div class="empty">Could not load. '+esc(e.message||'')+'</div>'}
+    return;
+  }
+
+  /* ---- latest: uploads playlist, newest first, paged ---- */
+  if(!c.up){listEl.innerHTML='<div class="empty">This channel does not expose its uploads.</div>';return}
+  if(first){chanTok=''}
+  if(chanCache.latest&&first){listEl.innerHTML=chanCache.latest;return}
   if(chanBusy)return;chanBusy=true;
-  const c=CH[chanId];const listEl=$('#chlist');
-  if(first){listEl.innerHTML='<div class="skel"></div><div class="skel"></div><div class="skel"></div>';$('#chmore')&&$('#chmore').remove()}
-  if(!c.up){listEl.innerHTML='<div class="empty">This channel does not expose its uploads.</div>';chanBusy=false;return}
   try{
     const j=await yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:50,pageToken:chanTok||''});
-    const items=(j.items||[]).map(it=>vObj(it.snippet.resourceId.videoId,{t:it.snippet.title,c:c.title,ch:chanId,img:bestTh(it.snippet.thumbnails),pub:it.contentDetails&&it.contentDetails.videoPublishedAt,cat:'Channel'}));
+    const items=(j.items||[]).map(it=>vObj(it.snippet.resourceId.videoId,{t:it.snippet.title,c:c.title,ch:chanId,img:bestTh(it.snippet.thumbnails),pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,cat:'Channel'}));
     chanTok=j.nextPageToken||'';
-    if(first)listEl.innerHTML='';
+    if(first)listEl.innerHTML='<div class="tag">Newest uploads first</div>';
     listEl.insertAdjacentHTML('beforeend',items.map(rowv).join(''));
+    if(first)chanCache.latest=listEl.innerHTML;
     const old=$('#chmore');if(old)old.remove();
-    if(chanTok){$('#chp').insertAdjacentHTML('beforeend','<button class="loadmore" id="chmore">Load more videos</button>');
-      $('#chmore').onclick=()=>{$('#chmore').remove();channelPage(false)}}
-    else if(!listEl.innerHTML.trim())listEl.innerHTML='<div class="empty">This channel has no public videos.</div>';
+    if(chanTok){
+      $('#chp').insertAdjacentHTML('beforeend','<button class="loadmore" id="chmore">Load more videos</button>');
+      $('#chmore').onclick=()=>{$('#chmore').remove();loadChan('latest',false)};
+    }else if(!listEl.innerHTML.trim())listEl.innerHTML='<div class="empty">This channel has no public videos.</div>';
   }catch(e){listEl.innerHTML='<div class="empty">Could not load videos. '+esc(e.message||'')+'</div>'}
   chanBusy=false;
+}
+
+function wirePlaylists(){
+  document.querySelectorAll('[data-plist]').forEach(el=>{
+    el.onclick=()=>openPlaylist(el.dataset.plist);
+  });
+}
+async function openPlaylist(pid){
+  const listEl=$('#chlist');if(!listEl)return;
+  const pl=V[pid]||{};
+  listEl.innerHTML='<div class="skel"></div><div class="skel"></div>';
+  try{
+    const j=await yt('playlistItems',{part:'snippet,contentDetails',playlistId:pid,maxResults:50});
+    const items=(j.items||[]).map(it=>vObj(it.snippet.resourceId.videoId,{t:it.snippet.title,c:(CH[chanId]||{}).title||'',ch:chanId,img:bestTh(it.snippet.thumbnails),pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,cat:'Playlist'}));
+    if(!items.length){listEl.innerHTML='<div class="empty">This playlist is empty.</div>';return}
+    listEl.innerHTML='<div class="tag">'+esc(pl.t||'Playlist')+' · '+items.length+' videos</div>'+
+      '<button class="loadmore" id="plback" style="margin:0 0 10px">‹ All playlists</button>'+items.map(rowv).join('');
+    $('#plback').onclick=()=>{const seg=$('#chsegwrap');if(seg)seg.innerHTML=chanSegs();loadChan('sections',true)};
+  }catch(e){listEl.innerHTML='<div class="empty">Could not load this playlist. '+esc(e.message||'')+'</div>'}
 }
 
 /* ---------------- shorts ---------------- */
@@ -638,6 +744,8 @@ document.addEventListener('click',e=>{
   const t=e.target.closest('[data-t]');if(t){tab=t.dataset.t;render();$('#main').scrollTop=0;return}
   const c=e.target.closest('[data-c]');if(c){cat=c.dataset.c;render();return}
   const kk=e.target.closest('[data-k]');if(kk){blockMenu(kk.dataset.k);return}
+  const sq=e.target.closest('[data-shelfq]');if(sq){tab='search';q=sq.dataset.shelfq;render();find(true);return}
+  const cmode=e.target.closest('[data-chmode]');if(cmode){loadChan(cmode.dataset.chmode,true);return}
   const cp=e.target.closest('[data-chplay]');if(cp){const rr=document.querySelector('#chlist .row[data-v]');if(rr)play(rr.dataset.v);else toast('No videos loaded yet');return}
   const co=e.target.closest('[data-chopen]');if(co&&!e.target.closest('button')){openVideoChannel(co.dataset.chopen);return}
   const ch=e.target.closest('[data-ch]');if(ch&&!e.target.closest('button')){openChannel(ch.dataset.ch);return}
