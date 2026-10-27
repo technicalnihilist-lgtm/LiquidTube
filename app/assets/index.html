@@ -92,18 +92,26 @@ img.av{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:none;backg
 .tag{font-size:12px;color:var(--tx2);margin:2px 4px 10px}
 .chban{height:112px;border-radius:22px;overflow:hidden;margin:2px 0 6px;background:var(--glass2)}
 .chban img{width:100%;height:100%;object-fit:cover;display:block}
-#rf.spin{animation:sp .9s linear infinite}
+#rf{display:grid;place-items:center;padding:0}
+#rf svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+#rf:active{transform:scale(.9)}
+#rf.spin svg{animation:sp .95s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
+.ptr{position:absolute;left:50%;top:72px;z-index:20;display:flex;align-items:center;gap:8px;padding:10px 17px;border-radius:24px;background:var(--glass2);font-size:13px;font-weight:800;color:var(--tx);white-space:nowrap;pointer-events:none;opacity:0;transform:translate(-50%,-28px) scale(.9);transition:opacity .22s ease,transform .22s cubic-bezier(.2,.9,.25,1.05)}
+.ptr svg{width:15px;height:15px;fill:none;stroke:var(--red);stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.ptr.on{opacity:1;transform:translate(-50%,0) scale(1)}
+.ptr.spin svg{animation:sp .95s linear infinite}
 </style>
 <div class="phone">
   <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
-  <div class="top"><div class="logo"><i>▶</i>LiquidTube</div><div style="display:flex;gap:8px"><button class="rb glass" id="rf" aria-label="Refresh">🔄</button><button class="rb glass" id="th" aria-label="Toggle theme">🌗</button></div></div>
+  <div class="top"><div class="logo"><i>▶</i>LiquidTube</div><div style="display:flex;gap:8px"><button class="rb glass" id="rf" aria-label="Refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.49-6.01"/><path d="M20.5 3.6v5.6h-5.6"/></svg></button><button class="rb glass" id="th" aria-label="Toggle theme">🌗</button></div></div>
   <main id="main"></main>
   <nav class="glass" id="nav"></nav>
   <div id="shorts"></div>
   <div class="md" id="md"></div>
   <div class="pl8" id="pl"></div>
   <div class="pl9" id="chp"></div>
+  <div class="ptr glass" id="ptr"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.49-6.01"/><path d="M20.5 3.6v5.6h-5.6"/></svg><span id="ptrTxt">Pull to refresh</span></div>
   <div class="toast glass" id="toast"></div>
 </div>
 <script>
@@ -516,9 +524,16 @@ $('#th').onclick=()=>{const r=document.documentElement,d=r.dataset.theme==='dark
 
 /* ---------------- refresh ---------------- */
 let refreshing=false;
+function ptrShow(on,text,spin){
+  const p=$('#ptr');if(!p)return;
+  p.style.opacity='';p.style.transform='';
+  p.classList.toggle('on',!!on);p.classList.toggle('spin',!!spin);
+  const t=$('#ptrTxt');if(t)t.textContent=text||'';
+}
 async function doRefresh(){
   if(refreshing)return;refreshing=true;
   const b=$('#rf');if(b)b.classList.add('spin');
+  ptrShow(true,'Refreshing…',true);
   FEED.trending=null;FEED.error='';FEED.loading=false;
   const hadQuery=(tab==='search'&&q.trim());
   try{await loadTrending()}catch(e){}
@@ -527,15 +542,34 @@ async function doRefresh(){
   if($('#chp').classList.contains('on')&&chanId){try{await channelPage(true)}catch(e){}}
   refreshing=false;
   if(b)b.classList.remove('spin');
+  ptrShow(false);
   toast(FEED.trending?'Refreshed':'Could not refresh');
 }
 
 /* ---------------- boot ---------------- */
 $('#rf').onclick=doRefresh;
-(function(){const m=$('#main');let y0=0,pull=false;
-  m.addEventListener('touchstart',e=>{if(m.scrollTop<=0){y0=e.touches[0].clientY;pull=true}},{passive:true});
-  m.addEventListener('touchmove',e=>{if(!pull)return;if(e.touches[0].clientY-y0>90){pull=false;doRefresh()}},{passive:true});
-  m.addEventListener('touchend',()=>{pull=false},{passive:true});
+(function(){
+  const m=$('#main'),ptr=$('#ptr'),txt=$('#ptrTxt'),ico=ptr?ptr.querySelector('svg'):null;
+  let y0=0,pull=false,dist=0;
+  const reset=()=>{ptr.style.opacity='';ptr.style.transform='';ptr.classList.remove('on','spin');if(ico)ico.style.transform=''};
+  m.addEventListener('touchstart',e=>{if(m.scrollTop<=0&&!refreshing){y0=e.touches[0].clientY;pull=true;dist=0}},{passive:true});
+  m.addEventListener('touchmove',e=>{
+    if(!pull)return;
+    dist=Math.max(0,e.touches[0].clientY-y0);
+    if(dist<6)return;
+    const p=Math.min(1,dist/120);
+    ptr.classList.remove('on','spin');
+    ptr.style.opacity=Math.min(1,p*1.7);
+    ptr.style.transform='translate(-50%,'+(-28+34*p)+'px) scale('+(0.9+0.1*p)+')';
+    if(ico)ico.style.transform='rotate('+(p*200)+'deg)';
+    txt.textContent=dist>=120?'Release to refresh':'Pull to refresh';
+  },{passive:true});
+  m.addEventListener('touchend',()=>{
+    if(!pull)return;pull=false;
+    if(dist>=120){reset();doRefresh()}
+    else{reset()}
+    dist=0;
+  },{passive:true});
 })();
 render();
 loadTrending().then(list=>{if(list&&list.length&&tab==='home')render();if(tab==='search'&&!q)find();if(tab==='subs'||tab==='lib')render()});

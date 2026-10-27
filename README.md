@@ -5,7 +5,7 @@ A liquid-glass YouTube client for Android — the whole UI is one self-contained
 **[⬇ Download the APK](https://github.com/technicalnihilist-lgtm/LiquidTube/releases/latest)**
 
 ![Platform](https://img.shields.io/badge/platform-Android%205.0%2B-3ddc84)
-![Version](https://img.shields.io/badge/version-1.3-ff2d55)
+![Version](https://img.shields.io/badge/version-1.4-ff2d55)
 ![Size](https://img.shields.io/badge/APK-158%20KB-6a3bff)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
@@ -18,6 +18,8 @@ A liquid-glass YouTube client for Android — the whole UI is one self-contained
 | Player | Player controls | Suggestions switched off |
 |:---:|:---:|:---:|
 | <img src="screenshots/04-player.png" width="240"> | <img src="screenshots/05-settings.png" width="240"> | <img src="screenshots/06-suggestions-off.png" width="240"> |
+
+<p align="center"><img src="screenshots/07-refresh.png" width="240" alt="Pull to refresh"></p>
 
 <p align="center"><img src="screenshots/icon-512.png" width="128" alt="LiquidTube icon"></p>
 
@@ -40,6 +42,12 @@ Everything is live YouTube data, not a demo list — real thumbnails, real chann
 - **Library** — history, watch later, liked videos, playlists, subscriptions and comments are saved on the device.
 - **Player extras** — captions, loop, fill-screen, native fullscreen, share sheet, dislike, block.
 - **Graceful offline** — the app shell is bundled, and if the feed can't load it falls back to a starter list instead of an empty screen.
+
+## What's new in 1.4
+
+- **The refresh is glass now.** The header button carries a drawn circular-arrow glyph instead of an emoji, sits in the same frosted circle as the theme toggle, and spins while it works.
+- **Pull-to-refresh indicator**: drag down on the feed and a frosted pill slides out under the header, its arrow rotating with your finger, reading *Pull to refresh* → *Release to refresh*. Let go and it switches to a spinner with *Refreshing…* while the feed, your search and any open channel page reload.
+- The toast that confirms the reload is the same glass pill.
 
 ## What's new in 1.3
 
