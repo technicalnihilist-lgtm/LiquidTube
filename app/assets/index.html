@@ -349,7 +349,7 @@ function render(){
       '<button class="act glass '+(S.opt.cmt?'on':'')+'" id="tcm" style="margin:0 6px 8px 0">Comments: '+(S.opt.cmt?'on':'off')+'</button>'+
       '<button class="act glass '+(S.opt.sg?'on':'')+'" id="tsg" style="margin:0 6px 8px 0">Suggestions: '+(S.opt.sg?'on':'off')+'</button>'+
       '<div class="hint">Suggestions also controls the Trending strip and the Up next list in the player.</div></div>';
-    h+='<h2>Settings</h2><div class="set glass"><b>Preferences</b><button class="act glass '+(S.ns?'on':'')+'" id="ns" style="margin:10px 8px 0 0">Block Shorts: '+(S.ns?'on':'off')+'</button><button class="act glass" id="au" style="margin:10px 8px 0 0">Autoplay: '+(S.opt.auto?'on':'off')+'</button><button class="act glass" id="ck" style="margin-top:10px">Clear history</button></div>';
+    h+='<h2>Settings</h2><div class="set glass"><b>Preferences</b><button class="act glass '+(S.ns?'on':'')+'" id="ns" style="margin:10px 8px 0 0">Block Shorts: '+(S.ns?'on':'off')+'</button><button class="act glass" id="au" style="margin:10px 8px 0 0">Autoplay: '+(S.opt.auto?'on':'off')+'</button><button class="act glass" id="ck" style="margin-top:10px">Clear history</button><div class="hint" style="margin-top:10px">Network: HTTPS only · host allowlist on · no third-party requests</div></div>';
   }
   m.innerHTML=h;m.style.display=tab==='shorts'?'none':'block';
   shorts();

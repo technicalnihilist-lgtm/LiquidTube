@@ -29,6 +29,16 @@ public class MainActivity extends Activity {
 
     /** Virtual origin so the page runs in a proper secure https context (CORS + localStorage). */
     private static final String HOST = "liquidtube.local";
+
+    /**
+     * Only these hosts may be contacted. Everything else is refused inside the WebView, so the
+     * app cannot be turned into a pipe for trackers, ads or arbitrary traffic.
+     */
+    private static final String[] ALLOWED_HOSTS = {
+            "googleapis.com", "gstatic.com", "googleusercontent.com", "ggpht.com",
+            "ytimg.com", "youtube.com", "youtube-nocookie.com", "googlevideo.com",
+            "youtu.be", "google.com"
+    };
     private static final String START_URL = "https://" + HOST + "/index.html";
 
     private static final String BACK_JS =
@@ -79,6 +89,8 @@ public class MainActivity extends Activity {
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(false);
+        s.setSaveFormData(false);
+        s.setGeolocationEnabled(false);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
@@ -93,8 +105,13 @@ public class MainActivity extends Activity {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
-                if (uri == null || !HOST.equals(uri.getHost())) {
+                if (uri == null) {
                     return null;
+                }
+                String reqHost = uri.getHost();
+                if (!HOST.equals(reqHost)) {
+                    // anything outside the allowlist never leaves the device
+                    return hostAllowed(reqHost) ? null : blocked("Blocked by allowlist");
                 }
                 String path = uri.getPath();
                 if (path == null || path.isEmpty() || "/".equals(path)) {
@@ -134,6 +151,29 @@ public class MainActivity extends Activity {
         } else {
             web.loadUrl(START_URL);
         }
+    }
+
+    private static boolean hostAllowed(String host) {
+        if (host == null) {
+            return false;
+        }
+        host = host.toLowerCase();
+        if (HOST.equals(host)) {
+            return true;
+        }
+        for (String domain : ALLOWED_HOSTS) {
+            if (host.equals(domain) || host.endsWith("." + domain)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static WebResourceResponse blocked(String why) {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Cache-Control", "no-store");
+        return new WebResourceResponse("text/plain", "utf-8", 403, why, headers,
+                new ByteArrayInputStream(new byte[0]));
     }
 
     private static String mimeOf(String path) {
