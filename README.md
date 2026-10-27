@@ -5,8 +5,8 @@ A liquid-glass YouTube client for Android — the whole UI is one self-contained
 **[⬇ Download the APK](https://github.com/technicalnihilist-lgtm/LiquidTube/releases/latest)**
 
 ![Platform](https://img.shields.io/badge/platform-Android%205.0%2B-3ddc84)
-![Version](https://img.shields.io/badge/version-1.5-ff2d55)
-![Size](https://img.shields.io/badge/APK-186%20KB-6a3bff)
+![Version](https://img.shields.io/badge/version-1.6-ff2d55)
+![Size](https://img.shields.io/badge/APK-290%20KB-6a3bff)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 ## Screenshots
@@ -27,9 +27,7 @@ A liquid-glass YouTube client for Android — the whole UI is one self-contained
   <img src="screenshots/icon-transparent.png" width="120" alt="LiquidTube transparent icon">
 </p>
 
-Two icon builds ship with the app: the filled gradient mark, and a **transparent** liquid-glass mark (`screenshots/icon-transparent.png`) with no plate behind it — just the frosted pane, its rim and the red play, so it sits on any wallpaper. The transparent version is what the launcher uses on older Android; on Android 8+ it is the foreground layer over the gradient background.
-
-The icon is drawn in the same language as the app: the gradient runs through the palette of the background blobs (pink → red → purple → indigo), the tile is frosted glass with a bright rim and a soft drop shadow, and the play mark carries the red-to-magenta accent used by the app's active states.
+The icon is a red liquid sealed inside a glass tube: a bright crimson body with a darker rim, drifting bubbles, a thick clear glass wall with a rim light, and a chrome play mark floating in the middle. It ships both as the filled gradient mark and as a **transparent** build (`screenshots/icon-transparent.png`) with no plate behind it, so it sits on any wallpaper. The transparent version is what the launcher uses on older Android; on Android 8+ it is the foreground layer over the gradient background.
 
 ## What it does
 
@@ -48,6 +46,17 @@ Everything is live YouTube data, not a demo list — real thumbnails, real chann
 - **Library** — history, watch later, liked videos, playlists, subscriptions and comments are saved on the device.
 - **Player extras** — captions, loop, fill-screen, native fullscreen, share sheet, dislike, block.
 - **Graceful offline** — the app shell is bundled, and if the feed can't load it falls back to a starter list instead of an empty screen.
+
+## What's new in 1.6
+
+- **Channel page now reads like YouTube's About panel.** Under the avatar and @handle you get an *About* card with **Joined**, **Country** (spelled out, not the ISO code), **Total views**, **Subscribers** and **Videos**, plus the channel description and a **Channel trailer** button when the channel has one.
+- **Links** are listed when the channel puts URLs in its description, and they open in your browser.
+- **Fixed the channel tap.** Tapping the channel name or handle in the player used to do nothing for videos whose channel wasn't resolved yet — it now waits for the details, then opens the channel. Channels that hide their uploads no longer leave the list spinning.
+- **New icon**: red liquid in a glass tube with a chrome play mark, drawn from scratch.
+
+### What the API can't give
+
+Two things YouTube shows on a channel page are **not** in the public Data API, so this app does not invent them: the **verified tick** (which is tied to the channel's phone/identity verification) and the **Links panel** (social handles YouTube stores separately). The About card shows every statistic the API does expose.
 
 ## What's new in 1.5
 

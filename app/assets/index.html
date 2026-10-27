@@ -92,6 +92,13 @@ img.av{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:none;backg
 .badge{display:inline-block;padding:2px 9px;border-radius:11px;background:var(--glass2);font-size:11px;font-weight:800;color:var(--tx2);margin-left:6px}
 .loadmore{width:100%;height:44px;border-radius:22px;border:0;font:inherit;font-weight:800;background:var(--glass2);color:var(--tx);box-shadow:inset 1px 1px 1px var(--edge);margin:10px 0 20px;cursor:pointer}
 .tag{font-size:12px;color:var(--tx2);margin:2px 4px 10px}
+.about{border-radius:20px;padding:12px 14px;margin:0 0 10px;font-size:13px}
+.arow{display:flex;justify-content:space-between;gap:14px;padding:5px 0;border-top:1px solid var(--edge2)}
+.arow:first-of-type{border-top:0}
+.arow span{color:var(--tx2)}
+.arow b{text-align:right}
+.links{margin:0 0 10px}
+.lnk{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none;color:var(--tx);font-size:13px;font-weight:700;padding:9px 14px;border-radius:16px;margin-bottom:6px}
 .chban{height:112px;border-radius:22px;overflow:hidden;margin:2px 0 6px;background:var(--glass2)}
 .chban img{width:100%;height:100%;object-fit:cover;display:block}
 #rf{display:grid;place-items:center;padding:0}
@@ -185,7 +192,13 @@ function cObj(c){const sn=c.snippet||{},st=c.statistics||{},cd=c.contentDetails|
   handle:sn.customUrl?('@'+sn.customUrl.replace(/^@/,'')):'@'+String(sn.title).toLowerCase().replace(/[^a-z0-9]+/g,'').slice(0,20),
   subs:st.subscriberCount||'',vids:st.videoCount||'',views:st.viewCount||'',joined:sn.publishedAt||'',country:sn.country||'',
   desc:dec(sn.description||''),up:(cd.relatedPlaylists&&cd.relatedPlaylists.uploads)||'',
-  banner:cdn((br.image&&br.image.bannerExternalUrl)||'')}}
+  banner:cdn((br.image&&br.image.bannerExternalUrl)||''),
+  links:linkList(dec(sn.description||'')),
+  trailer:(br.channel&&br.channel.unsubscribedTrailer)||''}}
+const linkList=t=>{const m=String(t||'').match(/https?:\/\/[^\s<>"')\]]+/g)||[];
+  return [...new Set(m.map(u=>u.replace(/[.,;:)\]]+$/,'')))]
+    .filter(u=>/^https?:\/\//.test(u)).slice(0,8)};
+const region=n=>{try{return new Intl.DisplayNames(['en'],{type:'region'}).of(n)||n}catch(e){return n}};
 
 async function yt(path,params){
   if(!S.key)throw new Error('No API key set');
@@ -426,7 +439,7 @@ function fillPlayer(){
   if(!cur)return;const v=V[cur.id]||cur;cur=v;
   if($('#ptitle'))$('#ptitle').textContent=v.t;
   if($('#pmeta'))$('#pmeta').textContent=meta(v);
-  if($('#pchan'))$('#pchan').innerHTML=avOf(v)+'<div'+(v.ch?' data-ch="'+v.ch+'"':'')+' style="flex:1;min-width:0;cursor:pointer"><b style="display:block;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(v.c)+'</b><span class="vw">'+esc(v.ch&&CH[v.ch]?CH[v.ch].handle:'')+(v.ch&&CH[v.ch]&&CH[v.ch].subs?' · '+num(CH[v.ch].subs)+' subscribers':'')+'</span></div>'+
+  if($('#pchan'))$('#pchan').innerHTML=avOf(v)+'<div data-chopen="'+v.id+'" style="flex:1;min-width:0;cursor:pointer"><b style="display:block;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(v.c)+'</b><span class="vw">'+esc(v.ch&&CH[v.ch]?CH[v.ch].handle:'')+(v.ch&&CH[v.ch]&&CH[v.ch].subs?' · '+num(CH[v.ch].subs)+' subscribers':'')+'</span></div>'+
     (v.ch?'<button class="sub '+(S.subs.includes(v.ch)?'on':'')+'" id="sb">'+(S.subs.includes(v.ch)?'Subscribed':'Subscribe')+'</button>':'');
   if($('#sb'))$('#sb').onclick=()=>{toggle(S.subs,v.ch);toast(S.subs.includes(v.ch)?'Subscribed':'Unsubscribed');fillPlayer()};
   const d=$('#pdesc');
@@ -451,13 +464,37 @@ function closeP(){const p=$('#pl');p.classList.remove('on');p.innerHTML='';rende
 /* ---------------- channel page ---------------- */
 function channelHead(c){
   const s=S.subs.includes(c.id);
-  const meta=[(c.vids&&+c.vids)?num(c.vids)+' videos':'',c.subs?num(c.subs)+' subscribers':'',c.views?num(c.views)+' views':''].filter(Boolean).join(' · ');
-  const joined=c.joined?'Joined '+new Date(c.joined).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'';
+  const joined=c.joined?new Date(c.joined).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'';
+  const rows=[
+    ['Joined',joined],
+    ['Country',c.country?region(c.country):''],
+    ['Total views',c.views?num(c.views):''],
+    ['Subscribers',c.subs?num(c.subs):''],
+    ['Videos',(c.vids&&+c.vids)?num(c.vids):'']
+  ].filter(r=>r[1]);
+  const about=rows.length?'<div class="about glass"><b style="display:block;margin-bottom:4px">About</b>'+
+    rows.map(r=>'<div class="arow"><span>'+r[0]+'</span><b>'+esc(r[1])+'</b></div>').join('')+'</div>':'';
+  const links=c.links&&c.links.length?'<div class="links"><b style="display:block;margin:0 0 6px">Links</b>'+
+    c.links.map(u=>'<a class="lnk glass" href="'+esc(u)+'" target="_blank" rel="noopener">'+esc(u.replace(/^https?:\/\/(www\.)?/,''))+'</a>').join('')+'</div>':'';
+  const stats=[(c.vids&&+c.vids)?num(c.vids)+' videos':'',c.subs?num(c.subs)+' subscribers':'',c.views?num(c.views)+' views':''].filter(Boolean).join(' · ');
   return (c.banner?'<div class="chban"><img src="'+esc(c.banner)+'" alt="" onerror="this.parentNode.style.display=\'none\'"></div>':'')+
-  '<div class="chh"><img src="'+esc(c.av)+'" alt="" data-n="'+esc(c.title)+'" onerror="this.onerror=null;this.src=PH(this.dataset.n)"><div style="flex:1;min-width:0"><b>'+esc(c.title)+'</b><div class="vw">'+esc(c.handle)+'</div><div class="vw">'+esc(meta)+'</div></div></div>'+
-  '<div style="display:flex;gap:8px;margin:2px 6px 10px"><button class="sub '+(s?'on':'')+'" data-chsub="'+c.id+'">'+(s?'Subscribed':'Subscribe')+'</button><button class="act glass" data-chplay="'+c.id+'">▶ Play all</button></div>'+
-  ((joined||c.country)?'<div class="tag">'+esc([joined,c.country].filter(Boolean).join(' · '))+'</div>':'')+
-  (c.desc?'<div class="desc glass open" style="max-height:170px">'+esc(c.desc)+'</div>':'');
+  '<div class="chh"><img src="'+esc(c.av)+'" alt="" data-n="'+esc(c.title)+'" onerror="this.onerror=null;this.src=PH(this.dataset.n)">'+
+    '<div style="flex:1;min-width:0"><b>'+esc(c.title)+'</b><div class="vw" style="font-weight:700">'+esc(c.handle)+'</div><div class="vw">'+esc(stats)+'</div></div></div>'+
+  '<div style="display:flex;gap:8px;margin:2px 6px 10px;flex-wrap:wrap">'+
+    '<button class="sub '+(s?'on':'')+'" data-chsub="'+c.id+'">'+(s?'Subscribed':'Subscribe')+'</button>'+
+    '<button class="act glass" data-chplay="'+c.id+'">▶ Play all</button>'+
+    (c.trailer?'<button class="act glass" data-v="'+esc(c.trailer)+'">🎬 Trailer</button>':'')+
+  '</div>'+
+  about+links+
+  (c.desc?'<div class="desc glass open" style="max-height:190px">'+esc(c.desc)+'</div>':'');
+}
+async function openVideoChannel(vid){
+  const v=V[vid];
+  if(v&&v.ch)return openChannel(v.ch);
+  toast('Loading channel…');
+  await loadVideo(vid);
+  const id=(V[vid]||{}).ch;
+  if(id)openChannel(id);else toast('Channel unavailable for this video');
 }
 async function openChannel(id){
   chanId=id;chanTok='';chanBusy=false;
@@ -474,6 +511,7 @@ async function channelPage(first){
   if(chanBusy)return;chanBusy=true;
   const c=CH[chanId];const listEl=$('#chlist');
   if(first){listEl.innerHTML='<div class="skel"></div><div class="skel"></div><div class="skel"></div>';$('#chmore')&&$('#chmore').remove()}
+  if(!c.up){listEl.innerHTML='<div class="empty">This channel does not expose its uploads.</div>';chanBusy=false;return}
   try{
     const j=await yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:50,pageToken:chanTok||''});
     const items=(j.items||[]).map(it=>vObj(it.snippet.resourceId.videoId,{t:it.snippet.title,c:c.title,ch:chanId,img:bestTh(it.snippet.thumbnails),pub:it.contentDetails&&it.contentDetails.videoPublishedAt,cat:'Channel'}));
@@ -524,6 +562,7 @@ document.addEventListener('click',e=>{
   const c=e.target.closest('[data-c]');if(c){cat=c.dataset.c;render();return}
   const kk=e.target.closest('[data-k]');if(kk){blockMenu(kk.dataset.k);return}
   const cp=e.target.closest('[data-chplay]');if(cp){const rr=document.querySelector('#chlist .row[data-v]');if(rr)play(rr.dataset.v);else toast('No videos loaded yet');return}
+  const co=e.target.closest('[data-chopen]');if(co&&!e.target.closest('button')){openVideoChannel(co.dataset.chopen);return}
   const ch=e.target.closest('[data-ch]');if(ch&&!e.target.closest('button')){openChannel(ch.dataset.ch);return}
   const cs=e.target.closest('[data-chsub]');if(cs){toggle(S.subs,cs.dataset.chsub);toast(S.subs.includes(cs.dataset.chsub)?'Subscribed':'Unsubscribed');const h=$('#chhead');if(h&&CH[cs.dataset.chsub])h.innerHTML=channelHead(CH[cs.dataset.chsub]);return}
   const sb=e.target.closest('[data-sub]');if(sb){toggle(S.subs,sb.dataset.sub);render();return}
