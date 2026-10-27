@@ -5,30 +5,31 @@ A liquid-glass YouTube client for Android — the whole UI is one self-contained
 **[⬇ Download the APK](https://github.com/technicalnihilist-lgtm/LiquidTube/releases/latest)**
 
 ![Platform](https://img.shields.io/badge/platform-Android%205.0%2B-3ddc84)
-![Version](https://img.shields.io/badge/version-1.1-ff2d55)
+![Version](https://img.shields.io/badge/version-1.2-ff2d55)
 ![Size](https://img.shields.io/badge/APK-61%20KB-6a3bff)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 ## Screenshots
 
-| Home — live trending | Search — real thumbnails | Player — description & up next |
+| Home — live trending | Search — channels & videos | Channel page |
 |:---:|:---:|:---:|
-| <img src="screenshots/01-home.png" width="240"> | <img src="screenshots/02-search.png" width="240"> | <img src="screenshots/03-player.png" width="240"> |
+| <img src="screenshots/01-home.png" width="240"> | <img src="screenshots/02-search.png" width="240"> | <img src="screenshots/03-channel.png" width="240"> |
 
-| Channel page | Player controls | Suggestions switched off |
+| Player | Player controls | Suggestions switched off |
 |:---:|:---:|:---:|
-| <img src="screenshots/04-channel.png" width="240"> | <img src="screenshots/05-settings.png" width="240"> | <img src="screenshots/06-home-suggestions-off.png" width="240"> |
+| <img src="screenshots/04-player.png" width="240"> | <img src="screenshots/05-settings.png" width="240"> | <img src="screenshots/06-suggestions-off.png" width="240"> |
 
 <p align="center"><img src="screenshots/icon-512.png" width="120" alt="LiquidTube icon"></p>
 
 ## What it does
 
-Everything is live YouTube data, not a demo list — real thumbnails, real channel avatars, real view counts.
+Everything is live YouTube data, not a demo list — real thumbnails, real channel avatars, real counts.
 
+- **Refresh anywhere** — the 🔄 button in the header reloads the feed, re-runs your search and refreshes an open channel page. Pull down on the home feed to do the same.
 - **Home feed** — the most-popular chart for your region, with thumbnails, channel pictures, view counts and upload dates.
-- **Search** — YouTube Data API v3 results with thumbnails, the channel's avatar, subscriber-backed handles, view counts and age. Paste a link or an 11-character ID to play anything.
-- **Channel pages** — tap any channel to see its avatar, **@handle**, subscriber count and description, then browse **every video it has uploaded**, 50 at a time with *Load more*.
-- **Player** — the video's real description (expandable), views, upload date, channel row with avatar and handle, and one-tap subscribe.
+- **Search** — one query returns two sections: **Channels** (avatar, @handle, subscriber count and how many videos the channel has) and **Videos** (thumbnail, channel avatar, views, age). Paste a link or an 11-character ID to play anything.
+- **Channel page** — tap any channel, or the channel name in the player, and you get what YouTube's own channel page shows: avatar, **@handle**, **how many videos**, **subscribers**, **total views**, the **join date**, the country, the channel description, a Subscribe button and **Play all**. Below that, every video the channel has uploaded — 50 at a time with *Load more*.
+- **Player** — the video's real description (expandable), views, upload date, a channel row with avatar and handle that opens the channel, and one-tap subscribe.
 - **Three switches for a calmer player** — turn **Description**, **Comments** and **Suggestions** (Up next, Trending strip) on or off independently, in Library → *What the player shows*.
 - **Shorts feed** — full-screen, snap-scrolling vertical feed (can be switched off).
 - **Liquid-glass UI** — frosted panels, animated colour blobs, springy bottom bar, light and dark themes.
@@ -38,14 +39,14 @@ Everything is live YouTube data, not a demo list — real thumbnails, real chann
 - **Player extras** — captions, loop, fill-screen, native fullscreen, share sheet, dislike, block.
 - **Graceful offline** — the app shell is bundled, and if the feed can't load it falls back to a starter list instead of an empty screen.
 
-## What's new in 1.1
+## What's new in 1.2
 
-- Home and search now pull live YouTube data — real thumbnails and channel avatars everywhere, with view counts and upload dates.
-- New channel page: avatar, @handle, subscriber count, description, and the channel's complete upload history.
-- The player shows the real video description, the channel's handle and subscriber count, and a working subscribe button.
-- New toggles for **Description**, **Comments** and **Suggestions**.
-- Long titles no longer spill out of the trending cards; HTML-escaped titles from the API are decoded properly.
-- Channel avatars fall back to a coloured initial tile if an image can't load.
+- **Refresh**: header button plus pull-to-refresh, and it refreshes whatever you are looking at.
+- **Channel results in search**: searching a channel name now lists matching channels above the videos, each with its avatar, @handle, subscriber count and video count.
+- **YouTube-style channel page**: banner (when the channel has one), avatar, @handle, `videos · subscribers · views`, join date, country, description, Subscribe and Play all — plus the channel's complete upload list.
+- The channel name in the player is now a link to the channel page.
+- Fixed a crash when a search response contained an entry with no video id.
+- Fixed "· videos" showing with no number for channels that hide their video count.
 
 ## Install
 
@@ -94,7 +95,7 @@ The WebView is set up for media: autoplay without a user gesture, DOM storage on
 
 ## Quota
 
-The API calls are deliberately cheap: one call for the trending feed, one batched call to resolve up to 50 channel avatars, one call per search (plus one for view counts), one per opened video, one per channel page and one per 50 videos loaded. A normal session stays well inside the free 10,000 units per day.
+A search costs two `search` calls (videos + channels) — 200 units of the free 10,000 per day. Everything else is cheap: one call for the trending feed, one batched call to resolve up to 50 channel avatars, one per opened video, one per channel page and one per 50 videos loaded. A normal session stays well inside the daily allowance; if you search heavily, the channel section is the part to drop.
 
 ## About the API key
 

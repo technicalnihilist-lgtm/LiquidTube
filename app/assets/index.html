@@ -90,10 +90,14 @@ img.av{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:none;backg
 .badge{display:inline-block;padding:2px 9px;border-radius:11px;background:var(--glass2);font-size:11px;font-weight:800;color:var(--tx2);margin-left:6px}
 .loadmore{width:100%;height:44px;border-radius:22px;border:0;font:inherit;font-weight:800;background:var(--glass2);color:var(--tx);box-shadow:inset 1px 1px 1px var(--edge);margin:10px 0 20px;cursor:pointer}
 .tag{font-size:12px;color:var(--tx2);margin:2px 4px 10px}
+.chban{height:112px;border-radius:22px;overflow:hidden;margin:2px 0 6px;background:var(--glass2)}
+.chban img{width:100%;height:100%;object-fit:cover;display:block}
+#rf.spin{animation:sp .9s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
 </style>
 <div class="phone">
   <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
-  <div class="top"><div class="logo"><i>▶</i>LiquidTube</div><button class="rb glass" id="th" aria-label="Toggle theme">🌗</button></div>
+  <div class="top"><div class="logo"><i>▶</i>LiquidTube</div><div style="display:flex;gap:8px"><button class="rb glass" id="rf" aria-label="Refresh">🔄</button><button class="rb glass" id="th" aria-label="Toggle theme">🌗</button></div></div>
   <main id="main"></main>
   <nav class="glass" id="nav"></nav>
   <div id="shorts"></div>
@@ -151,13 +155,13 @@ function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('on');clea
 const toggle=(a,x)=>{const i=a.indexOf(x);i<0?a.push(x):a.splice(i,1);save()};
 const num=n=>{n=+n||0;if(n>=1e9)return (n/1e9).toFixed(n>=1e10?0:1).replace('.0','')+'B';if(n>=1e6)return (n/1e6).toFixed(n>=1e7?0:1).replace('.0','')+'M';if(n>=1e3)return (n/1e3).toFixed(n>=1e4?0:1).replace('.0','')+'K';return n?String(n):''};
 const ago=iso=>{if(!iso)return '';const d=(Date.now()-new Date(iso).getTime())/864e5;if(d<1)return 'today';if(d<30)return Math.floor(d)+'d ago';if(d<365)return Math.floor(d/30)+'mo ago';return Math.floor(d/365)+'y ago'};
-const hash=s=>{let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h};
+const hash=s=>{s=String(s==null?'':s);let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h};
 const bestTh=th=>th?(th.medium&&th.medium.url)||(th.high&&th.high.url)||(th.default&&th.default.url):'';
 const pic=id=>'https://i.ytimg.com/vi/'+id+'/mqdefault.jpg';
 const dec=t=>String(t==null?'':t).replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>');
 
 /* ---------------- data ---------------- */
-function vObj(id,d){d=d||{};const v=Object.assign({id:id,e:'🎬',cat:d.cat||'Video',g:G[hash(id)%G.length]},V[id]||{});
+function vObj(id,d){d=d||{};id=id||'';const v=Object.assign({id:id,e:'🎬',cat:d.cat||'Video',g:G[hash(id)%G.length]},V[id]||{});
   if(d.t)v.t=dec(d.t);if(d.c)v.c=dec(d.c);if(d.ch)v.ch=d.ch;
   v.img=d.img||v.img||pic(id);
   if(d.desc!=null)v.desc=dec(d.desc);if(d.views!=null)v.views=d.views;if(d.pub)v.pub=d.pub;
@@ -166,9 +170,12 @@ function vObj(id,d){d=d||{};const v=Object.assign({id:id,e:'🎬',cat:d.cat||'Vi
 window.PH=function(n){const ch=String(n||'?').charAt(0).toUpperCase();
   return 'data:image/svg+xml;utf8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff9a9e"/><stop offset="1" stop-color="#a18cd1"/></linearGradient></defs><rect width="80" height="80" fill="url(#g)"/><text x="40" y="53" font-size="34" font-family="sans-serif" font-weight="700" fill="#ffffff" text-anchor="middle">'+ch+'</text></svg>')};
 const cdn=u=>String(u||'').replace('//yt3.ggpht.com/','//yt3.googleusercontent.com/');
-function cObj(c){return{id:c.id,title:dec(c.snippet.title),av:cdn((c.snippet.thumbnails&&(c.snippet.thumbnails.medium||c.snippet.thumbnails.default)||{}).url),
-  handle:c.snippet.customUrl?('@'+c.snippet.customUrl.replace(/^@/,'')):'@'+String(c.snippet.title).toLowerCase().replace(/[^a-z0-9]+/g,'').slice(0,20),
-  subs:(c.statistics&&c.statistics.subscriberCount)||'',desc:dec(c.snippet.description||''),up:(c.contentDetails&&c.contentDetails.relatedPlaylists&&c.contentDetails.relatedPlaylists.uploads)||''}}
+function cObj(c){const sn=c.snippet||{},st=c.statistics||{},cd=c.contentDetails||{},br=c.brandingSettings||{};
+  return{id:c.id,title:dec(sn.title),av:cdn((sn.thumbnails&&(sn.thumbnails.medium||sn.thumbnails.default)||{}).url),
+  handle:sn.customUrl?('@'+sn.customUrl.replace(/^@/,'')):'@'+String(sn.title).toLowerCase().replace(/[^a-z0-9]+/g,'').slice(0,20),
+  subs:st.subscriberCount||'',vids:st.videoCount||'',views:st.viewCount||'',joined:sn.publishedAt||'',country:sn.country||'',
+  desc:dec(sn.description||''),up:(cd.relatedPlaylists&&cd.relatedPlaylists.uploads)||'',
+  banner:cdn((br.image&&br.image.bannerExternalUrl)||'')}}
 
 async function yt(path,params){
   if(!S.key)throw new Error('No API key set');
@@ -211,7 +218,7 @@ async function loadVideo(id){
 
 async function ensureChannel(id){
   if(CH[id]&&CH[id].up)return CH[id];
-  const j=await yt('channels',{part:'snippet,statistics,contentDetails',id:id});
+  const j=await yt('channels',{part:'snippet,statistics,contentDetails,brandingSettings',id:id});
   const c=(j.items||[])[0];if(!c)throw new Error('Channel not found');
   CH[id]=cObj(c);return CH[id]}
 
@@ -220,6 +227,7 @@ const thumb=v=>'<div class="th" style="background:linear-gradient(135deg,'+v.g[0
 const avOf=v=>{const c=v.ch?CH[v.ch]:null;return c&&c.av?'<img class="av" src="'+esc(c.av)+'" alt="" loading="lazy" data-n="'+esc(c.title)+'" onerror="this.onerror=null;this.src=PH(this.dataset.n)">':'<div class="av" style="background:linear-gradient(135deg,'+v.g[0]+','+v.g[1]+')">'+esc(String(v.c||'?').charAt(0)).toUpperCase()+'</div>'};
 const meta=v=>[v.views?num(v.views)+' views':'',v.pub?ago(v.pub):''].filter(Boolean).join(' · ');
 const card=v=>'<div class="v glass" data-v="'+v.id+'"><button class="rb glass kb" data-k="'+v.id+'" aria-label="Options">⋯</button>'+thumb(v)+'<div class="mt">'+avOf(v)+'<div><b>'+esc(v.t)+'</b><span>'+esc(v.c)+(meta(v)?' · '+esc(meta(v)):'')+'</span></div></div></div>';
+const chRow=c=>'<div class="row glass" data-ch="'+c.id+'"><img class="av" src="'+esc(c.av)+'" alt="" data-n="'+esc(c.title)+'" onerror="this.onerror=null;this.src=PH(this.dataset.n)"><div style="flex:1;min-width:0"><b>'+esc(c.title)+'</b><span>'+esc(c.handle)+(c.subs?' · '+num(c.subs)+' subscribers':'')+(c.vids&&+c.vids?' · '+num(c.vids)+' videos':'')+'</span></div></div>';
 const avMini=v=>{const c=v.ch?CH[v.ch]:null;return c&&c.av?'<img class="miniav" src="'+esc(c.av)+'" alt="" loading="lazy" data-n="'+esc(c.title)+'" onerror="this.onerror=null;this.src=PH(this.dataset.n)">':''};
 const rowv=v=>'<div class="row glass kr" data-v="'+v.id+'"><button class="rb glass kb" data-k="'+v.id+'" aria-label="Options">⋯</button>'+thumb(v).replace('<div class="pl">▶</div>','')+'<div style="min-width:0"><b>'+esc(v.t)+'</b><span>'+avMini(v)+esc(v.c)+(meta(v)?' · '+esc(meta(v)):'')+'</span></div></div>';
 
@@ -317,16 +325,25 @@ async function find(go){
   const box=$('#api');box.innerHTML='<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
   const seq=++searchSeq;
   try{
-    const j=await yt('search',{part:'snippet',type:'video',maxResults:20,q:q});
+    const [j,cj]=await Promise.all([
+      yt('search',{part:'snippet',type:'video',maxResults:20,q:q}),
+      yt('search',{part:'snippet',type:'channel',maxResults:6,q:q}).catch(()=>null)]);
     if(seq!==searchSeq)return;
-    const list=(j.items||[]).map(it=>vObj(it.id.videoId,{t:it.snippet.title,c:it.snippet.channelTitle,ch:it.snippet.channelId,img:bestTh(it.snippet.thumbnails),pub:it.snippet.publishedAt,cat:'Result'}));
-    await loadChannels(list.map(v=>v.ch));
+    const list=(j.items||[]).filter(it=>it.id&&it.id.videoId).map(it=>vObj(it.id.videoId,{t:it.snippet.title,c:it.snippet.channelTitle,ch:it.snippet.channelId,img:bestTh(it.snippet.thumbnails),pub:it.snippet.publishedAt,cat:'Result'}));
+    const chIds=(cj&&cj.items||[]).map(it=>(it.id&&it.id.channelId)||it.snippet.channelId).filter(Boolean);
+    await Promise.all([loadChannels(list.map(v=>v.ch)),loadChannels(chIds)]);
     try{const st=await yt('videos',{part:'statistics',id:list.slice(0,20).map(v=>v.id).join(',')});
       (st.items||[]).forEach(it=>{if(V[it.id]&&it.statistics)V[it.id].views=it.statistics.viewCount})}catch(e){}
     if(seq!==searchSeq)return;
-    box.innerHTML='<h2>YouTube results</h2>'+list.filter(ok).map(rowv).join('')+(list.some(v=>!ok(v))?'<div class="hint">Some results are hidden by your filters.</div>':'');
+    let out='';
+    const chans=chIds.map(id=>CH[id]).filter(Boolean);
+    if(chans.length)out+='<h2>Channels</h2>'+chans.map(chRow).join('');
+    out+='<h2>Videos</h2>'+list.filter(ok).map(rowv).join('');
+    if(list.some(v=>!ok(v)))out+='<div class="hint">Some results are hidden by your filters.</div>';
+    box.innerHTML=out;
   }catch(e){
     if(seq!==searchSeq)return;
+    window.LASTSTACK=(e&&e.stack)||String(e);
     box.innerHTML='<div class="empty">Search failed. '+esc(e.message||'Check your connection.')+'</div>';
   }
 }
@@ -388,7 +405,7 @@ function fillPlayer(){
   if(!cur)return;const v=V[cur.id]||cur;cur=v;
   if($('#ptitle'))$('#ptitle').textContent=v.t;
   if($('#pmeta'))$('#pmeta').textContent=meta(v);
-  if($('#pchan'))$('#pchan').innerHTML=avOf(v)+'<div style="flex:1;min-width:0"><b style="display:block;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(v.c)+'</b><span class="vw">'+esc(v.ch&&CH[v.ch]?CH[v.ch].handle:'')+(v.ch&&CH[v.ch]&&CH[v.ch].subs?' · '+num(CH[v.ch].subs)+' subscribers':'')+'</span></div>'+
+  if($('#pchan'))$('#pchan').innerHTML=avOf(v)+'<div'+(v.ch?' data-ch="'+v.ch+'"':'')+' style="flex:1;min-width:0;cursor:pointer"><b style="display:block;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(v.c)+'</b><span class="vw">'+esc(v.ch&&CH[v.ch]?CH[v.ch].handle:'')+(v.ch&&CH[v.ch]&&CH[v.ch].subs?' · '+num(CH[v.ch].subs)+' subscribers':'')+'</span></div>'+
     (v.ch?'<button class="sub '+(S.subs.includes(v.ch)?'on':'')+'" id="sb">'+(S.subs.includes(v.ch)?'Subscribed':'Subscribe')+'</button>':'');
   if($('#sb'))$('#sb').onclick=()=>{toggle(S.subs,v.ch);toast(S.subs.includes(v.ch)?'Subscribed':'Unsubscribed');fillPlayer()};
   const d=$('#pdesc');
@@ -413,9 +430,13 @@ function closeP(){const p=$('#pl');p.classList.remove('on');p.innerHTML='';rende
 /* ---------------- channel page ---------------- */
 function channelHead(c){
   const s=S.subs.includes(c.id);
-  return '<div class="chh"><img src="'+esc(c.av)+'" alt="" data-n="'+esc(c.title)+'" onerror="this.onerror=null;this.src=PH(this.dataset.n)"><div style="flex:1;min-width:0"><b>'+esc(c.title)+'</b><div class="vw">'+esc(c.handle)+(c.subs?' · '+num(c.subs)+' subscribers':'')+'</div></div>'+
-  '<button class="sub '+(s?'on':'')+'" data-chsub="'+c.id+'">'+(s?'Subscribed':'Subscribe')+'</button></div>'+
-  (c.desc?'<div class="desc glass open" style="max-height:150px">'+esc(c.desc)+'</div>':'');
+  const meta=[(c.vids&&+c.vids)?num(c.vids)+' videos':'',c.subs?num(c.subs)+' subscribers':'',c.views?num(c.views)+' views':''].filter(Boolean).join(' · ');
+  const joined=c.joined?'Joined '+new Date(c.joined).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'';
+  return (c.banner?'<div class="chban"><img src="'+esc(c.banner)+'" alt="" onerror="this.parentNode.style.display=\'none\'"></div>':'')+
+  '<div class="chh"><img src="'+esc(c.av)+'" alt="" data-n="'+esc(c.title)+'" onerror="this.onerror=null;this.src=PH(this.dataset.n)"><div style="flex:1;min-width:0"><b>'+esc(c.title)+'</b><div class="vw">'+esc(c.handle)+'</div><div class="vw">'+esc(meta)+'</div></div></div>'+
+  '<div style="display:flex;gap:8px;margin:2px 6px 10px"><button class="sub '+(s?'on':'')+'" data-chsub="'+c.id+'">'+(s?'Subscribed':'Subscribe')+'</button><button class="act glass" data-chplay="'+c.id+'">▶ Play all</button></div>'+
+  ((joined||c.country)?'<div class="tag">'+esc([joined,c.country].filter(Boolean).join(' · '))+'</div>':'')+
+  (c.desc?'<div class="desc glass open" style="max-height:170px">'+esc(c.desc)+'</div>':'');
 }
 async function openChannel(id){
   chanId=id;chanTok='';chanBusy=false;
@@ -481,7 +502,8 @@ document.addEventListener('click',e=>{
   const t=e.target.closest('[data-t]');if(t){tab=t.dataset.t;render();$('#main').scrollTop=0;return}
   const c=e.target.closest('[data-c]');if(c){cat=c.dataset.c;render();return}
   const kk=e.target.closest('[data-k]');if(kk){blockMenu(kk.dataset.k);return}
-  const ch=e.target.closest('[data-ch]');if(ch){openChannel(ch.dataset.ch);return}
+  const cp=e.target.closest('[data-chplay]');if(cp){const rr=document.querySelector('#chlist .row[data-v]');if(rr)play(rr.dataset.v);else toast('No videos loaded yet');return}
+  const ch=e.target.closest('[data-ch]');if(ch&&!e.target.closest('button')){openChannel(ch.dataset.ch);return}
   const cs=e.target.closest('[data-chsub]');if(cs){toggle(S.subs,cs.dataset.chsub);toast(S.subs.includes(cs.dataset.chsub)?'Subscribed':'Unsubscribed');const h=$('#chhead');if(h&&CH[cs.dataset.chsub])h.innerHTML=channelHead(CH[cs.dataset.chsub]);return}
   const sb=e.target.closest('[data-sub]');if(sb){toggle(S.subs,sb.dataset.sub);render();return}
   const rq=e.target.closest('[data-q]');if(rq){q=rq.dataset.q;render();find(true);return}
@@ -492,7 +514,29 @@ document.addEventListener('click',e=>{
 });
 $('#th').onclick=()=>{const r=document.documentElement,d=r.dataset.theme==='dark'||(!r.dataset.theme&&matchMedia('(prefers-color-scheme:dark)').matches);r.dataset.theme=d?'light':'dark'};
 
+/* ---------------- refresh ---------------- */
+let refreshing=false;
+async function doRefresh(){
+  if(refreshing)return;refreshing=true;
+  const b=$('#rf');if(b)b.classList.add('spin');
+  FEED.trending=null;FEED.error='';FEED.loading=false;
+  const hadQuery=(tab==='search'&&q.trim());
+  try{await loadTrending()}catch(e){}
+  render();
+  if(hadQuery)await find(true);
+  if($('#chp').classList.contains('on')&&chanId){try{await channelPage(true)}catch(e){}}
+  refreshing=false;
+  if(b)b.classList.remove('spin');
+  toast(FEED.trending?'Refreshed':'Could not refresh');
+}
+
 /* ---------------- boot ---------------- */
+$('#rf').onclick=doRefresh;
+(function(){const m=$('#main');let y0=0,pull=false;
+  m.addEventListener('touchstart',e=>{if(m.scrollTop<=0){y0=e.touches[0].clientY;pull=true}},{passive:true});
+  m.addEventListener('touchmove',e=>{if(!pull)return;if(e.touches[0].clientY-y0>90){pull=false;doRefresh()}},{passive:true});
+  m.addEventListener('touchend',()=>{pull=false},{passive:true});
+})();
 render();
 loadTrending().then(list=>{if(list&&list.length&&tab==='home')render();if(tab==='search'&&!q)find();if(tab==='subs'||tab==='lib')render()});
 </script>
