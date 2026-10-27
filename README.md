@@ -5,8 +5,8 @@ A liquid-glass YouTube client for Android — the whole UI is one self-contained
 **[⬇ Download the APK](https://github.com/technicalnihilist-lgtm/LiquidTube/releases/latest)**
 
 ![Platform](https://img.shields.io/badge/platform-Android%205.0%2B-3ddc84)
-![Version](https://img.shields.io/badge/version-1.4-ff2d55)
-![Size](https://img.shields.io/badge/APK-158%20KB-6a3bff)
+![Version](https://img.shields.io/badge/version-1.5-ff2d55)
+![Size](https://img.shields.io/badge/APK-186%20KB-6a3bff)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 ## Screenshots
@@ -21,7 +21,13 @@ A liquid-glass YouTube client for Android — the whole UI is one self-contained
 
 <p align="center"><img src="screenshots/07-refresh.png" width="240" alt="Pull to refresh"></p>
 
-<p align="center"><img src="screenshots/icon-512.png" width="128" alt="LiquidTube icon"></p>
+<p align="center">
+  <img src="screenshots/icon-512.png" width="120" alt="LiquidTube icon">
+  &nbsp;&nbsp;
+  <img src="screenshots/icon-transparent.png" width="120" alt="LiquidTube transparent icon">
+</p>
+
+Two icon builds ship with the app: the filled gradient mark, and a **transparent** liquid-glass mark (`screenshots/icon-transparent.png`) with no plate behind it — just the frosted pane, its rim and the red play, so it sits on any wallpaper. The transparent version is what the launcher uses on older Android; on Android 8+ it is the foreground layer over the gradient background.
 
 The icon is drawn in the same language as the app: the gradient runs through the palette of the background blobs (pink → red → purple → indigo), the tile is frosted glass with a bright rim and a soft drop shadow, and the play mark carries the red-to-magenta accent used by the app's active states.
 
@@ -42,6 +48,12 @@ Everything is live YouTube data, not a demo list — real thumbnails, real chann
 - **Library** — history, watch later, liked videos, playlists, subscriptions and comments are saved on the device.
 - **Player extras** — captions, loop, fill-screen, native fullscreen, share sheet, dislike, block.
 - **Graceful offline** — the app shell is bundled, and if the feed can't load it falls back to a starter list instead of an empty screen.
+
+## What's new in 1.5
+
+- **Bigger, sharper thumbnails.** Cards now use YouTube's `maxresdefault` (1280×720) image and fall back through `sddefault` → `hqdefault` → `mqdefault` → `default` for videos that don't have a full-size frame. List rows and the trending strip start at 320×180 instead, so scrolling stays light.
+- **Full-bleed 16:9 frames.** The card thumbnail is no longer a fixed 200 px box that cropped the picture — it is a true 16:9 frame spanning the whole card, so the image shows in full with nothing cut off. The trending mini cards and list rows follow the same ratio.
+- **Transparent liquid-glass icon.** A second icon build with no background plate: frosted pane, bright rim, refraction sheen and the red play mark, all on transparency.
 
 ## What's new in 1.4
 
