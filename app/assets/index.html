@@ -95,15 +95,27 @@ nav button.on{color:var(--red);background:var(--glass2);box-shadow:inset 1.5px 1
   opacity:1;transform:scale(1);filter:blur(0);transition:opacity .62s cubic-bezier(.4,0,.2,1),transform .62s cubic-bezier(.22,1,.36,1),filter .62s ease}
 .splash.out{opacity:0;transform:scale(1.07);filter:blur(9px);pointer-events:none}
 .sp-wrap{display:flex;flex-direction:column;align-items:center;gap:clamp(18px,5vh,30px);position:relative;z-index:2}
-.sp-icon{width:clamp(120px,34vw,168px);aspect-ratio:1;border-radius:26%;object-fit:cover;display:block;
-  opacity:0;transform:scale(.62) translateY(10px);filter:blur(16px);
-  box-shadow:0 26px 60px rgba(255,45,85,.28),0 2px 8px rgba(0,0,0,.18);
-  animation:spIcon 1.05s cubic-bezier(.22,1,.36,1) .10s forwards}
-@keyframes spIcon{
-  0%{opacity:0;transform:scale(.62) translateY(10px);filter:blur(16px)}
-  62%{opacity:1;transform:scale(1.045) translateY(0);filter:blur(0)}
-  100%{opacity:1;transform:scale(1) translateY(0);filter:blur(0)}
+.sp-line{position:relative;width:clamp(140px,42vw,200px);height:12px;border-radius:99px;overflow:hidden;
+  background:linear-gradient(90deg,rgba(255,255,255,.58),rgba(255,255,255,.97) 50%,rgba(255,255,255,.58));
+  border:1px solid rgba(255,255,255,.95);
+  -webkit-backdrop-filter:blur(12px) saturate(180%);backdrop-filter:blur(12px) saturate(180%);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255,255,255,1),
+    inset 0 -2px 3px rgba(150,110,180,.35),
+    0 16px 36px rgba(255,45,85,.34),
+    0 2px 8px rgba(70,30,80,.16);
+  transform:scaleX(.04);opacity:0;
+  animation:spLine 1.15s cubic-bezier(.22,1,.36,1) .12s forwards}
+@keyframes spLine{
+  0%{transform:scaleX(.04);opacity:0}
+  35%{opacity:1}
+  68%{transform:scaleX(1.06);opacity:1}
+  100%{transform:scaleX(1);opacity:1}
 }
+.sp-shine{position:absolute;top:0;bottom:0;width:42%;left:0;border-radius:99px;pointer-events:none;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.95),transparent);
+  transform:translateX(-120%);animation:spShine 1.5s cubic-bezier(.4,0,.2,1) .75s infinite}
+@keyframes spShine{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 .sp-title{font-size:clamp(19px,5.4vw,25px);font-weight:800;letter-spacing:-.025em;text-align:center;padding:0 26px;
   color:var(--tx);opacity:0;transform:translateY(18px);filter:blur(7px);
   animation:spTitle .9s cubic-bezier(.22,1,.36,1) .86s forwards}
@@ -112,12 +124,13 @@ nav button.on{color:var(--red);background:var(--glass2);box-shadow:inset 1.5px 1
   100%{opacity:1;transform:translateY(0);filter:blur(0)}
 }
 .sp-glow{position:absolute;width:74%;aspect-ratio:1;border-radius:50%;z-index:1;
-  background:radial-gradient(circle,rgba(255,45,85,.42),rgba(196,35,138,.16) 46%,transparent 68%);
+  background:radial-gradient(circle,rgba(255,45,85,.55),rgba(196,35,138,.22) 46%,transparent 70%);
   filter:blur(38px);opacity:0;transform:scale(.8);
   animation:spGlow 1.5s cubic-bezier(.22,1,.36,1) .12s forwards}
 @keyframes spGlow{to{opacity:1;transform:scale(1.08)}}
 @media(prefers-reduced-motion:reduce){
-  .sp-icon,.sp-title,.sp-glow{animation:none;opacity:1;transform:none;filter:none}
+  .sp-line,.sp-title,.sp-glow{animation:none;opacity:1;transform:none;filter:none}
+  .sp-shine{animation:none;opacity:.5}
   .splash{transition:opacity .2s linear}
 }
 .logo .gen{font-size:9px;font-weight:800;letter-spacing:.08em;padding:3px 7px;border-radius:9px;margin-left:2px;
@@ -182,7 +195,7 @@ img.av{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:none;backg
   <div class="splash" id="splash">
     <div class="sp-glow"></div>
     <div class="sp-wrap">
-      <img class="sp-icon" src="icon.webp" alt="LiquidTube">
+      <div class="sp-line"><span class="sp-shine"></span></div>
       <div class="sp-title">Meet the LiquidTube</div>
     </div>
   </div>
