@@ -5,8 +5,8 @@ A liquid-glass YouTube client for Android — the whole UI is one self-contained
 **[⬇ Download the APK](https://github.com/technicalnihilist-lgtm/LiquidTube/releases/latest)**
 
 ![Platform](https://img.shields.io/badge/platform-Android%205.0%2B-3ddc84)
-![Version](https://img.shields.io/badge/version-1.6-ff2d55)
-![Size](https://img.shields.io/badge/APK-290%20KB-6a3bff)
+![Version](https://img.shields.io/badge/version-1.7-ff2d55)
+![Size](https://img.shields.io/badge/APK-158%20KB-6a3bff)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 ## Screenshots
@@ -21,13 +21,9 @@ A liquid-glass YouTube client for Android — the whole UI is one self-contained
 
 <p align="center"><img src="screenshots/07-refresh.png" width="240" alt="Pull to refresh"></p>
 
-<p align="center">
-  <img src="screenshots/icon-512.png" width="120" alt="LiquidTube icon">
-  &nbsp;&nbsp;
-  <img src="screenshots/icon-transparent.png" width="120" alt="LiquidTube transparent icon">
-</p>
+<p align="center"><img src="screenshots/icon-512.png" width="160" alt="LiquidTube icon"></p>
 
-The icon is a red liquid sealed inside a glass tube: a bright crimson body with a darker rim, drifting bubbles, a thick clear glass wall with a rim light, and a chrome play mark floating in the middle. It ships both as the filled gradient mark and as a **transparent** build (`screenshots/icon-transparent.png`) with no plate behind it, so it sits on any wallpaper. The transparent version is what the launcher uses on older Android; on Android 8+ it is the foreground layer over the gradient background.
+The launcher icon is the supplied artwork used exactly as it is — the red liquid glass tube with the chrome play mark — only scaled to each density. Nothing is redrawn, recoloured or cropped; it ships as a lossless-to-the-eye WebP for the legacy icons and as the adaptive-icon background layer, so launchers mask it to their own shape.
 
 ## What it does
 
@@ -46,6 +42,11 @@ Everything is live YouTube data, not a demo list — real thumbnails, real chann
 - **Library** — history, watch later, liked videos, playlists, subscriptions and comments are saved on the device.
 - **Player extras** — captions, loop, fill-screen, native fullscreen, share sheet, dislike, block.
 - **Graceful offline** — the app shell is bundled, and if the feed can't load it falls back to a starter list instead of an empty screen.
+
+## What's new in 1.7
+
+- The launcher icon is now the supplied artwork itself, used as-is at every density — no redrawing, no recolouring, no crop.
+- Icons ship as WebP, so the APK stays at 158 KB instead of ballooning past 700 KB with PNG copies of the photo.
 
 ## What's new in 1.6
 
