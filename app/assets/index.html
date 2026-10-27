@@ -39,7 +39,7 @@ main{position:absolute;inset:0;overflow-y:auto;padding:64px 14px 120px;scrollbar
 .row{display:flex;gap:12px;align-items:center;padding:10px;border-radius:22px;margin-bottom:10px;cursor:pointer}
 .row .th{height:70px;width:110px;border-radius:14px;font-size:30px;flex:none;overflow:hidden}.row b{font-size:15px;display:block;line-height:1.25}.row span{font-size:12px;color:var(--tx2)}
 h2{font-size:20px;margin:18px 4px 10px}
-.mini{flex:none;width:150px;border-radius:20px;overflow:hidden;cursor:pointer}.mini .th{height:90px;font-size:36px}.mini b{display:block;font-size:13px;padding:8px 10px;line-height:1.25}
+.mini{flex:none;width:150px;border-radius:20px;overflow:hidden;cursor:pointer;align-self:flex-start}.mini .th{height:90px;font-size:36px}.mini b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;padding:8px 10px 11px;line-height:1.3;max-height:3.4em}
 #shorts{position:absolute;inset:0;z-index:4;overflow-y:scroll;scroll-snap-type:y mandatory;display:none;scrollbar-width:none}#shorts::-webkit-scrollbar{display:none}
 .sx{height:100%;scroll-snap-align:start;scroll-snap-stop:always;position:relative;display:grid;place-items:center;padding:62px 0 96px}
 .sf{height:100%;aspect-ratio:9/16;max-width:94%;background:#000;border-radius:28px;overflow:hidden;display:grid;place-items:center;font-size:80px;box-shadow:0 14px 40px var(--sh)}.sf iframe{width:100%;height:100%;border:0}
@@ -69,17 +69,43 @@ nav button.on{color:var(--red);background:var(--glass2);box-shadow:inset 1.5px 1
 </style>
 </head>
 <body>
+<style>
+img.av{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:none;background:var(--glass2);box-shadow:inset 0 0 0 1px var(--edge2)}
+.row img.av{width:34px;height:34px}
+.miniav{width:16px;height:16px;border-radius:50%;object-fit:cover;vertical-align:-3px;margin-right:5px;background:var(--glass2)}
+.ch img.av{width:44px;height:44px}
+.chh{display:flex;gap:14px;align-items:center;padding:14px 8px}
+.chh img{width:76px;height:76px;border-radius:50%;object-fit:cover;flex:none;background:var(--glass2);box-shadow:0 6px 20px var(--sh)}
+.chh b{font-size:20px;line-height:1.2;display:block}
+.vw{font-size:12px;color:var(--tx2);line-height:1.4}
+.desc{border-radius:18px;padding:12px 14px;margin:6px 0 12px;font-size:14px;line-height:1.5;white-space:pre-wrap;max-height:104px;overflow:hidden;position:relative;word-break:break-word}
+.desc.open{max-height:none}
+.desc:not(.open):after{content:"";position:absolute;left:0;right:0;bottom:0;height:36px;background:linear-gradient(transparent,var(--glass2))}
+.more{border:0;background:none;color:var(--red);font:inherit;font-weight:800;font-size:13px;padding:4px 0;cursor:pointer}
+.pl9{position:absolute;inset:0;z-index:36;background:var(--bg);transform:translateY(102%);transition:transform .45s cubic-bezier(.2,.9,.25,1.05);overflow-y:auto;padding:12px 12px 30px}
+.pl9.on{transform:none}
+.skel{border-radius:22px;height:88px;margin-bottom:12px;background:linear-gradient(100deg,var(--glass),var(--glass2),var(--glass));background-size:220% 100%;animation:sk 1.3s linear infinite}
+@keyframes sk{to{background-position:-220% 0}}
+@media(prefers-reduced-motion:reduce){.skel{animation:none}}
+.badge{display:inline-block;padding:2px 9px;border-radius:11px;background:var(--glass2);font-size:11px;font-weight:800;color:var(--tx2);margin-left:6px}
+.loadmore{width:100%;height:44px;border-radius:22px;border:0;font:inherit;font-weight:800;background:var(--glass2);color:var(--tx);box-shadow:inset 1px 1px 1px var(--edge);margin:10px 0 20px;cursor:pointer}
+.tag{font-size:12px;color:var(--tx2);margin:2px 4px 10px}
+</style>
 <div class="phone">
   <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
   <div class="top"><div class="logo"><i>▶</i>LiquidTube</div><button class="rb glass" id="th" aria-label="Toggle theme">🌗</button></div>
   <main id="main"></main>
   <nav class="glass" id="nav"></nav>
-  <div id="shorts"></div><div class="md" id="md"></div><div class="pl8" id="pl"></div>
+  <div id="shorts"></div>
+  <div class="md" id="md"></div>
+  <div class="pl8" id="pl"></div>
+  <div class="pl9" id="chp"></div>
   <div class="toast glass" id="toast"></div>
 </div>
 <script>
+/* ---------------- base ---------------- */
 const G=[['#ff9a9e','#fad0c4'],['#a18cd1','#fbc2eb'],['#84fab0','#8fd3f4'],['#f6d365','#fda085'],['#667eea','#764ba2'],['#43e97b','#38f9d7'],['#fa709a','#fee140'],['#30cfd0','#330867']];
-const L=[
+const FALL=[
 ['dQw4w9WgXcQ','Never Gonna Give You Up','Rick Astley','Music','🕺'],
 ['jNQXAC9IVRw','Me at the zoo','jawed','Viral','🐘'],
 ['9bZkp7q19f0','Gangnam Style','PSY','Viral','🐎'],
@@ -104,132 +130,371 @@ const L=[
 ['YE7VzlLtp-4','Big Buck Bunny','Blender','Animation','🐰'],
 ['eRsGyueVLvQ','Sintel','Blender','Animation','🐉'],
 ['XqZsoesa55w','Baby Shark Dance','Pinkfong','Kids','🦈']
-].map((a,i)=>({id:a[0],t:a[1],c:a[2],cat:a[3],e:a[4],g:G[i%G.length]}));
-const V={};L.forEach(v=>V[v.id]=v);
+].map((a,i)=>({id:a[0],t:a[1],c:a[2],cat:a[3],e:a[4],g:G[i%G.length],img:'https://i.ytimg.com/vi/'+a[0]+'/mqdefault.jpg'}));
+
 const $=s=>document.querySelector(s);
-let S={liked:[],subs:[],later:[],hist:[],dis:[],rs:[],pl:{},cats:{},blk:{ch:[],vid:[],kw:[]},sp:1,ns:1,cm:{},key:'AIzaSyBF449ShoVt-1qsWhO8VUdHU7v_2E72lNA',opt:{cc:0,loop:0,auto:1,fill:0}};
-try{Object.assign(S,JSON.parse(localStorage.getItem('lt')||'{}'))}catch(e){}
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const KEY='AIzaSyBF449ShoVt-1qsWhO8VUdHU7v_2E72lNA';
+
+let S={liked:[],subs:[],later:[],hist:[],dis:[],rs:[],pl:{},cats:{},blk:{ch:[],vid:[],kw:[]},sp:1,ns:1,cm:{},key:KEY,opt:{cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1}};
+try{const p=JSON.parse(localStorage.getItem('lt')||'{}');Object.assign(S,p);S.opt=Object.assign({cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1},p.opt||{});if(!S.key)S.key=KEY}catch(e){}
 const save=()=>{try{localStorage.setItem('lt',JSON.stringify(S))}catch(e){}};
-let tab='home',cat='All',q='',results=[],cur=null;
+
+const V={},CH={},FEED={trending:null,loading:false,error:''};
+FALL.forEach(v=>V[v.id]=v);
+let tab='home',cat='All',q='',cur=null,chanId='',chanTok='',chanBusy=false;
 const TABS=[['home','🏠','Home'],['shorts','🎬','Shorts'],['search','🔍','Search'],['subs','📺','Subs'],['lib','📚','Library']];
-const emb=(id,a)=>`<iframe src="https://www.youtube-nocookie.com/embed/${id}?${a?'autoplay=1&':''}playsinline=1&rel=0${S.opt.cc?'&cc_load_policy=1':''}${S.opt.loop?'&loop=1&playlist='+id:''}" title="${esc(V[id]?V[id].t:'Video')}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const CATS=['Music','Viral','Chill','Rock','Animation','Kids'];
+
+/* ---------------- helpers ---------------- */
+function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('on'),1700)}
 const toggle=(a,x)=>{const i=a.indexOf(x);i<0?a.push(x):a.splice(i,1);save()};
-function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('on'),1600)}
-function parse(s){s=s.trim();if(S.ns&&/\/shorts\//.test(s))return null;let m=s.match(/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([\w-]{11})/);if(m)return m[1];return /^[\w-]{11}$/.test(s)?s:null}
-const thumb=v=>`<div class="th" style="background:linear-gradient(135deg,${v.g[0]},${v.g[1]})">${v.img?`<img src="${v.img}" alt="" onerror="this.remove()">`:''}<span>${v.e}</span><div class="pl">▶</div></div>`;
-const av=v=>`<div class="av" style="background:linear-gradient(135deg,${v.g[0]},${v.g[1]})">${esc(v.c[0]||'?').toUpperCase()}</div>`;
-const card=v=>`<div class="v glass" data-v="${v.id}"><button class="rb glass kb" data-k="${v.id}" aria-label="Block options">⋯</button>${thumb(v)}<div class="mt">${av(v)}<div><b>${esc(v.t)}</b><span>${esc(v.c)} · ${esc(v.cat)}</span></div></div></div>`;
-const rowv=v=>`<div class="row glass kr" data-v="${v.id}"><button class="rb glass kb" data-k="${v.id}" aria-label="Block options">⋯</button>${thumb(v).replace('<div class="pl">▶</div>','')}<div><b>${esc(v.t)}</b><span>${esc(v.c)}</span></div></div>`;
-function render(){
- $('#nav').innerHTML=TABS.filter(t=>!(S.ns&&t[0]==='shorts')).map(t=>`<button data-t="${t[0]}" class="${t[0]===tab?'on':''}"><i>${t[1]}</i>${t[2]}</button>`).join('');
- if(S.ns&&tab==='shorts')tab='home';LV=L.filter(ok);const m=$('#main');let h='';
- if(tab==='home'){const cs=['All',...new Set(LV.map(v=>v.cat)),...Object.keys(S.cats)];
-  h=`<div class="chips">${cs.map(c=>`<button class="chip glass ${c===cat?'on':''}" data-c="${esc(c)}">${esc(c)}</button>`).join('')}<button class="chip glass" id="nc">＋ New</button></div>${S.cats[cat]?`<div class="hint" style="display:flex;justify-content:space-between;align-items:center">${esc(S.cats[cat].kw?'Topic keywords: '+S.cats[cat].kw:'Manual category')}<button class="act glass" id="dc">Delete</button></div>`:''}`+(cat==='All'?`<h2 style="margin:4px 4px 10px">🔥 Trending now</h2><div class="chips" style="margin-bottom:6px">${LV.slice(0,7).map(v=>`<div class="mini glass" data-v="${v.id}">${thumb(v).replace('<div class="pl">▶</div>','')}<b>${esc(v.t)}</b></div>`).join('')}</div><h2 style="margin:4px">For you</h2>`:'')+(S.cats[cat]?catVids(cat):LV.filter(v=>cat==='All'||v.cat===cat)).map(card).join('')||`<div class="empty">Nothing here yet. Open a video and tap Category to add it.</div>`}
- if(tab==='search'){
-  h=`<div class="sbar glass">🔍<input id="q" type="search" placeholder="Search or paste a YouTube link" value="${esc(q)}" autocomplete="off"></div>
-  <div class="hint">Paste any YouTube link or video ID to play it.</div><div id="res"></div>`}
- if(tab==='lib'){
-  const list=(a)=>a.map(i=>V[i]).filter(Boolean).map(rowv).join('')||'';
-  const sec=(n,a)=>`<h2>${n}</h2>`+(a.length?list(a):`<div class="empty">Nothing here yet.</div>`);
-  h=`${sec('History',S.hist.slice(0,8))}${sec('Watch later',S.later)}${sec('Liked videos',S.liked)}${Object.keys(S.pl).map(k=>sec('📂 '+esc(k),S.pl[k])).join('')}
-  <h2>Subscriptions</h2>${S.subs.length?S.subs.map(c=>`<div class="row glass"><div class="av" style="background:var(--red)">${esc(c[0])}</div><b>${esc(c)}</b></div>`).join(''):`<div class="empty">Subscribe to channels from the video page.</div>`}
-  <h2>Categories</h2><div class="set glass" style="margin-top:0">${Object.keys(S.cats).map(k=>`<div class="row" style="padding:4px 0;margin:0;cursor:default"><b style="flex:1">🏷️ ${esc(k)}</b><button class="act glass" data-dcat="${esc(k)}">Delete</button></div>`).join('')||'<div class="hint" style="margin:0">Create one with ＋ New on Home.</div>'}</div>
-  <h2>Filters and blocking</h2><div class="set glass" style="margin-top:0"><button class="act glass ${S.sp?'on':''}" id="sp">Hide sponsored videos: ${S.sp?'on':'off'}</button><div class="hint">Hides videos labelled sponsored, #ad or paid promotion.</div><b>Blocked words</b><input id="bw" placeholder="Type a word and press Enter"><div style="margin-top:8px">${S.blk.kw.map(w=>`<button class="act glass" data-uw="${esc(w)}" style="margin:0 6px 6px 0">${esc(w)} ✕</button>`).join('')}</div><b>Blocked channels</b><input id="bch" placeholder="Type any channel name and press Enter"><div style="margin:8px 0">${S.blk.ch.map(c=>`<button class="act glass" data-uc="${esc(c)}" style="margin:0 6px 6px 0">${esc(c)} ✕</button>`).join('')||'<div class="hint" style="margin:0">None</div>'}</div><b>Blocked videos</b><div style="margin-top:8px">${S.blk.vid.map(i=>`<button class="act glass" data-uv="${esc(i)}" style="margin:0 6px 6px 0">${esc(V[i]?V[i].t:i)} ✕</button>`).join('')||'<div class="hint" style="margin:0">None</div>'}</div></div>
-  <h2>Settings</h2><div class="set glass"><b>Preferences</b><button class="act glass ${S.ns?'on':''}" id="ns" style="margin:10px 8px 0 0">Block Shorts: ${S.ns?'on':'off'}</button><button class="act glass" id="au" style="margin:10px 8px 0 0">Autoplay: ${S.opt.auto?'on':'off'}</button><button class="act glass" id="ck" style="margin-top:10px">Clear history</button></div>`}
- if(tab==='subs'){const chs=[...new Set(L.map(v=>v.c))],f=L.filter(ok).filter(v=>S.subs.includes(v.c));
-  h=`<h2 style="margin-top:4px">Latest from subscriptions</h2>`+(f.length?f.map(card).join(''):`<div class="empty">Subscribe to channels below to see their videos here.</div>`)+`<h2>All channels</h2>`+chs.map(c=>{const v=L.find(x=>x.c===c),s=S.subs.includes(c);return `<div class="row glass">${av(v)}<b style="flex:1">${esc(c)}</b><button class="sub ${s?'on':''}" data-sub="${esc(c)}">${s?'Subscribed':'Subscribe'}</button></div>`}).join('')}
- m.innerHTML=h;m.style.display=tab==='shorts'?'none':'block';shorts();if($('#nc'))$('#nc').onclick=catForm;if($('#dc'))$('#dc').onclick=()=>{delete S.cats[cat];save();cat='All';render()};
- if(tab==='search'){const i=$('#q');i.oninput=()=>{q=i.value;find()};i.onkeydown=e=>{if(e.key==='Enter'){if(q.trim()){S.rs=[q.trim(),...S.rs.filter(x=>x!==q.trim())].slice(0,6);save()}find(true)}};find()}
- if(tab==='lib'){
- $('#sp').onclick=()=>{S.sp=S.sp?0:1;save();render()};$('#bch').onkeydown=e=>{if(e.key==='Enter'){const w=e.target.value.trim();if(w&&!S.blk.ch.includes(w)){S.blk.ch.push(w);save();render()}}};
- $('#bw').onkeydown=e=>{if(e.key==='Enter'){const w=e.target.value.trim().toLowerCase();if(w&&!S.blk.kw.includes(w)){S.blk.kw.push(w);save();render()}}};
- document.querySelectorAll('[data-uw]').forEach(b=>b.onclick=()=>{toggle(S.blk.kw,b.dataset.uw);render()});
- document.querySelectorAll('[data-uc]').forEach(b=>b.onclick=()=>{toggle(S.blk.ch,b.dataset.uc);render()});
- document.querySelectorAll('[data-uv]').forEach(b=>b.onclick=()=>{toggle(S.blk.vid,b.dataset.uv);render()});
- document.querySelectorAll('[data-dcat]').forEach(b=>b.onclick=()=>{delete S.cats[b.dataset.dcat];save();render()});$('#ns').onclick=()=>{S.ns=S.ns?0:1;save();render()};$('#au').onclick=()=>{S.opt.auto=S.opt.auto?0:1;save();render()};$('#ck').onclick=()=>{S.hist=[];save();render()}}
-}
-async function find(go){const r=$('#res');if(!r)return;const id=parse(q);let h='';
- if(id){V[id]=V[id]||{id,t:'YouTube video',c:'YouTube',cat:'Link',e:'🎬',g:G[3]};h+=`<h2>Play link</h2>${rowv(V[id])}`}
- const loc=L.filter(ok).filter(v=>q&&(v.t+v.c+v.cat).toLowerCase().includes(q.toLowerCase()));
- if(!q)h+=(S.rs.length?`<h2>Recent</h2><div class="chips">${S.rs.map(s=>`<button class="chip glass" data-q="${esc(s)}">🕘 ${esc(s)}</button>`).join('')}</div>`:'')+`<h2>Suggested</h2>`+L.filter(ok).slice(0,5).map(rowv).join('');
- else if(loc.length)h+=`<h2>In app</h2>`+loc.map(rowv).join('');
- r.innerHTML=h+`<div id="api"></div>`;
- if(S.key&&q&&!id&&go){$('#api').innerHTML='<div class="empty">Searching…</div>';
-  try{const j=await(await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=12&q=${encodeURIComponent(q)}&key=${S.key}`)).json();
-   if(j.error)throw new Error(j.error.message);
-   const rs=j.items.map((x,i)=>{const v={id:x.id.videoId,t:x.snippet.title,c:x.snippet.channelTitle,cat:'Result',e:'🎬',g:G[i%G.length],img:x.snippet.thumbnails&&x.snippet.thumbnails.medium.url};V[v.id]=v;return v});
-   $('#api').innerHTML='<h2>YouTube results</h2>'+rs.filter(ok).map(rowv).join('')+(rs.some(v=>!ok(v))?'<div class="hint">Some results are hidden by your filters.</div>':'')}
-  catch(e){$('#api').innerHTML=`<div class="empty">Search failed. ${esc(e.message||'Check your key and connection.')}</div>`}}
- else if(S.key&&q&&!id)$('#api').innerHTML='<div class="hint">Press Enter to search YouTube.</div>'}
-function play(id){const v=V[id];if(!v)return;cur=v;S.hist=[id,...S.hist.filter(x=>x!==id)].slice(0,30);save();pview(true)}
-function pview(first){const v=cur,id=v.id,on=(a,x)=>a.includes(x);
- const p=$('#pl');
- p.innerHTML=`<div class="plh"><button class="rb glass" id="cl" aria-label="Close">⌄</button><b>Now playing</b><span style="width:40px"></span></div>
- <div class="frame ${S.opt.fill?'fill':''}" id="fr"></div>
- <div class="pt">${esc(v.t)}</div>
- <div class="ch">${av(v)}<b>${esc(v.c)}</b><button class="sub ${on(S.subs,v.c)?'on':''}" id="sb">${on(S.subs,v.c)?'Subscribed':'Subscribe'}</button></div>
- <div class="acts"><button class="act glass ${on(S.liked,id)?'on':''}" id="lk">${on(S.liked,id)?'♥ Liked':'♡ Like'}</button><button class="act glass ${on(S.later,id)?'on':''}" id="wl">${on(S.later,id)?'✓ Saved':'🕐 Watch later'}</button><button class="act glass ${on(S.dis,id)?'on':''}" id="dl">👎 Dislike</button><button class="act glass" id="sh">↗ Share</button><button class="act glass ${S.opt.cc?'on':''}" id="cc">CC Captions</button><button class="act glass ${S.opt.loop?'on':''}" id="lp">🔁 Loop</button><button class="act glass" id="pp">📂 Playlist</button><button class="act glass" id="fs">⛶ Fullscreen</button><button class="act glass ${S.opt.fill?'on':''}" id="fl">↔ Fill screen</button><button class="act glass" id="ct">🏷️ Category</button><button class="act glass" id="bc">🚫 Block channel</button><button class="act glass" id="bv">🚫 Block video</button><button class="act glass" id="yt">Open in YouTube</button></div><div id="pls"></div>
- <h2 style="margin-top:6px">Comments</h2>
- <div class="sbar glass" style="height:44px"><input id="ci" placeholder="Add a comment…" maxlength="200"><button class="act" id="cs" style="background:none;height:34px;padding:0 6px">Post</button></div>
- <div id="cms" style="margin-top:10px"></div>
- <h2>Up next</h2>${L.filter(x=>x.id!==id&&ok(x)).slice(0,5).map(rowv).join('')}`;
- if(first){$('#fr').innerHTML=`<iframe src="https://www.youtube-nocookie.com/embed/${id}?autoplay=1&playsinline=1&rel=0" title="${esc(v.t)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`}
- else $('#fr').innerHTML=`<iframe src="https://www.youtube-nocookie.com/embed/${id}?playsinline=1&rel=0" title="${esc(v.t)}" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
- p.classList.add('on');p.scrollTop=0;cms();if(first)$('#fr').innerHTML=emb(id,S.opt.auto);
- $('#cl').onclick=()=>{p.classList.remove('on');p.innerHTML='';if(tab==='lib')render()};
- $('#sb').onclick=()=>{toggle(S.subs,v.c);toast(on(S.subs,v.c)?'Subscribed':'Unsubscribed');pv2()};
- $('#lk').onclick=()=>{toggle(S.liked,id);toast(on(S.liked,id)?'Added to liked':'Removed');pv2()};
- $('#wl').onclick=()=>{toggle(S.later,id);toast(on(S.later,id)?'Saved to Watch later':'Removed');pv2()};
- $('#sh').onclick=async()=>{const u='https://youtu.be/'+id;try{if(navigator.share)await navigator.share({title:v.t,url:u});else{await navigator.clipboard.writeText(u);toast('Link copied')}}catch(e){toast(u)}};
- $('#yt').onclick=()=>window.open('https://www.youtube.com/watch?v='+id,'_blank','noopener');
- $('#cc').onclick=()=>{S.opt.cc=S.opt.cc?0:1;save();reload()};$('#lp').onclick=()=>{S.opt.loop=S.opt.loop?0:1;save();reload()};
- $('#dl').onclick=()=>{toggle(S.dis,id);if(on(S.dis,id)&&on(S.liked,id))toggle(S.liked,id);pv2()};$('#pp').onclick=plMenu;$('#ct').onclick=catMenu;
- $('#fl').onclick=e=>{S.opt.fill=S.opt.fill?0:1;save();$('#fr').classList.toggle('fill',!!S.opt.fill);e.currentTarget.classList.toggle('on',!!S.opt.fill);toast(S.opt.fill?'Fill screen on: no black bars':'Fit mode')};
- $('#fs').onclick=()=>{const f=$('#fr');if(document.fullscreenElement){document.exitFullscreen();return}const r=f.requestFullscreen?f.requestFullscreen():f.webkitRequestFullscreen&&f.webkitRequestFullscreen();if(r&&r.then)r.then(()=>{try{screen.orientation.lock('landscape').catch(()=>{})}catch(x){}}).catch(()=>toast('Fullscreen is blocked here. Use the button inside the player.'));else toast('Use the fullscreen button inside the player')};
- $('#bc').onclick=()=>{if(!S.blk.ch.includes(v.c))S.blk.ch.push(v.c);save();closeP();toast('Blocked '+v.c)};
- $('#bv').onclick=()=>{if(!S.blk.vid.includes(id))S.blk.vid.push(id);save();closeP();toast('Video blocked')};
- $('#cs').onclick=()=>{const i=$('#ci'),t=i.value.trim();if(!t)return;(S.cm[id]=S.cm[id]||[]).unshift(t);save();i.value='';cms()};
-}
-function pv2(){const y=$('#pl').scrollTop,f=$('#fr').innerHTML;pview(false);$('#fr').innerHTML=f;$('#pl').scrollTop=y}
-function cms(){const a=S.cm[cur.id]||[];$('#cms').innerHTML=a.length?a.map(t=>`<div class="cm glass"><small>You</small>${esc(t)}</div>`).join(''):'<div class="empty">Be the first to comment.</div>'}
-let LV=[];
+const num=n=>{n=+n||0;if(n>=1e9)return (n/1e9).toFixed(n>=1e10?0:1).replace('.0','')+'B';if(n>=1e6)return (n/1e6).toFixed(n>=1e7?0:1).replace('.0','')+'M';if(n>=1e3)return (n/1e3).toFixed(n>=1e4?0:1).replace('.0','')+'K';return n?String(n):''};
+const ago=iso=>{if(!iso)return '';const d=(Date.now()-new Date(iso).getTime())/864e5;if(d<1)return 'today';if(d<30)return Math.floor(d)+'d ago';if(d<365)return Math.floor(d/30)+'mo ago';return Math.floor(d/365)+'y ago'};
+const hash=s=>{let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h};
+const bestTh=th=>th?(th.medium&&th.medium.url)||(th.high&&th.high.url)||(th.default&&th.default.url):'';
+const pic=id=>'https://i.ytimg.com/vi/'+id+'/mqdefault.jpg';
+const dec=t=>String(t==null?'':t).replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+
+/* ---------------- data ---------------- */
+function vObj(id,d){d=d||{};const v=Object.assign({id:id,e:'🎬',cat:d.cat||'Video',g:G[hash(id)%G.length]},V[id]||{});
+  if(d.t)v.t=dec(d.t);if(d.c)v.c=dec(d.c);if(d.ch)v.ch=d.ch;
+  v.img=d.img||v.img||pic(id);
+  if(d.desc!=null)v.desc=dec(d.desc);if(d.views!=null)v.views=d.views;if(d.pub)v.pub=d.pub;
+  V[id]=v;return v}
+
+window.PH=function(n){const ch=String(n||'?').charAt(0).toUpperCase();
+  return 'data:image/svg+xml;utf8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff9a9e"/><stop offset="1" stop-color="#a18cd1"/></linearGradient></defs><rect width="80" height="80" fill="url(#g)"/><text x="40" y="53" font-size="34" font-family="sans-serif" font-weight="700" fill="#ffffff" text-anchor="middle">'+ch+'</text></svg>')};
+const cdn=u=>String(u||'').replace('//yt3.ggpht.com/','//yt3.googleusercontent.com/');
+function cObj(c){return{id:c.id,title:dec(c.snippet.title),av:cdn((c.snippet.thumbnails&&(c.snippet.thumbnails.medium||c.snippet.thumbnails.default)||{}).url),
+  handle:c.snippet.customUrl?('@'+c.snippet.customUrl.replace(/^@/,'')):'@'+String(c.snippet.title).toLowerCase().replace(/[^a-z0-9]+/g,'').slice(0,20),
+  subs:(c.statistics&&c.statistics.subscriberCount)||'',desc:dec(c.snippet.description||''),up:(c.contentDetails&&c.contentDetails.relatedPlaylists&&c.contentDetails.relatedPlaylists.uploads)||''}}
+
+async function yt(path,params){
+  if(!S.key)throw new Error('No API key set');
+  const u=new URLSearchParams(Object.assign({},params,{key:S.key}));
+  const r=await fetch('https://www.googleapis.com/youtube/v3/'+path+'?'+u.toString());
+  const j=await r.json();
+  if(j.error)throw new Error((j.error.error&&j.error.error.message)||j.error.message||'YouTube API error');
+  return j}
+
+async function loadChannels(ids){
+  const need=[...new Set(ids.filter(id=>id&&!CH[id]))];
+  for(let i=0;i<need.length;i+=50){
+    try{const j=await yt('channels',{part:'snippet,statistics,contentDetails',id:need.slice(i,i+50).join(',')});
+      (j.items||[]).forEach(c=>{CH[c.id]=cObj(c)})}catch(e){}
+  }}
+
+async function loadTrending(){
+  if(FEED.trending)return FEED.trending;
+  if(FEED.loading)return null;
+  FEED.loading=true;FEED.error='';
+  try{
+    const j=await yt('videos',{part:'snippet,statistics',chart:'mostPopular',regionCode:'IN',maxResults:24});
+    const list=(j.items||[]).map(it=>vObj(it.id,{t:it.snippet.title,c:it.snippet.channelTitle,ch:it.snippet.channelId,img:bestTh(it.snippet.thumbnails),views:it.statistics&&it.statistics.viewCount,pub:it.snippet.publishedAt,cat:'Trending'}));
+    await loadChannels(list.map(v=>v.ch));
+    FEED.trending=list;
+  }catch(e){FEED.error=e.message||'offline'}
+  FEED.loading=false;
+  return FEED.trending}
+
+async function loadVideo(id){
+  if(V[id]&&V[id].desc!=null&&V[id].ch)return V[id];
+  try{
+    const j=await yt('videos',{part:'snippet,statistics',id:id});
+    const it=(j.items||[])[0];if(!it)return V[id];
+    vObj(id,{t:it.snippet.title,c:it.snippet.channelTitle,ch:it.snippet.channelId,img:bestTh(it.snippet.thumbnails),
+      desc:it.snippet.description||'',views:it.statistics&&it.statistics.viewCount,pub:it.snippet.publishedAt});
+    if(it.snippet.channelId)await loadChannels([it.snippet.channelId]);
+  }catch(e){FEED.vidErr=(e&&e.message)||String(e);toast(e.message||'Could not load details')}
+  return V[id]}
+
+async function ensureChannel(id){
+  if(CH[id]&&CH[id].up)return CH[id];
+  const j=await yt('channels',{part:'snippet,statistics,contentDetails',id:id});
+  const c=(j.items||[])[0];if(!c)throw new Error('Channel not found');
+  CH[id]=cObj(c);return CH[id]}
+
+/* ---------------- render helpers ---------------- */
+const thumb=v=>'<div class="th" style="background:linear-gradient(135deg,'+v.g[0]+','+v.g[1]+')">'+(v.img?'<img src="'+esc(v.img)+'" alt="" loading="lazy" onerror="this.remove()">':'')+'<span>'+v.e+'</span><div class="pl">▶</div></div>';
+const avOf=v=>{const c=v.ch?CH[v.ch]:null;return c&&c.av?'<img class="av" src="'+esc(c.av)+'" alt="" loading="lazy" data-n="'+esc(c.title)+'" onerror="this.onerror=null;this.src=PH(this.dataset.n)">':'<div class="av" style="background:linear-gradient(135deg,'+v.g[0]+','+v.g[1]+')">'+esc(String(v.c||'?').charAt(0)).toUpperCase()+'</div>'};
+const meta=v=>[v.views?num(v.views)+' views':'',v.pub?ago(v.pub):''].filter(Boolean).join(' · ');
+const card=v=>'<div class="v glass" data-v="'+v.id+'"><button class="rb glass kb" data-k="'+v.id+'" aria-label="Options">⋯</button>'+thumb(v)+'<div class="mt">'+avOf(v)+'<div><b>'+esc(v.t)+'</b><span>'+esc(v.c)+(meta(v)?' · '+esc(meta(v)):'')+'</span></div></div></div>';
+const avMini=v=>{const c=v.ch?CH[v.ch]:null;return c&&c.av?'<img class="miniav" src="'+esc(c.av)+'" alt="" loading="lazy" data-n="'+esc(c.title)+'" onerror="this.onerror=null;this.src=PH(this.dataset.n)">':''};
+const rowv=v=>'<div class="row glass kr" data-v="'+v.id+'"><button class="rb glass kb" data-k="'+v.id+'" aria-label="Options">⋯</button>'+thumb(v).replace('<div class="pl">▶</div>','')+'<div style="min-width:0"><b>'+esc(v.t)+'</b><span>'+avMini(v)+esc(v.c)+(meta(v)?' · '+esc(meta(v)):'')+'</span></div></div>';
+
 const SP=/#ad\b|#sponsored|\bsponsored\b|paid (promotion|partnership)|\[ad\]|\(ad\)|\bad:|\bsponsor(ed)? by\b/i;
-const ok=v=>{const t=v.t+' '+v.c;return !S.blk.ch.some(c=>c.toLowerCase()===v.c.toLowerCase())&&!S.blk.vid.includes(v.id)&&!(S.sp&&SP.test(t))&&!S.blk.kw.some(w=>w&&t.toLowerCase().includes(w))};
-function catVids(n){const c=S.cats[n],k=c.kw.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);return Object.values(V).filter(v=>ok(v)&&(c.ids.includes(v.id)||k.some(w=>(v.t+' '+v.c+' '+v.cat).toLowerCase().includes(w))))}
+const ok=v=>{const t=v.t+' '+v.c;return !S.blk.ch.some(c=>c.toLowerCase()===String(v.c).toLowerCase())&&!S.blk.vid.includes(v.id)&&!(S.sp&&SP.test(t))&&!S.blk.kw.some(w=>w&&t.toLowerCase().includes(w))};
+
+function feed(){return (FEED.trending&&FEED.trending.length?FEED.trending:FALL).filter(ok)}
+function catVids(n){const c=S.cats[n];if(!c)return [];const k=c.kw.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+  return Object.values(V).filter(v=>ok(v)&&(c.ids.includes(v.id)||k.some(w=>(v.t+' '+v.c+' '+v.cat).toLowerCase().includes(w))))}
+
+/* ---------------- views ---------------- */
+function render(){
+  $('#nav').innerHTML=TABS.filter(t=>!(S.ns&&t[0]==='shorts')).map(t=>'<button data-t="'+t[0]+'" class="'+(t[0]===tab?'on':'')+'"><i>'+t[1]+'</i>'+t[2]+'</button>').join('');
+  if(S.ns&&tab==='shorts')tab='home';
+  const m=$('#main');let h='';
+  if(tab==='home'){
+    const cs=['All',...new Set([...CATS,...Object.keys(S.cats)])];
+    const list=cat==='All'?feed():(S.cats[cat]?catVids(cat):feed().filter(v=>v.cat===cat));
+    h='<div class="chips">'+cs.map(c=>'<button class="chip glass '+(c===cat?'on':'')+'" data-c="'+esc(c)+'">'+esc(c)+'</button>').join('')+'<button class="chip glass" id="nc">＋ New</button></div>';
+    if(S.cats[cat])h+='<div class="hint" style="display:flex;justify-content:space-between;align-items:center">'+esc(S.cats[cat].kw?'Topic keywords: '+S.cats[cat].kw:'Manual category')+'<button class="act glass" id="dc">Delete</button></div>';
+    if(cat==='All'&&S.opt.sg&&list.length)h+='<h2 style="margin:4px 4px 10px">🔥 Trending now</h2><div class="chips" style="margin-bottom:6px">'+list.slice(0,7).map(v=>'<div class="mini glass" data-v="'+v.id+'">'+thumb(v).replace('<div class="pl">▶</div>','')+'<b>'+esc(v.t)+'</b></div>').join('')+'</div>';
+    if(cat==='All')h+='<h2 style="margin:4px 4px 2px">'+(FEED.trending?'Popular in India':'Start here')+'</h2>';
+    if(FEED.loading&&!FEED.trending)h+='<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
+    h+=list.map(card).join('')||'<div class="empty">Nothing here yet. Open a video and tap Category to add it.</div>';
+    if(FEED.error&&!FEED.trending)h+='<div class="hint">Showing the offline starter list — live feed unavailable ('+esc(FEED.error)+').</div>';
+  }
+  if(tab==='search'){
+    h='<div class="sbar glass">🔍<input id="q" type="search" placeholder="Search YouTube or paste a link" value="'+esc(q)+'" autocomplete="off"></div>'+
+      '<div class="tag">Search runs live on YouTube — thumbnails, channels and all.</div><div id="res"></div>';
+  }
+  if(tab==='subs'){
+    const chIds=Object.keys(CH).filter(id=>S.subs.includes(id)||S.subs.includes(CH[id].title));
+    const mine=feed().filter(v=>S.subs.includes(v.ch)||S.subs.includes(v.c));
+    h='<h2 style="margin-top:4px">Latest from subscriptions</h2>'+(mine.length?mine.map(card).join(''):'<div class="empty">Subscribe to channels to see their videos here.</div>');
+    h+='<h2>Channels you follow</h2>';
+    h+=chIds.length?chIds.map(id=>{const c=CH[id];return '<div class="row glass" data-ch="'+id+'"><img class="av" src="'+esc(c.av)+'" alt="" data-n="'+esc(c.title)+'" onerror="this.onerror=null;this.src=PH(this.dataset.n)"><div style="flex:1"><b>'+esc(c.title)+'</b><span>'+esc(c.handle)+(c.subs?' · '+num(c.subs)+' subs':'')+'</span></div></div>'}).join(''):'<div class="empty">Open a video and tap Subscribe, or visit a channel.</div>';
+    h+='<h2>Suggested channels</h2>'+[...new Set(feed().map(v=>v.ch).filter(id=>id&&!S.subs.includes(id)))].slice(0,8).map(id=>{const c=CH[id];if(!c)return '';return '<div class="row glass" data-ch="'+id+'"><img class="av" src="'+esc(c.av)+'" alt="" data-n="'+esc(c.title)+'" onerror="this.onerror=null;this.src=PH(this.dataset.n)"><div style="flex:1"><b>'+esc(c.title)+'</b><span>'+esc(c.handle)+'</span></div></div>'}).join('');
+  }
+  if(tab==='lib'){
+    const list=a=>a.map(i=>V[i]).filter(Boolean).map(rowv).join('');
+    const sec=(n,a)=>'<h2>'+n+'</h2>'+(a.length?list(a):'<div class="empty">Nothing here yet.</div>');
+    h=sec('History',S.hist.slice(0,8))+sec('Watch later',S.later)+sec('Liked videos',S.liked)+Object.keys(S.pl).map(k=>sec('📂 '+esc(k),S.pl[k])).join('');
+    const subs=[...new Set([...Object.keys(CH).filter(id=>S.subs.includes(id)||S.subs.includes(CH[id].title)),...S.subs.filter(s=>!CH[s])])];
+    h+='<h2>Subscriptions</h2>'+(subs.length?subs.map(s=>{const c=CH[s];return c?'<div class="row glass" data-ch="'+c.id+'"><img class="av" src="'+esc(c.av)+'" alt=""><div style="flex:1"><b>'+esc(c.title)+'</b><span>'+esc(c.handle)+'</span></div></div>':'<div class="row glass"><div class="av" style="background:var(--red)">'+esc(String(s).charAt(0))+'</div><b>'+esc(s)+'</b></div>'}).join(''):'<div class="empty">Subscribe to channels from the video page.</div>');
+    h+='<h2>Categories</h2><div class="set glass" style="margin-top:0">'+(Object.keys(S.cats).map(k=>'<div class="row" style="padding:4px 0;margin:0;cursor:default"><b style="flex:1">🏷️ '+esc(k)+'</b><button class="act glass" data-dcat="'+esc(k)+'">Delete</button></div>').join('')||'<div class="hint" style="margin:0">Create one with ＋ New on Home.</div>')+'</div>';
+    h+='<h2>Filters and blocking</h2><div class="set glass" style="margin-top:0"><button class="act glass '+(S.sp?'on':'')+'" id="sp">Hide sponsored videos: '+(S.sp?'on':'off')+'</button><div class="hint">Hides videos labelled sponsored, #ad or paid promotion.</div><b>Blocked words</b><input id="bw" placeholder="Type a word and press Enter"><div style="margin-top:8px">'+S.blk.kw.map(w=>'<button class="act glass" data-uw="'+esc(w)+'" style="margin:0 6px 6px 0">'+esc(w)+' ✕</button>').join('')+'</div><b>Blocked channels</b><input id="bch" placeholder="Type any channel name and press Enter"><div style="margin:8px 0">'+(S.blk.ch.map(c=>'<button class="act glass" data-uc="'+esc(c)+'" style="margin:0 6px 6px 0">'+esc(c)+' ✕</button>').join('')||'<div class="hint" style="margin:0">None</div>')+'</div><b>Blocked videos</b><div style="margin-top:8px">'+(S.blk.vid.map(i=>'<button class="act glass" data-uv="'+esc(i)+'" style="margin:0 6px 6px 0">'+esc(V[i]?V[i].t:i)+' ✕</button>').join('')||'<div class="hint" style="margin:0">None</div>')+'</div></div>';
+    h+='<h2>What the player shows</h2><div class="set glass" style="margin-top:0">'+
+      '<button class="act glass '+(S.opt.ds?'on':'')+'" id="tds" style="margin:0 6px 8px 0">Description: '+(S.opt.ds?'on':'off')+'</button>'+
+      '<button class="act glass '+(S.opt.cmt?'on':'')+'" id="tcm" style="margin:0 6px 8px 0">Comments: '+(S.opt.cmt?'on':'off')+'</button>'+
+      '<button class="act glass '+(S.opt.sg?'on':'')+'" id="tsg" style="margin:0 6px 8px 0">Suggestions: '+(S.opt.sg?'on':'off')+'</button>'+
+      '<div class="hint">Suggestions also controls the Trending strip and the Up next list in the player.</div></div>';
+    h+='<h2>Settings</h2><div class="set glass"><b>Preferences</b><button class="act glass '+(S.ns?'on':'')+'" id="ns" style="margin:10px 8px 0 0">Block Shorts: '+(S.ns?'on':'off')+'</button><button class="act glass" id="au" style="margin:10px 8px 0 0">Autoplay: '+(S.opt.auto?'on':'off')+'</button><button class="act glass" id="ck" style="margin-top:10px">Clear history</button></div>';
+  }
+  m.innerHTML=h;m.style.display=tab==='shorts'?'none':'block';
+  shorts();
+  if($('#nc'))$('#nc').onclick=catForm;
+  if($('#dc'))$('#dc').onclick=()=>{delete S.cats[cat];save();cat='All';render()};
+  if(tab==='search'){
+    const i=$('#q');
+    i.oninput=()=>{q=i.value;find()};
+    i.onkeydown=e=>{if(e.key==='Enter'){if(q.trim()){S.rs=[q.trim(),...S.rs.filter(x=>x!==q.trim())].slice(0,6);save()}find(true)}};
+    find();
+  }
+  if(tab==='lib'){
+    $('#sp').onclick=()=>{S.sp=S.sp?0:1;save();render()};
+    $('#bch').onkeydown=e=>{if(e.key==='Enter'){const w=e.target.value.trim();if(w&&!S.blk.ch.includes(w)){S.blk.ch.push(w);save();render()}}};
+    $('#bw').onkeydown=e=>{if(e.key==='Enter'){const w=e.target.value.trim().toLowerCase();if(w&&!S.blk.kw.includes(w)){S.blk.kw.push(w);save();render()}}};
+    document.querySelectorAll('[data-uw]').forEach(b=>b.onclick=()=>{toggle(S.blk.kw,b.dataset.uw);render()});
+    document.querySelectorAll('[data-uc]').forEach(b=>b.onclick=()=>{toggle(S.blk.ch,b.dataset.uc);render()});
+    document.querySelectorAll('[data-uv]').forEach(b=>b.onclick=()=>{toggle(S.blk.vid,b.dataset.uv);render()});
+    document.querySelectorAll('[data-dcat]').forEach(b=>b.onclick=()=>{delete S.cats[b.dataset.dcat];save();render()});
+    $('#ns').onclick=()=>{S.ns=S.ns?0:1;save();render()};
+    $('#au').onclick=()=>{S.opt.auto=S.opt.auto?0:1;save();render()};
+    $('#ck').onclick=()=>{S.hist=[];save();render()};
+    $('#tds').onclick=()=>{S.opt.ds=S.opt.ds?0:1;save();render()};
+    $('#tcm').onclick=()=>{S.opt.cmt=S.opt.cmt?0:1;save();render()};
+    $('#tsg').onclick=()=>{S.opt.sg=S.opt.sg?0:1;save();render()};
+  }
+}
+
+/* ---------------- search ---------------- */
+let searchSeq=0;
+async function find(go){
+  const r=$('#res');if(!r)return;
+  const id=parse(q);
+  let h='';
+  if(id){if(!V[id])vObj(id,{t:'YouTube video',c:'YouTube',cat:'Link'});h+='<h2>Play link</h2>'+rowv(V[id])}
+  const loc=Object.values(V).filter(ok).filter(v=>q&&(v.t+' '+v.c+' '+v.cat).toLowerCase().includes(q.toLowerCase()));
+  if(!q){
+    h+=(S.rs.length?'<h2>Recent</h2><div class="chips">'+S.rs.map(s=>'<button class="chip glass" data-q="'+esc(s)+'">🕘 '+esc(s)+'</button>').join('')+'</div>':'');
+    if(S.opt.sg)h+='<h2>Suggested</h2>'+feed().slice(0,5).map(rowv).join('');
+  }else if(loc.length)h+='<h2>In app</h2>'+loc.map(rowv).join('');
+  r.innerHTML=h+'<div id="api"></div>';
+  if(!q||id||!go)return;
+  const box=$('#api');box.innerHTML='<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
+  const seq=++searchSeq;
+  try{
+    const j=await yt('search',{part:'snippet',type:'video',maxResults:20,q:q});
+    if(seq!==searchSeq)return;
+    const list=(j.items||[]).map(it=>vObj(it.id.videoId,{t:it.snippet.title,c:it.snippet.channelTitle,ch:it.snippet.channelId,img:bestTh(it.snippet.thumbnails),pub:it.snippet.publishedAt,cat:'Result'}));
+    await loadChannels(list.map(v=>v.ch));
+    try{const st=await yt('videos',{part:'statistics',id:list.slice(0,20).map(v=>v.id).join(',')});
+      (st.items||[]).forEach(it=>{if(V[it.id]&&it.statistics)V[it.id].views=it.statistics.viewCount})}catch(e){}
+    if(seq!==searchSeq)return;
+    box.innerHTML='<h2>YouTube results</h2>'+list.filter(ok).map(rowv).join('')+(list.some(v=>!ok(v))?'<div class="hint">Some results are hidden by your filters.</div>':'');
+  }catch(e){
+    if(seq!==searchSeq)return;
+    box.innerHTML='<div class="empty">Search failed. '+esc(e.message||'Check your connection.')+'</div>';
+  }
+}
+
+/* ---------------- player ---------------- */
+const emb=(id,a)=>'<iframe src="https://www.youtube-nocookie.com/embed/'+id+'?'+(a?'autoplay=1&':'')+'playsinline=1&rel=0'+(S.opt.cc?'&cc_load_policy=1':'')+(S.opt.loop?'&loop=1&playlist='+id:'')+'" title="'+esc(V[id]?V[id].t:'Video')+'" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>';
+const parse=s=>{s=s.trim();if(S.ns&&/\/shorts\//.test(s))return null;let m=s.match(/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([\w-]{11})/);if(m)return m[1];return /^[\w-]{11}$/.test(s)?s:null};
+
+function play(id){const v=V[id];if(!v)return;cur=V[id];S.hist=[id,...S.hist.filter(x=>x!==id)].slice(0,30);save();pview();loadVideo(id).then(()=>{if(cur&&cur.id===id){cur=V[id];fillPlayer()}})}
+
+function pview(){
+  const v=cur,id=v.id,on=(a,x)=>a.includes(x),p=$('#pl');
+  p.innerHTML='<div class="plh"><button class="rb glass" id="cl" aria-label="Close">⌄</button><b>Now playing</b><span style="width:40px"></span></div>'+
+  '<div class="frame '+(S.opt.fill?'fill':'')+'" id="fr">'+emb(id,S.opt.auto)+'</div>'+
+  '<div class="pt" id="ptitle">'+esc(v.t)+'</div>'+
+  '<div class="vw" id="pmeta" style="margin:0 4px 8px">'+esc(meta(v))+'</div>'+
+  '<div class="ch" id="pchan"></div>'+
+  '<div class="acts">'+
+    '<button class="act glass '+(on(S.liked,id)?'on':'')+'" id="lk">'+(on(S.liked,id)?'♥ Liked':'♡ Like')+'</button>'+
+    '<button class="act glass '+(on(S.later,id)?'on':'')+'" id="wl">'+(on(S.later,id)?'✓ Saved':'🕐 Watch later')+'</button>'+
+    '<button class="act glass '+(on(S.dis,id)?'on':'')+'" id="dl">👎 Dislike</button>'+
+    '<button class="act glass" id="sh">↗ Share</button>'+
+    '<button class="act glass '+(S.opt.cc?'on':'')+'" id="cc">CC</button>'+
+    '<button class="act glass '+(S.opt.loop?'on':'')+'" id="lp">🔁 Loop</button>'+
+    '<button class="act glass" id="pp">📂 Playlist</button>'+
+    '<button class="act glass" id="fs">⛶ Fullscreen</button>'+
+    '<button class="act glass '+(S.opt.fill?'on':'')+'" id="fl">↔ Fill</button>'+
+    '<button class="act glass" id="ct">🏷️ Category</button>'+
+    '<button class="act glass" id="bc">🚫 Block channel</button>'+
+    '<button class="act glass" id="bv">🚫 Block video</button>'+
+    '<button class="act glass" id="yt">Open in YouTube</button></div>'+
+  '<div id="pdesc"></div><div id="pls"></div>'+
+  '<div id="pcmwrap"><h2 style="margin-top:6px">Comments</h2>'+
+    '<div class="sbar glass" style="height:44px"><input id="ci" placeholder="Add a comment…" maxlength="200"><button class="act" id="cs" style="background:none;height:34px;padding:0 6px">Post</button></div>'+
+    '<div id="cms" style="margin-top:10px"></div></div>'+
+  '<div id="pupwrap"><h2>Up next</h2><div id="pup"></div></div>';
+  p.classList.add('on');p.scrollTop=0;
+  fillPlayer();
+  $('#cl').onclick=()=>{p.classList.remove('on');p.innerHTML='';if(tab==='lib')render()};
+  $('#lk').onclick=()=>{toggle(S.liked,id);toast(on(S.liked,id)?'Added to liked':'Removed');acts()};
+  $('#wl').onclick=()=>{toggle(S.later,id);toast(on(S.later,id)?'Saved to Watch later':'Removed');acts()};
+  $('#sh').onclick=async()=>{const u='https://youtu.be/'+id;try{if(navigator.share)await navigator.share({title:v.t,url:u});else{await navigator.clipboard.writeText(u);toast('Link copied')}}catch(e){toast(u)}};
+  $('#yt').onclick=()=>window.open('https://www.youtube.com/watch?v='+id,'_blank','noopener');
+  $('#cc').onclick=()=>{S.opt.cc=S.opt.cc?0:1;save();reload()};
+  $('#lp').onclick=()=>{S.opt.loop=S.opt.loop?0:1;save();reload()};
+  $('#dl').onclick=()=>{toggle(S.dis,id);if(on(S.dis,id)&&on(S.liked,id))toggle(S.liked,id);acts()};
+  $('#pp').onclick=plMenu;$('#ct').onclick=catMenu;
+  $('#fl').onclick=e=>{S.opt.fill=S.opt.fill?0:1;save();$('#fr').classList.toggle('fill',!!S.opt.fill);e.currentTarget.classList.toggle('on',!!S.opt.fill);toast(S.opt.fill?'Fill screen on: no black bars':'Fit mode')};
+  $('#fs').onclick=()=>{const f=$('#fr');if(document.fullscreenElement){document.exitFullscreen();return}const r=f.requestFullscreen?f.requestFullscreen():f.webkitRequestFullscreen&&f.webkitRequestFullscreen();if(r&&r.then)r.then(()=>{try{screen.orientation.lock('landscape').catch(()=>{})}catch(x){}}).catch(()=>toast('Fullscreen is blocked here. Use the button inside the player.'));else toast('Use the fullscreen button inside the player')};
+  $('#bc').onclick=()=>{if(!S.blk.ch.includes(v.c))S.blk.ch.push(v.c);save();closeP();toast('Blocked '+v.c)};
+  $('#bv').onclick=()=>{if(!S.blk.vid.includes(id))S.blk.vid.push(id);save();closeP();toast('Video blocked')};
+  $('#cs').onclick=()=>{const i=$('#ci'),t=i.value.trim();if(!t)return;(S.cm[id]=S.cm[id]||[]).unshift(t);save();i.value='';cms()};
+}
+function acts(){const id=cur.id,on=(a,x)=>a.includes(x);
+  $('#lk').className='act glass '+(on(S.liked,id)?'on':'');$('#lk').textContent=on(S.liked,id)?'♥ Liked':'♡ Like';
+  $('#wl').className='act glass '+(on(S.later,id)?'on':'');$('#wl').textContent=on(S.later,id)?'✓ Saved':'🕐 Watch later';
+  $('#dl').className='act glass '+(on(S.dis,id)?'on':'');}
+function fillPlayer(){
+  if(!cur)return;const v=V[cur.id]||cur;cur=v;
+  if($('#ptitle'))$('#ptitle').textContent=v.t;
+  if($('#pmeta'))$('#pmeta').textContent=meta(v);
+  if($('#pchan'))$('#pchan').innerHTML=avOf(v)+'<div style="flex:1;min-width:0"><b style="display:block;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(v.c)+'</b><span class="vw">'+esc(v.ch&&CH[v.ch]?CH[v.ch].handle:'')+(v.ch&&CH[v.ch]&&CH[v.ch].subs?' · '+num(CH[v.ch].subs)+' subscribers':'')+'</span></div>'+
+    (v.ch?'<button class="sub '+(S.subs.includes(v.ch)?'on':'')+'" id="sb">'+(S.subs.includes(v.ch)?'Subscribed':'Subscribe')+'</button>':'');
+  if($('#sb'))$('#sb').onclick=()=>{toggle(S.subs,v.ch);toast(S.subs.includes(v.ch)?'Subscribed':'Unsubscribed');fillPlayer()};
+  const d=$('#pdesc');
+  if(d){
+    if(S.opt.ds&&v.desc){d.innerHTML='<div class="desc glass" id="dsb">'+esc(v.desc)+'</div><button class="more" id="dm">Show more</button>';
+      const b=$('#dsb'),mo=$('#dm');
+      if(v.desc.length<220){mo.remove()}
+      mo.onclick=()=>{const open=b.classList.toggle('open');mo.textContent=open?'Show less':'Show more'};
+    }else d.innerHTML='';
+  }
+  if($('#pcmwrap'))$('#pcmwrap').style.display=S.opt.cmt?'':'none';
+  if($('#pupwrap')){
+    if(!S.opt.sg){$('#pupwrap').style.display='none'}
+    else{$('#pupwrap').style.display='';$('#pup').innerHTML=feed().filter(x=>x.id!==v.id).slice(0,6).map(rowv).join('')||'<div class="empty">No suggestions.</div>'}
+  }
+  cms();
+}
+function cms(){const a=(cur&&S.cm[cur.id])||[];const c=$('#cms');if(!c)return;c.innerHTML=a.length?a.map(t=>'<div class="cm glass"><small>You</small>'+esc(t)+'</div>').join(''):'<div class="empty">Be the first to comment.</div>'}
+function reload(){const y=$('#pl').scrollTop;const f=$('#fr');if(f)f.innerHTML=emb(cur.id,S.opt.auto);$('#pl').scrollTop=y;toast('Player updated')}
 function closeP(){const p=$('#pl');p.classList.remove('on');p.innerHTML='';render()}
-function catForm(){const m=$('#md');m.innerHTML=`<div class="mc glass"><b style="font-size:18px">New category or topic</b><input id="cn" placeholder="Name, e.g. Study music" maxlength="24"><input id="ck2" placeholder="Auto-add keywords (optional), comma separated"><div class="hint" style="margin:0">Videos whose title or channel match a keyword are added automatically. You can also add videos by hand from the player.</div><div style="display:flex;gap:8px"><button class="act glass" id="mx" style="flex:1">Cancel</button><button class="act" id="mo" style="flex:1;background:var(--red);color:#fff">Create</button></div></div>`;m.classList.add('on');
- $('#mx').onclick=()=>m.classList.remove('on');
- $('#mo').onclick=()=>{const n=$('#cn').value.trim();if(!n||S.cats[n]||n==='All'){toast(n?'Name already used':'Enter a name');return}S.cats[n]={kw:$('#ck2').value.trim(),ids:[]};save();cat=n;m.classList.remove('on');render()}}
+
+/* ---------------- channel page ---------------- */
+function channelHead(c){
+  const s=S.subs.includes(c.id);
+  return '<div class="chh"><img src="'+esc(c.av)+'" alt="" data-n="'+esc(c.title)+'" onerror="this.onerror=null;this.src=PH(this.dataset.n)"><div style="flex:1;min-width:0"><b>'+esc(c.title)+'</b><div class="vw">'+esc(c.handle)+(c.subs?' · '+num(c.subs)+' subscribers':'')+'</div></div>'+
+  '<button class="sub '+(s?'on':'')+'" data-chsub="'+c.id+'">'+(s?'Subscribed':'Subscribe')+'</button></div>'+
+  (c.desc?'<div class="desc glass open" style="max-height:150px">'+esc(c.desc)+'</div>':'');
+}
+async function openChannel(id){
+  chanId=id;chanTok='';chanBusy=false;
+  const p=$('#chp');p.classList.add('on');p.scrollTop=0;
+  p.innerHTML='<div class="plh"><button class="rb glass" id="chb" aria-label="Back">‹</button><b>Channel</b><span style="width:40px"></span></div><div id="chhead"><div class="skel" style="height:110px"></div></div><div id="chlist"></div>';
+  $('#chb').onclick=()=>{p.classList.remove('on');p.innerHTML=''};
+  try{
+    const c=await ensureChannel(id);
+    $('#chhead').innerHTML=channelHead(c);
+    await channelPage(true);
+  }catch(e){$('#chhead').innerHTML='<div class="empty">Could not load this channel. '+esc(e.message||'')+'</div>'}
+}
+async function channelPage(first){
+  if(chanBusy)return;chanBusy=true;
+  const c=CH[chanId];const listEl=$('#chlist');
+  if(first){listEl.innerHTML='<div class="skel"></div><div class="skel"></div><div class="skel"></div>';$('#chmore')&&$('#chmore').remove()}
+  try{
+    const j=await yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:50,pageToken:chanTok||''});
+    const items=(j.items||[]).map(it=>vObj(it.snippet.resourceId.videoId,{t:it.snippet.title,c:c.title,ch:chanId,img:bestTh(it.snippet.thumbnails),pub:it.contentDetails&&it.contentDetails.videoPublishedAt,cat:'Channel'}));
+    chanTok=j.nextPageToken||'';
+    if(first)listEl.innerHTML='';
+    listEl.insertAdjacentHTML('beforeend',items.map(rowv).join(''));
+    const old=$('#chmore');if(old)old.remove();
+    if(chanTok){$('#chp').insertAdjacentHTML('beforeend','<button class="loadmore" id="chmore">Load more videos</button>');
+      $('#chmore').onclick=()=>{$('#chmore').remove();channelPage(false)}}
+    else if(!listEl.innerHTML.trim())listEl.innerHTML='<div class="empty">This channel has no public videos.</div>';
+  }catch(e){listEl.innerHTML='<div class="empty">Could not load videos. '+esc(e.message||'')+'</div>'}
+  chanBusy=false;
+}
+
+/* ---------------- shorts ---------------- */
+function shorts(){
+  const el=$('#shorts'),on=tab==='shorts'&&!S.ns;
+  el.style.display=on?'block':'none';
+  if(!on){el.innerHTML='';return}
+  const list=feed().slice(0,12);
+  el.innerHTML=list.map(v=>'<section class="sx" data-id="'+v.id+'" style="background:linear-gradient(160deg,'+v.g[0]+','+v.g[1]+')"><div class="sf"><span>'+v.e+'</span></div><div class="sa"><button class="rb glass" data-sl="'+v.id+'" aria-label="Like">'+(S.liked.includes(v.id)?'♥':'♡')+'</button><button class="rb glass" data-sw="'+v.id+'" aria-label="Watch later">🕐</button><button class="rb glass" data-ss="'+v.id+'" aria-label="Share">↗</button></div><div class="sd glass"><b>'+esc(v.t)+'</b><span>'+esc(v.c)+' · swipe up</span></div></section>').join('');
+  const io=new IntersectionObserver(es=>es.forEach(x=>{const id=x.target.dataset.id,f=x.target.querySelector('.sf');
+    if(x.isIntersecting&&x.intersectionRatio>.6){f.innerHTML='<iframe src="https://www.youtube-nocookie.com/embed/'+id+'?autoplay=1&playsinline=1&rel=0&loop=1&playlist='+id+'" allow="autoplay; encrypted-media; fullscreen" title="'+esc(V[id].t)+'"></iframe>'}
+    else if(f.querySelector('iframe'))f.innerHTML='<span>'+V[id].e+'</span>'}),{root:el,threshold:[.6]});
+  el.querySelectorAll('.sx').forEach(s=>io.observe(s));
+}
+
+/* ---------------- menus ---------------- */
+function catForm(){const m=$('#md');m.innerHTML='<div class="mc glass"><b style="font-size:18px">New category or topic</b><input id="cn" placeholder="Name, e.g. Study music" maxlength="24"><input id="ck2" placeholder="Auto-add keywords (optional), comma separated"><div class="hint" style="margin:0">Videos whose title or channel match a keyword are added automatically. You can also add videos by hand from the player.</div><div style="display:flex;gap:8px"><button class="act glass" id="mx" style="flex:1">Cancel</button><button class="act" id="mo" style="flex:1;background:var(--red);color:#fff">Create</button></div></div>';m.classList.add('on');
+  $('#mx').onclick=()=>m.classList.remove('on');
+  $('#mo').onclick=()=>{const n=$('#cn').value.trim();if(!n||S.cats[n]||n==='All'){toast(n?'Name already used':'Enter a name');return}S.cats[n]={kw:$('#ck2').value.trim(),ids:[]};save();cat=n;m.classList.remove('on');render()}}
 function catMenu(){const b=$('#pls'),id=cur.id,n=Object.keys(S.cats);
- b.innerHTML=`<div class="set glass" style="margin:0 0 12px"><b>Add to category</b><div style="margin-top:8px">${n.map(k=>`<button class="act glass ${S.cats[k].ids.includes(id)?'on':''}" data-cm="${esc(k)}" style="margin:0 6px 8px 0">${S.cats[k].ids.includes(id)?'✓ ':''}${esc(k)}</button>`).join('')||'<div class="hint">No categories yet.</div>'}</div><div class="sbar" style="height:40px;padding:0"><input id="cn2" placeholder="New category name" maxlength="24"><button class="act" id="ca" style="background:none">Create</button></div></div>`;
- $('#ca').onclick=()=>{const t=$('#cn2').value.trim();if(t&&!S.cats[t]&&t!=='All'){S.cats[t]={kw:'',ids:[id]};save();toast('Created '+t);catMenu()}};
- b.querySelectorAll('[data-cm]').forEach(x=>x.onclick=()=>{toggle(S.cats[x.dataset.cm].ids,id);catMenu()})}
-function blockMenu(id){const v=V[id],m=$('#md');m.innerHTML=`<div class="mc glass"><b style="font-size:18px">${esc(v.t)}</b><button class="act glass" id="k1" style="height:44px">🚫 Block channel “${esc(v.c)}”</button><button class="act glass" id="k2" style="height:44px">🚫 Block this video</button><button class="act glass" id="k3" style="height:44px">Cancel</button></div>`;m.classList.add('on');
- $('#k1').onclick=()=>{if(!S.blk.ch.includes(v.c))S.blk.ch.push(v.c);save();m.classList.remove('on');render();toast('Blocked '+v.c)};
- $('#k2').onclick=()=>{if(!S.blk.vid.includes(id))S.blk.vid.push(id);save();m.classList.remove('on');render();toast('Video blocked')};
- $('#k3').onclick=()=>m.classList.remove('on')}
-function reload(){const y=$('#pl').scrollTop;pview(true);$('#pl').scrollTop=y;toast('Player updated')}
+  b.innerHTML='<div class="set glass" style="margin:0 0 12px"><b>Add to category</b><div style="margin-top:8px">'+(n.map(k=>'<button class="act glass '+(S.cats[k].ids.includes(id)?'on':'')+'" data-cm="'+esc(k)+'" style="margin:0 6px 8px 0">'+(S.cats[k].ids.includes(id)?'✓ ':'')+esc(k)+'</button>').join('')||'<div class="hint">No categories yet.</div>')+'</div><div class="sbar" style="height:40px;padding:0"><input id="cn2" placeholder="New category name" maxlength="24"><button class="act" id="ca" style="background:none">Create</button></div></div>';
+  $('#ca').onclick=()=>{const t=$('#cn2').value.trim();if(t&&!S.cats[t]&&t!=='All'){S.cats[t]={kw:'',ids:[id]};save();toast('Created '+t);catMenu()}};
+  b.querySelectorAll('[data-cm]').forEach(x=>x.onclick=()=>{toggle(S.cats[x.dataset.cm].ids,id);catMenu()})}
 function plMenu(){const b=$('#pls'),id=cur.id,n=Object.keys(S.pl);
- b.innerHTML=`<div class="set glass" style="margin:0 0 12px">${n.map(k=>`<button class="act glass ${S.pl[k].includes(id)?'on':''}" data-pl="${esc(k)}" style="margin:0 6px 8px 0">${S.pl[k].includes(id)?'✓ ':''}${esc(k)}</button>`).join('')}<div class="sbar" style="height:40px;padding:0"><input id="pn" placeholder="New playlist name" maxlength="30"><button class="act" id="pa" style="background:none">Create</button></div></div>`;
- $('#pa').onclick=()=>{const t=$('#pn').value.trim();if(t){S.pl[t]=S.pl[t]||[];if(!S.pl[t].includes(id))S.pl[t].push(id);save();toast('Saved to '+t);plMenu()}};
- b.querySelectorAll('[data-pl]').forEach(x=>x.onclick=()=>{toggle(S.pl[x.dataset.pl],id);plMenu()})}
-function shorts(){const el=$('#shorts'),on=tab==='shorts'&&!S.ns;el.style.display=on?'block':'none';if(!on){el.innerHTML='';return}
- el.innerHTML=L.filter(ok).map(v=>`<section class="sx" data-id="${v.id}" style="background:linear-gradient(160deg,${v.g[0]},${v.g[1]})"><div class="sf"><span>${v.e}</span></div><div class="sa"><button class="rb glass" data-sl="${v.id}" aria-label="Like">${S.liked.includes(v.id)?'♥':'♡'}</button><button class="rb glass" data-sw="${v.id}" aria-label="Watch later">🕐</button><button class="rb glass" data-ss="${v.id}" aria-label="Share">↗</button></div><div class="sd glass"><b>${esc(v.t)}</b><span>${esc(v.c)} · swipe up for next</span></div></section>`).join('');
- const io=new IntersectionObserver(es=>es.forEach(x=>{const id=x.target.dataset.id,f=x.target.querySelector('.sf');if(x.isIntersecting&&x.intersectionRatio>.6){f.innerHTML=`<iframe src="https://www.youtube-nocookie.com/embed/${id}?autoplay=1&playsinline=1&rel=0&loop=1&playlist=${id}" allow="autoplay; encrypted-media; fullscreen" title="${esc(V[id].t)}"></iframe>`}else if(f.querySelector('iframe'))f.innerHTML=`<span>${V[id].e}</span>`}),{root:el,threshold:[.6]});
- el.querySelectorAll('.sx').forEach(s=>io.observe(s))}
+  b.innerHTML='<div class="set glass" style="margin:0 0 12px">'+(n.map(k=>'<button class="act glass '+(S.pl[k].includes(id)?'on':'')+'" data-pl="'+esc(k)+'" style="margin:0 6px 8px 0">'+(S.pl[k].includes(id)?'✓ ':'')+esc(k)+'</button>').join('')||'')+'<div class="sbar" style="height:40px;padding:0"><input id="pn" placeholder="New playlist name" maxlength="30"><button class="act" id="pa" style="background:none">Create</button></div></div>';
+  $('#pa').onclick=()=>{const t=$('#pn').value.trim();if(t){S.pl[t]=S.pl[t]||[];if(!S.pl[t].includes(id))S.pl[t].push(id);save();toast('Saved to '+t);plMenu()}};
+  b.querySelectorAll('[data-pl]').forEach(x=>x.onclick=()=>{toggle(S.pl[x.dataset.pl],id);plMenu()})}
+function blockMenu(id){const v=V[id],m=$('#md');m.innerHTML='<div class="mc glass"><b style="font-size:18px">'+esc(v.t)+'</b><button class="act glass" id="k1" style="height:44px">🚫 Block channel “'+esc(v.c)+'”</button><button class="act glass" id="k2" style="height:44px">🚫 Block this video</button><button class="act glass" id="k3" style="height:44px">Cancel</button></div>';m.classList.add('on');
+  $('#k1').onclick=()=>{if(!S.blk.ch.includes(v.c))S.blk.ch.push(v.c);save();m.classList.remove('on');render();toast('Blocked '+v.c)};
+  $('#k2').onclick=()=>{if(!S.blk.vid.includes(id))S.blk.vid.push(id);save();m.classList.remove('on');render();toast('Video blocked')};
+  $('#k3').onclick=()=>m.classList.remove('on')}
+
+/* ---------------- events ---------------- */
 document.addEventListener('click',e=>{
- const t=e.target.closest('[data-t]');if(t){tab=t.dataset.t;render();$('#main').scrollTop=0;return}
- const c=e.target.closest('[data-c]');if(c){cat=c.dataset.c;render();return}
- const kk=e.target.closest('[data-k]');if(kk){blockMenu(kk.dataset.k);return}
- const sb=e.target.closest('[data-sub]');if(sb){toggle(S.subs,sb.dataset.sub);render();return}
- const rq=e.target.closest('[data-q]');if(rq){q=rq.dataset.q;render();find(true);return}
- const sl=e.target.closest('[data-sl]');if(sl){toggle(S.liked,sl.dataset.sl);sl.textContent=S.liked.includes(sl.dataset.sl)?'♥':'♡';return}
- const sw=e.target.closest('[data-sw]');if(sw){toggle(S.later,sw.dataset.sw);toast(S.later.includes(sw.dataset.sw)?'Saved to Watch later':'Removed');return}
- const ss=e.target.closest('[data-ss]');if(ss){const u='https://youtu.be/'+ss.dataset.ss;try{navigator.share?navigator.share({url:u}):navigator.clipboard.writeText(u).then(()=>toast('Link copied'))}catch(x){toast(u)}return}
- const v=e.target.closest('[data-v]');if(v&&!e.target.closest('#pl .frame'))play(v.dataset.v)});
+  const t=e.target.closest('[data-t]');if(t){tab=t.dataset.t;render();$('#main').scrollTop=0;return}
+  const c=e.target.closest('[data-c]');if(c){cat=c.dataset.c;render();return}
+  const kk=e.target.closest('[data-k]');if(kk){blockMenu(kk.dataset.k);return}
+  const ch=e.target.closest('[data-ch]');if(ch){openChannel(ch.dataset.ch);return}
+  const cs=e.target.closest('[data-chsub]');if(cs){toggle(S.subs,cs.dataset.chsub);toast(S.subs.includes(cs.dataset.chsub)?'Subscribed':'Unsubscribed');const h=$('#chhead');if(h&&CH[cs.dataset.chsub])h.innerHTML=channelHead(CH[cs.dataset.chsub]);return}
+  const sb=e.target.closest('[data-sub]');if(sb){toggle(S.subs,sb.dataset.sub);render();return}
+  const rq=e.target.closest('[data-q]');if(rq){q=rq.dataset.q;render();find(true);return}
+  const sl=e.target.closest('[data-sl]');if(sl){toggle(S.liked,sl.dataset.sl);sl.textContent=S.liked.includes(sl.dataset.sl)?'♥':'♡';return}
+  const sw=e.target.closest('[data-sw]');if(sw){toggle(S.later,sw.dataset.sw);toast(S.later.includes(sw.dataset.sw)?'Saved to Watch later':'Removed');return}
+  const ss=e.target.closest('[data-ss]');if(ss){const u='https://youtu.be/'+ss.dataset.ss;try{navigator.share?navigator.share({url:u}):navigator.clipboard.writeText(u).then(()=>toast('Link copied'))}catch(x){toast(u)}return}
+  const v=e.target.closest('[data-v]');if(v&&!e.target.closest('#pl .frame'))play(v.dataset.v);
+});
 $('#th').onclick=()=>{const r=document.documentElement,d=r.dataset.theme==='dark'||(!r.dataset.theme&&matchMedia('(prefers-color-scheme:dark)').matches);r.dataset.theme=d?'light':'dark'};
+
+/* ---------------- boot ---------------- */
 render();
+loadTrending().then(list=>{if(list&&list.length&&tab==='home')render();if(tab==='search'&&!q)find();if(tab==='subs'||tab==='lib')render()});
 </script>
 </body>
 </html>
