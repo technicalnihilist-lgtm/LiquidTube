@@ -12,7 +12,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .app{position:relative;height:100%;max-width:430px;margin:0 auto;overflow:hidden;background:var(--bg);isolation:isolate}
 @media(min-width:500px){body{background:#cfcfd8}.app{height:min(900px,96%);margin-top:2vh;border-radius:44px;box-shadow:0 30px 80px #0005}}
 /* ===== liquid glass ===== */
-.glass{position:relative;background:linear-gradient(135deg,var(--g1),var(--g2));backdrop-filter:blur(16px) saturate(190%) brightness(1.06);-webkit-backdrop-filter:blur(16px) saturate(190%) brightness(1.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.28),inset 0 1.5px 1px var(--rim),inset 0 -1.5px 1px rgba(255,255,255,.22),0 10px 30px var(--shade)}
+.glass{position:relative;background:linear-gradient(135deg,var(--g1),var(--g2));backdrop-filter:blur(var(--glassBlur,16px)) saturate(190%) brightness(1.06);-webkit-backdrop-filter:blur(var(--glassBlur,16px)) saturate(190%) brightness(1.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.28),inset 0 1.5px 1px var(--rim),inset 0 -1.5px 1px rgba(255,255,255,.22),0 10px 30px var(--shade)}
 .glass::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(118deg,rgba(255,255,255,.6),rgba(255,255,255,0) 32%,rgba(255,255,255,0) 68%,rgba(255,255,255,.3));opacity:.5}
 /* pages */
 .page{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding-bottom:150px;scrollbar-width:none;background:radial-gradient(70% 22% at 100% 6%,rgba(255,70,110,.22),transparent),radial-gradient(70% 20% at 0% 48%,rgba(70,120,255,.2),transparent),radial-gradient(70% 20% at 100% 85%,rgba(160,80,255,.18),transparent),var(--bg);transition:transform .6s cubic-bezier(.25,.9,.3,1),opacity .6s;will-change:transform}
@@ -101,12 +101,29 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 #toast.on{transform:translate(-50%,0)}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
+/* ---- layout switch ---- */
+html[data-layout=tablet] .app{max-width:640px}
+html[data-layout=tablet] body{font-size:16.5px}
+html[data-layout=tablet] .card b{font-size:15.5px}
+html[data-layout=tablet] .chips .chip{padding:9px 18px;font-size:15px}
+html[data-layout=full] body{background:var(--bg)}
+html[data-layout=full] .app{max-width:100%;height:100%;margin:0;border-radius:0;box-shadow:none}
+@media(min-width:500px){html[data-layout=full] .app{height:100%;margin:0;border-radius:0;box-shadow:none}}
+/* ---- settings rows ---- */
+.setrow{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;border-radius:16px;background:rgba(120,120,140,.10);margin-bottom:10px;font-size:14px}
+.setrow input[type=range]{-webkit-appearance:none;appearance:none;width:58%;height:6px;border-radius:99px;background:linear-gradient(90deg,var(--red) var(--p,45%),rgba(120,120,140,.25) var(--p,45%));outline:none}
+.setrow input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.25);border:0}
+.laychips{display:flex;gap:8px;margin:2px 0 14px}
+.laychips button{flex:1;padding:11px 8px;border-radius:14px;background:rgba(120,120,140,.12);font-size:13px;font-weight:700;color:var(--ink)}
+.laychips button.on{background:#111;color:#fff}
 /* ---- LiquidTube additions (same language as the shell) ---- */
 .thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 .av{overflow:hidden}.av img{width:100%;height:100%;object-fit:cover;display:block}
 .card .thumb u{position:absolute;right:8px;bottom:8px;z-index:2}
-.sc img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.92}
-.sc b{position:relative;z-index:2}
+.sc{position:relative;overflow:hidden}
+.sc img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.95}
+.sc b{position:absolute;left:10px;right:10px;bottom:10px;z-index:2;font-size:12.5px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.6)}
+.sc:before{content:"";position:absolute;inset:auto 0 0;height:60%;z-index:1;background:linear-gradient(transparent,rgba(0,0,0,.55))}
 .big{position:relative;display:block;overflow:hidden}
 .big img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}
 .big>div{position:absolute;left:14px;right:110px;bottom:14px;z-index:2;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.55)}
@@ -177,11 +194,28 @@ const thumbImg=id=>'<img src="https://i.ytimg.com/vi/'+esc(id)+'/maxresdefault.j
 
 /* ---------- persisted state ---------- */
 const SKEY='lt';
-let S={liked:[],subs:[],later:[],hist:[],pl:{},cats:{},opt:{cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1}};
-try{const p=JSON.parse(localStorage.getItem(SKEY)||'{}');Object.assign(S,p);S.opt=Object.assign({cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1},p.opt||{})}catch(e){}
+let S={liked:[],subs:[],later:[],hist:[],pl:{},cats:{},opt:{cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,glass:45,layout:'phone'}};
+try{const p=JSON.parse(localStorage.getItem(SKEY)||'{}');Object.assign(S,p);S.opt=Object.assign({cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,glass:45,layout:'phone'},p.opt||{})}catch(e){}
 const save=()=>{try{localStorage.setItem(SKEY,JSON.stringify(S))}catch(e){}};
 const on=(a,x)=>a.includes(x);
 const toggle=(a,x)=>{const i=a.indexOf(x);if(i<0)a.push(x);else a.splice(i,1);save();return i<0};
+
+/* ---------- glass transparency + layout ---------- */
+function applyGlass(){
+  const t=Math.max(0,Math.min(100,+S.opt.glass||0))/100;          // 0 = solid, 1 = very see-through
+  const root=document.documentElement;
+  const dark=root.dataset.theme==='dark'||(!root.dataset.theme&&matchMedia('(prefers-color-scheme:dark)').matches);
+  const base=dark?[96,96,116]:[255,255,255];
+  const a1=dark?(0.74-0.46*t):(0.93-0.71*t);
+  const a2=Math.max(.05,a1*0.45);
+  root.style.setProperty('--g1','rgba('+base[0]+','+base[1]+','+base[2]+','+a1.toFixed(3)+')');
+  root.style.setProperty('--g2','rgba('+base[0]+','+base[1]+','+base[2]+','+a2.toFixed(3)+')');
+  root.style.setProperty('--glassBlur',(10+16*t).toFixed(0)+'px');
+}
+function applyLayout(){
+  document.documentElement.dataset.layout=S.opt.layout||'phone';
+}
+applyLayout();applyGlass();
 
 /* ---------- YouTube API ---------- */
 async function yt(path,params){
@@ -374,6 +408,31 @@ function openLibrary(){
     row('settings','Settings')+row('clear','Clear history'),0);
 }
 
+/* ---------- settings ---------- */
+function settingsHTML(){
+  const lay=S.opt.layout||'phone';
+  const btn=(id,label)=>'<button data-lay="'+id+'" class="'+(lay===id?'on':'')+'">'+label+'</button>';
+  return '<div class="setrow"><span>Glass transparency</span><input id="gsl" type="range" min="0" max="100" value="'+S.opt.glass+'" style="--p:'+S.opt.glass+'%"></div>'+
+    '<div style="font-size:12.5px;color:var(--mute);margin:-4px 2px 12px">0% solid glass · 100% fully see-through</div>'+
+    '<div style="font-size:13px;font-weight:700;margin:0 2px 8px">Layout</div>'+
+    '<div class="laychips">'+btn('phone','Phone')+btn('tablet','Tablet')+btn('full','Full screen')+'</div>'+
+    '<button class="opt glass" data-opt="cc">Captions: '+(S.opt.cc?'on':'off')+'</button>'+
+    '<button class="opt glass" data-opt="loop">Loop: '+(S.opt.loop?'on':'off')+'</button>'+
+    '<button class="opt glass" data-opt="cmt">Comments: '+(S.opt.cmt?'on':'off')+'</button>';
+}
+$('sheet').addEventListener('input',e=>{
+  if(e.target.id!=='gsl')return;
+  S.opt.glass=+e.target.value;save();
+  e.target.style.setProperty('--p',S.opt.glass+'%');
+  applyGlass();
+});
+$('sheet').addEventListener('click',e=>{
+  const b=e.target.closest('[data-lay]');
+  if(!b)return;
+  S.opt.layout=b.dataset.lay;save();applyLayout();
+  [...$('sheet').querySelectorAll('[data-lay]')].forEach(x=>x.classList.toggle('on',x.dataset.lay===S.opt.layout));
+});
+
 /* ---------- sheets ---------- */
 function sheet(t,h,inp){
   $('sht').textContent=t;$('shb').innerHTML=h;$('shi').classList.toggle('on',!!inp);
@@ -388,7 +447,7 @@ $('shb').addEventListener('click',e=>{
   if(l){
     const k=l.dataset.lib;
     if(k==='clear'){S.hist=[];save();toast('History cleared');closeAll();return}
-    if(k==='settings'){sheet('Settings','<button class="opt glass" data-opt="cc">Captions: '+(S.opt.cc?'on':'off')+'</button><button class="opt glass" data-opt="loop">Loop: '+(S.opt.loop?'on':'off')+'</button><button class="opt glass" data-opt="cmt">Comments: '+(S.opt.cmt?'on':'off')+'</button>',0);return}
+    if(k==='settings'){sheet('Settings',settingsHTML(),0);return}
     const ids=k==='hist'?S.hist:k==='liked'?S.liked:S.later;
     sheet(k==='hist'?'History':k==='liked'?'Liked videos':'Watch later',
       ids.length?ids.map(id=>V[id]?cardOf(V[id]):'').join(''):'<div class="empty">Nothing saved yet.</div>',0);
@@ -440,7 +499,7 @@ document.addEventListener('click',e=>{
 });
 
 /* ---------- theme ---------- */
-$('theme').onclick=()=>{const d=document.documentElement;const dark=d.dataset.theme?d.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;d.dataset.theme=dark?'light':'dark'};
+$('theme').onclick=()=>{const d=document.documentElement;const dark=d.dataset.theme?d.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;d.dataset.theme=dark?'light':'dark';applyGlass()};
 $('theme').removeAttribute('data-do');
 
 /* ---------- boot ---------- */
