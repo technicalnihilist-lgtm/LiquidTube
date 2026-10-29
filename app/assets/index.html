@@ -5,49 +5,26 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>LiquidTube</title>
 <style>
-/* sheets */:root{--sh1:rgba(255,255,255,.86);--sh2:rgba(255,255,255,.70);--g1:rgba(255,255,255,.50);--g2:rgba(255,255,255,.20);--gedge:rgba(255,255,255,.62);--gshine:rgba(255,255,255,.85);--gdark:rgba(120,140,200,.16);--gblur:blur(38px) saturate(190%);
---bg:#eef0fa;--tx:#0b0c14;--tx2:#5b5f73;--glass:rgba(255,255,255,.42);--glass2:rgba(255,255,255,.66);--edge:rgba(255,255,255,.85);--edge2:rgba(255,255,255,.22);--sh:rgba(40,50,110,.2);--red:#ff2d55;--b1:#ff9a9e;--b2:#9db4ff;--b3:#ffd9a0;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0a0a14;--tx:#f4f5fb;--tx2:#a3a7bd;--glass:rgba(40,44,70,.42);--glass2:rgba(70,76,115,.62);--edge:rgba(255,255,255,.3);--edge2:rgba(255,255,255,.05);--sh:rgba(0,0,0,.55);--b1:#a3224a;--b2:#3a4fc4;--b3:#a8641c;color-scheme:dark;--g1:rgba(66,72,110,.46);--g2:rgba(24,28,46,.24);--gedge:rgba(255,255,255,.15);--gshine:rgba(255,255,255,.22);--gdark:rgba(0,0,0,.4);--sh1:rgba(44,48,76,.88);--sh2:rgba(22,26,42,.80)}}
-:root[data-theme="dark"]{--bg:#0a0a14;--tx:#f4f5fb;--tx2:#a3a7bd;--glass:rgba(40,44,70,.42);--glass2:rgba(70,76,115,.62);--edge:rgba(255,255,255,.3);--edge2:rgba(255,255,255,.05);--sh:rgba(0,0,0,.55);--b1:#a3224a;--b2:#3a4fc4;--b3:#a8641c;color-scheme:dark;--g1:rgba(66,72,110,.46);--g2:rgba(24,28,46,.24);--gedge:rgba(255,255,255,.15);--gshine:rgba(255,255,255,.22);--gdark:rgba(0,0,0,.4);--sh1:rgba(44,48,76,.88);--sh2:rgba(22,26,42,.80)}
+:root{--bg:#eef0fa;--tx:#0b0c14;--tx2:#5b5f73;--glass:rgba(255,255,255,.42);--glass2:rgba(255,255,255,.66);--edge:rgba(255,255,255,.85);--edge2:rgba(255,255,255,.22);--sh:rgba(40,50,110,.2);--red:#ff2d55;--b1:#ff9a9e;--b2:#9db4ff;--b3:#ffd9a0;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0a0a14;--tx:#f4f5fb;--tx2:#a3a7bd;--glass:rgba(40,44,70,.42);--glass2:rgba(70,76,115,.62);--edge:rgba(255,255,255,.3);--edge2:rgba(255,255,255,.05);--sh:rgba(0,0,0,.55);--b1:#a3224a;--b2:#3a4fc4;--b3:#a8641c;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0a0a14;--tx:#f4f5fb;--tx2:#a3a7bd;--glass:rgba(40,44,70,.42);--glass2:rgba(70,76,115,.62);--edge:rgba(255,255,255,.3);--edge2:rgba(255,255,255,.05);--sh:rgba(0,0,0,.55);--b1:#a3224a;--b2:#3a4fc4;--b3:#a8641c;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;margin:0;background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter","Segoe UI",system-ui,sans-serif}
 body{display:flex;justify-content:center;align-items:center;overflow:hidden}
 .phone{position:relative;width:100%;max-width:430px;height:100%;max-height:900px;overflow:hidden;background:var(--bg)}
 @media(min-width:500px){.phone{height:min(880px,96%);border-radius:48px;box-shadow:0 0 0 10px #15161d,0 30px 80px var(--sh)}}
-.blob{position:absolute;border-radius:50%;filter:blur(64px);opacity:.78;animation:fl 16s ease-in-out infinite alternate}
+.blob{position:absolute;border-radius:50%;filter:blur(60px);opacity:.8;animation:fl 16s ease-in-out infinite alternate}
 .b1{width:300px;height:300px;background:var(--b1);top:-70px;left:-80px}.b2{width:280px;height:280px;background:var(--b2);top:360px;right:-100px;animation-delay:-5s}.b3{width:280px;height:280px;background:var(--b3);bottom:-60px;left:-50px;animation-delay:-10s}
 @keyframes fl{to{transform:translate(40px,-50px) scale(1.15)}}
-@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .blob{opacity:.62}}
-:root[data-theme="dark"] .blob{opacity:.62}
 @media(prefers-reduced-motion:reduce){.blob{animation:none}}
-.glass{
-  background:
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='0.06'/></svg>"),
-    radial-gradient(130% 90% at 6% -10%, var(--gshine), transparent 58%),
-    linear-gradient(158deg, var(--g1), var(--g2) 62%, var(--g1));
-  -webkit-backdrop-filter:var(--gblur);backdrop-filter:var(--gblur);
-  border:1px solid var(--gedge);
-  box-shadow:
-    inset 0 1px 0 var(--gshine),
-    inset 0 -1px 1px var(--gdark),
-    inset 1px 0 1px rgba(255,255,255,.22),
-    0 12px 34px var(--sh);
-  transition:transform .34s cubic-bezier(.22,1,.36,1),box-shadow .34s ease,background .34s ease}
-.v:active,.row:active,.mini:active{transform:scale(.985)}
+.glass{background:var(--glass);backdrop-filter:blur(28px) saturate(180%);-webkit-backdrop-filter:blur(28px) saturate(180%);border:1px solid var(--edge2);box-shadow:inset 1.5px 1.5px 1px var(--edge),inset -1px -1px 1px var(--edge2),0 10px 30px var(--sh)}
 .top{position:absolute;top:0;left:0;right:0;z-index:5;display:flex;justify-content:space-between;align-items:center;padding:12px 16px 8px}
-.topscrim{position:absolute;top:0;left:0;right:0;height:100px;z-index:4;pointer-events:none;
-  background:linear-gradient(180deg,var(--bg) 6%,transparent);
-  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
-  -webkit-mask-image:linear-gradient(#000 46%,transparent 100%);mask-image:linear-gradient(#000 46%,transparent 100%)}
 .logo{display:flex;align-items:center;gap:8px;font-size:22px;font-weight:800;letter-spacing:-.03em}
 .logo i{width:34px;height:24px;border-radius:9px;background:linear-gradient(140deg,#ff2d55,#c4238a);display:grid;place-items:center;color:#fff;font-size:11px;font-style:normal;box-shadow:inset 0 1px 1px rgba(255,255,255,.6),0 3px 8px rgba(255,45,85,.3)}
 .rb{width:40px;height:40px;border-radius:50%;border:0;color:var(--tx);font-size:18px;cursor:pointer}
 main{position:absolute;inset:0;overflow-y:auto;padding:64px 14px 120px;scrollbar-width:none}main::-webkit-scrollbar{display:none}
 .chips{display:flex;gap:8px;overflow-x:auto;margin:0 -14px 12px;padding:2px 14px;scrollbar-width:none}
-.chip{flex:none;padding:8px 16px;border-radius:18px;border:1px solid var(--gedge);font:inherit;font-size:14px;font-weight:700;color:var(--tx);cursor:pointer;
-  background:linear-gradient(158deg,var(--g1),var(--g2));-webkit-backdrop-filter:blur(22px) saturate(180%);backdrop-filter:blur(22px) saturate(180%);
-  box-shadow:inset 0 1px 0 var(--gshine),0 6px 18px rgba(40,50,110,.12);transition:transform .3s cubic-bezier(.22,1,.36,1)}
-.chip:active{transform:scale(.96)}
+.chip{flex:none;padding:8px 16px;border-radius:18px;border:0;font:inherit;font-size:14px;font-weight:700;color:var(--tx);cursor:pointer}
 .chip.on{background:var(--tx);color:var(--bg)}
 .v{border-radius:26px;overflow:hidden;margin-bottom:16px;cursor:pointer}
 .th{height:200px;display:grid;place-items:center;font-size:72px;position:relative}
@@ -58,9 +35,7 @@ main{position:absolute;inset:0;overflow-y:auto;padding:64px 14px 120px;scrollbar
 .mt{display:flex;gap:12px;padding:12px 14px 14px}
 .av{width:40px;height:40px;border-radius:50%;flex:none;display:grid;place-items:center;font-weight:800;color:#fff;font-size:16px;box-shadow:inset 1px 1px 1px rgba(255,255,255,.5)}
 .mt b{display:block;font-size:16px;line-height:1.25}.mt span{font-size:13px;color:var(--tx2)}
-.sbar{display:flex;align-items:center;gap:10px;border-radius:24px;padding:0 16px;height:50px;
-  background:linear-gradient(158deg,var(--g1),var(--g2));-webkit-backdrop-filter:blur(26px) saturate(190%);backdrop-filter:blur(26px) saturate(190%);
-  box-shadow:inset 0 1px 0 var(--gshine),0 10px 26px rgba(40,50,110,.14)}
+.sbar{display:flex;align-items:center;gap:10px;border-radius:24px;padding:0 16px;height:50px}
 .sbar input{flex:1;background:none;border:0;outline:0;font:inherit;font-size:16px;color:var(--tx);min-width:0}.sbar input::placeholder{color:var(--tx2)}
 .hint{font-size:13px;color:var(--tx2);margin:8px 6px 14px;line-height:1.4}
 .row{display:flex;gap:12px;align-items:center;padding:10px;border-radius:22px;margin-bottom:10px;cursor:pointer}
@@ -72,7 +47,7 @@ h2{font-size:20px;margin:18px 4px 10px}
 .sf{height:100%;aspect-ratio:9/16;max-width:94%;background:#000;border-radius:28px;overflow:hidden;display:grid;place-items:center;font-size:80px;box-shadow:0 14px 40px var(--sh)}.sf iframe{width:100%;height:100%;border:0}
 .sa{position:absolute;right:12px;bottom:140px;display:flex;flex-direction:column;gap:12px}
 .sd{position:absolute;left:16px;right:72px;bottom:110px;padding:10px 14px;border-radius:20px}.sd b{display:block;font-size:15px}.sd span{font-size:12px;color:var(--tx2)}
-.md{position:absolute;inset:0;z-index:50;display:none;place-items:center;background:rgba(20,22,40,.28);-webkit-backdrop-filter:blur(18px) saturate(160%);backdrop-filter:blur(18px) saturate(160%);padding:20px}.md.on{display:grid}.mc{width:100%;border-radius:28px;padding:20px;display:flex;flex-direction:column;gap:12px}.mc input{height:44px;border-radius:14px;border:1px solid var(--edge2);background:var(--glass);color:var(--tx);padding:0 12px;font:inherit}
+.md{position:absolute;inset:0;z-index:50;display:none;place-items:center;background:rgba(0,0,0,.35);padding:20px}.md.on{display:grid}.mc{width:100%;border-radius:28px;padding:20px;display:flex;flex-direction:column;gap:12px}.mc input{height:44px;border-radius:14px;border:1px solid var(--edge2);background:var(--glass);color:var(--tx);padding:0 12px;font:inherit}
 .v,.row{position:relative}.kb{position:absolute;top:10px;right:10px;width:36px;height:36px;font-size:18px;z-index:2}.row.kr{padding-right:52px}.row .kb{top:50%;right:8px;transform:translateY(-50%);width:34px;height:34px;font-size:16px}
 .frame iframe{transition:transform .3s}.frame.fill iframe{transform:scale(1.2)}.frame.fill{border-radius:0;margin:0 -12px}.frame:fullscreen{border-radius:0;margin:0;background:#000}
 .empty{text-align:center;color:var(--tx2);padding:34px 18px;font-size:14px}
@@ -81,7 +56,7 @@ nav{position:absolute;left:14px;right:14px;bottom:calc(14px + env(safe-area-inse
 nav button{flex:1;border:0;background:none;border-radius:28px;color:var(--tx2);font:inherit;font-size:11px;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;transition:.3s}
 nav button i{font-style:normal;font-size:22px}
 nav button.on{color:var(--red);background:var(--glass2);box-shadow:inset 1.5px 1.5px 1px var(--edge),0 4px 14px var(--sh)}
-.pl8{position:absolute;inset:0;z-index:30;background:linear-gradient(180deg,var(--sh1),var(--sh2));-webkit-backdrop-filter:blur(46px) saturate(190%);backdrop-filter:blur(46px) saturate(190%);transform:translateY(102%);transition:transform .45s cubic-bezier(.2,.9,.25,1.05);overflow-y:auto;padding:12px 12px 30px}
+.pl8{position:absolute;inset:0;z-index:30;background:var(--bg);transform:translateY(102%);transition:transform .45s cubic-bezier(.2,.9,.25,1.05);overflow-y:auto;padding:12px 12px 30px}
 .pl8.on{transform:none}
 .plh{display:flex;justify-content:space-between;align-items:center;padding:4px 4px 10px}
 .frame{aspect-ratio:16/9;border-radius:22px;overflow:hidden;background:#000;box-shadow:0 14px 40px var(--sh)}.frame iframe{width:100%;height:100%;border:0;display:block}
@@ -96,27 +71,15 @@ nav button.on{color:var(--red);background:var(--glass2);box-shadow:inset 1.5px 1
   opacity:1;transform:scale(1);filter:blur(0);transition:opacity .62s cubic-bezier(.4,0,.2,1),transform .62s cubic-bezier(.22,1,.36,1),filter .62s ease}
 .splash.out{opacity:0;transform:scale(1.07);filter:blur(9px);pointer-events:none}
 .sp-wrap{display:flex;flex-direction:column;align-items:center;gap:clamp(18px,5vh,30px);position:relative;z-index:2}
-.sp-line{position:relative;width:clamp(140px,42vw,200px);height:12px;border-radius:99px;overflow:hidden;
-  background:linear-gradient(90deg,rgba(255,255,255,.58),rgba(255,255,255,.97) 50%,rgba(255,255,255,.58));
-  border:1px solid rgba(255,255,255,.95);
-  -webkit-backdrop-filter:blur(12px) saturate(180%);backdrop-filter:blur(12px) saturate(180%);
-  box-shadow:
-    inset 0 1.5px 0 rgba(255,255,255,1),
-    inset 0 -2px 3px rgba(150,110,180,.35),
-    0 16px 36px rgba(255,45,85,.34),
-    0 2px 8px rgba(70,30,80,.16);
-  transform:scaleX(.04);opacity:0;
-  animation:spLine 1.15s cubic-bezier(.22,1,.36,1) .12s forwards}
-@keyframes spLine{
-  0%{transform:scaleX(.04);opacity:0}
-  35%{opacity:1}
-  68%{transform:scaleX(1.06);opacity:1}
-  100%{transform:scaleX(1);opacity:1}
+.sp-icon{width:clamp(120px,34vw,168px);aspect-ratio:1;border-radius:26%;object-fit:cover;display:block;
+  opacity:0;transform:scale(.62) translateY(10px);filter:blur(16px);
+  box-shadow:0 26px 60px rgba(255,45,85,.28),0 2px 8px rgba(0,0,0,.18);
+  animation:spIcon 1.05s cubic-bezier(.22,1,.36,1) .10s forwards}
+@keyframes spIcon{
+  0%{opacity:0;transform:scale(.62) translateY(10px);filter:blur(16px)}
+  62%{opacity:1;transform:scale(1.045) translateY(0);filter:blur(0)}
+  100%{opacity:1;transform:scale(1) translateY(0);filter:blur(0)}
 }
-.sp-shine{position:absolute;top:0;bottom:0;width:42%;left:0;border-radius:99px;pointer-events:none;
-  background:linear-gradient(90deg,transparent,rgba(255,255,255,.95),transparent);
-  transform:translateX(-120%);animation:spShine 1.5s cubic-bezier(.4,0,.2,1) .75s infinite}
-@keyframes spShine{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 .sp-title{font-size:clamp(19px,5.4vw,25px);font-weight:800;letter-spacing:-.025em;text-align:center;padding:0 26px;
   color:var(--tx);opacity:0;transform:translateY(18px);filter:blur(7px);
   animation:spTitle .9s cubic-bezier(.22,1,.36,1) .86s forwards}
@@ -125,18 +88,14 @@ nav button.on{color:var(--red);background:var(--glass2);box-shadow:inset 1.5px 1
   100%{opacity:1;transform:translateY(0);filter:blur(0)}
 }
 .sp-glow{position:absolute;width:74%;aspect-ratio:1;border-radius:50%;z-index:1;
-  background:radial-gradient(circle,rgba(255,45,85,.55),rgba(196,35,138,.22) 46%,transparent 70%);
+  background:radial-gradient(circle,rgba(255,45,85,.42),rgba(196,35,138,.16) 46%,transparent 68%);
   filter:blur(38px);opacity:0;transform:scale(.8);
   animation:spGlow 1.5s cubic-bezier(.22,1,.36,1) .12s forwards}
 @keyframes spGlow{to{opacity:1;transform:scale(1.08)}}
 @media(prefers-reduced-motion:reduce){
-  .sp-line,.sp-title,.sp-glow{animation:none;opacity:1;transform:none;filter:none}
-  .sp-shine{animation:none;opacity:.5}
+  .sp-icon,.sp-title,.sp-glow{animation:none;opacity:1;transform:none;filter:none}
   .splash{transition:opacity .2s linear}
 }
-.logo .gen{font-size:9px;font-weight:800;letter-spacing:.08em;padding:3px 7px;border-radius:9px;margin-left:2px;
-  color:var(--tx);background:linear-gradient(158deg,var(--g1),var(--g2));border:1px solid var(--gedge);
-  box-shadow:inset 0 1px 0 var(--gshine);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);opacity:.9}
 :focus-visible{outline:2px solid var(--red);outline-offset:2px}
 </style>
 </head>
@@ -154,18 +113,12 @@ img.av{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:none;backg
 .desc.open{max-height:none}
 .desc:not(.open):after{content:"";position:absolute;left:0;right:0;bottom:0;height:36px;background:linear-gradient(transparent,var(--glass2))}
 .more{border:0;background:none;color:var(--red);font:inherit;font-weight:800;font-size:13px;padding:4px 0;cursor:pointer}
-.pl9{position:absolute;inset:0;z-index:36;background:linear-gradient(180deg,var(--sh1),var(--sh2));-webkit-backdrop-filter:blur(46px) saturate(190%);backdrop-filter:blur(46px) saturate(190%);transform:translateY(102%);transition:transform .45s cubic-bezier(.2,.9,.25,1.05);overflow-y:auto;padding:12px 12px 30px}
+.pl9{position:absolute;inset:0;z-index:36;background:var(--bg);transform:translateY(102%);transition:transform .45s cubic-bezier(.2,.9,.25,1.05);overflow-y:auto;padding:12px 12px 30px}
 .pl9.on{transform:none}
 .skel{border-radius:22px;height:88px;margin-bottom:12px;background:linear-gradient(100deg,var(--glass),var(--glass2),var(--glass));background-size:220% 100%;animation:sk 1.3s linear infinite}
 @keyframes sk{to{background-position:-220% 0}}
 @media(prefers-reduced-motion:reduce){.skel{animation:none}}
 .badge{display:inline-block;padding:2px 9px;border-radius:11px;background:var(--glass2);font-size:11px;font-weight:800;color:var(--tx2);margin-left:6px}
-.plgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
-.plcard{border-radius:20px;overflow:hidden;cursor:pointer}
-.plcard .th{height:auto;aspect-ratio:16/9;font-size:34px}
-.plmeta{padding:8px 10px 11px}
-.plmeta b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;line-height:1.3}
-.plmeta span{font-size:11px;color:var(--tx2)}
 .loadmore{width:100%;height:44px;border-radius:22px;border:0;font:inherit;font-weight:800;background:var(--glass2);color:var(--tx);box-shadow:inset 1px 1px 1px var(--edge);margin:10px 0 20px;cursor:pointer}
 .tag{font-size:12px;color:var(--tx2);margin:2px 4px 10px}
 .about{border-radius:20px;padding:12px 14px;margin:0 0 10px;font-size:13px}
@@ -189,8 +142,7 @@ img.av{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:none;backg
 </style>
 <div class="phone">
   <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
-  <div class="topscrim"></div>
-  <div class="top"><div class="logo"><i>▶</i>LiquidTube<span class="gen">GEN 3</span></div><div style="display:flex;gap:8px"><button class="rb glass" id="rf" aria-label="Refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.49-6.01"/><path d="M20.5 3.6v5.6h-5.6"/></svg></button><button class="rb glass" id="th" aria-label="Toggle theme">🌗</button></div></div>
+  <div class="top"><div class="logo"><i>▶</i>LiquidTube</div><div style="display:flex;gap:8px"><button class="rb glass" id="rf" aria-label="Refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.49-6.01"/><path d="M20.5 3.6v5.6h-5.6"/></svg></button><button class="rb glass" id="th" aria-label="Toggle theme">🌗</button></div></div>
   <main id="main"></main>
   <nav class="glass" id="nav"></nav>
   <div id="shorts"></div>
@@ -202,7 +154,7 @@ img.av{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:none;backg
   <div class="splash" id="splash">
     <div class="sp-glow"></div>
     <div class="sp-wrap">
-      <div class="sp-line"><span class="sp-shine"></span></div>
+      <img class="sp-icon" src="icon.webp" alt="LiquidTube">
       <div class="sp-title">Meet the LiquidTube</div>
     </div>
   </div>
@@ -247,7 +199,7 @@ const save=()=>{try{localStorage.setItem('lt',JSON.stringify(S))}catch(e){}};
 
 const V={},CH={},FEED={trending:null,loading:false,error:''};
 FALL.forEach(v=>V[v.id]=v);
-let tab='home',cat='All',q='',cur=null,chanId='';
+let tab='home',cat='All',q='',cur=null,chanId='',chanTok='',chanBusy=false;
 const TABS=[['home','🏠','Home'],['shorts','🎬','Shorts'],['search','🔍','Search'],['subs','📺','Subs'],['lib','📚','Library']];
 const CATS=['Music','Viral','Chill','Rock','Animation','Kids'];
 
@@ -467,7 +419,7 @@ async function find(go){
 }
 
 /* ---------------- player ---------------- */
-const emb=(id,a)=>'<iframe src="https://www.youtube-nocookie.com/embed/'+id+'?'+(a?'autoplay=1&':'')+'playsinline=1&rel=0'+(S.opt.cc?'&cc_load_policy=1':'')+(S.opt.loop?'&loop=1&playlist='+id:'')+'" title="'+esc(V[id]?V[id].t:'Video')+'" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>';
+const emb=(id,a)=>'<iframe src="https://www.youtube-nocookie.com/embed/'+id+'?'+(a?'autoplay=1&':'')+'playsinline=1&rel=0&modestbranding=1&iv_load_policy=3'+(S.opt.cc?'&cc_load_policy=1':'')+(S.opt.loop?'&loop=1&playlist='+id:'')+'" title="'+esc(V[id]?V[id].t:'Video')+'" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>';
 const parse=s=>{s=s.trim();if(S.ns&&/\/shorts\//.test(s))return null;let m=s.match(/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([\w-]{11})/);if(m)return m[1];return /^[\w-]{11}$/.test(s)?s:null};
 
 function play(id){const v=V[id];if(!v)return;cur=V[id];S.hist=[id,...S.hist.filter(x=>x!==id)].slice(0,30);save();pview();loadVideo(id).then(()=>{if(cur&&cur.id===id){cur=V[id];fillPlayer()}})}
@@ -580,133 +532,34 @@ async function openVideoChannel(vid){
   const id=(V[vid]||{}).ch;
   if(id)openChannel(id);else toast('Channel unavailable for this video');
 }
-let chanMode='sections',chanTok='',chanBusy=false,chanCache={},chanPlaylist=null;
-
-function chanSegs(){
-  const seg=(m,label)=>'<button class="chip glass '+(chanMode===m?'on':'')+'" data-chmode="'+m+'">'+label+'</button>';
-  return '<div class="chips" id="chseg" style="margin:6px 0 10px">'+seg('sections','Sections')+seg('latest','Latest')+seg('popular','Popular')+seg('oldest','Oldest')+'</div>';
-}
 async function openChannel(id){
-  chanId=id;chanTok='';chanBusy=false;chanMode='sections';chanCache={};chanPlaylist=null;
+  chanId=id;chanTok='';chanBusy=false;
   const p=$('#chp');p.classList.add('on');p.scrollTop=0;
-  p.innerHTML='<div class="plh"><button class="rb glass" id="chb" aria-label="Back">‹</button><b>Channel</b><span style="width:40px"></span></div>'+
-    '<div id="chhead"><div class="skel" style="height:110px"></div></div><div id="chsegwrap"></div><div id="chlist"></div>';
+  p.innerHTML='<div class="plh"><button class="rb glass" id="chb" aria-label="Back">‹</button><b>Channel</b><span style="width:40px"></span></div><div id="chhead"><div class="skel" style="height:110px"></div></div><div id="chlist"></div>';
   $('#chb').onclick=()=>{p.classList.remove('on');p.innerHTML=''};
   try{
     const c=await ensureChannel(id);
     $('#chhead').innerHTML=channelHead(c);
-    $('#chsegwrap').innerHTML=chanSegs();
-    await loadChan('sections',true);
+    await channelPage(true);
   }catch(e){$('#chhead').innerHTML='<div class="empty">Could not load this channel. '+esc(e.message||'')+'</div>'}
 }
-
-async function loadChan(mode,first){
-  const c=CH[chanId];if(!c)return;
-  const listEl=$('#chlist');if(!listEl)return;
-  chanMode=mode;chanPlaylist=null;
-  const seg=$('#chsegwrap');if(seg)seg.innerHTML=chanSegs();
-  const more=$('#chmore');if(more)more.remove();
-  listEl.innerHTML='<div class="skel"></div><div class="skel"></div>';
-
-  /* ---- sections: exactly how the channel owner arranged the channel ---- */
-  if(mode==='sections'){
-    if(chanCache.sections){listEl.innerHTML=chanCache.sections;wirePlaylists();return}
-    try{
-      const j=await yt('playlists',{part:'snippet,contentDetails',channelId:chanId,maxResults:25});
-      const items=(j.items||[]);
-      if(!items.length){chanCache.sections='';loadChan('latest',true);return}
-      listEl.innerHTML='<div class="tag">How this channel is organised — its own playlists</div><div class="plgrid">'+items.map(pl=>{
-        const id=pl.id,sn=pl.snippet||{},cd=pl.contentDetails||{};
-        vObj(id,{t:sn.title,c:c.title,ch:chanId,img:bestTh(sn.thumbnails),cat:'Playlist'});
-        return '<div class="plcard glass" data-plist="'+id+'">'+thumb(V[id],'card').replace('<div class="pl">▶</div>','')+
-          '<div class="plmeta"><b>'+esc(sn.title)+'</b><span>'+(cd.itemCount||'?')+' videos</span></div></div>';
-      }).join('')+'</div>';
-      chanCache.sections=listEl.innerHTML;
-      wirePlaylists();
-    }catch(e){
-      listEl.innerHTML='<div class="empty">Could not load this channel\'s sections. '+esc(e.message||'')+'</div>';
-    }
-    return;
-  }
-
-  /* ---- popular: needs one search call (100 units) ---- */
-  if(mode==='popular'){
-    if(chanCache.popular){listEl.innerHTML=chanCache.popular;return}
-    try{
-      const j=await yt('search',{part:'snippet',type:'video',channelId:chanId,order:'viewCount',maxResults:25});
-      const list=(j.items||[]).filter(it=>it.id&&it.id.videoId).map(it=>vObj(it.id.videoId,
-        {t:it.snippet.title,c:c.title,ch:chanId,img:bestTh(it.snippet.thumbnails),pub:it.snippet.publishedAt,cat:'Channel'}));
-      await loadChannels([chanId]);
-      if(!list.length){listEl.innerHTML='<div class="empty">Nothing to show.</div>';return}
-      listEl.innerHTML='<div class="tag">Most viewed first</div>'+list.map(rowv).join('');
-      chanCache.popular=listEl.innerHTML;
-    }catch(e){
-      const q=/quota/i.test(String(e.message||''));
-      listEl.innerHTML='<div class="empty">'+(q?"YouTube's daily search limit is used up — Popular returns after midnight PT.":'Could not load. '+esc(e.message||''))+'</div>';
-    }
-    return;
-  }
-
-  /* ---- oldest: walk the uploads playlist to its tail ---- */
-  if(mode==='oldest'){
-    if(chanCache.oldest){listEl.innerHTML=chanCache.oldest;return}
-    if(!c.up){listEl.innerHTML='<div class="empty">This channel does not expose its uploads.</div>';return}
-    try{
-      listEl.innerHTML='<div class="skel"></div><div class="tag">Walking back through the uploads…</div>';
-      let token='',last=null,guard=0;
-      do{
-        const j=await yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:50,pageToken:token});
-        const items=(j.items||[]).map(it=>vObj(it.snippet.resourceId.videoId,{t:it.snippet.title,c:c.title,ch:chanId,img:bestTh(it.snippet.thumbnails),pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,cat:'Channel'}));
-        if(items.length)last=items;
-        token=j.nextPageToken||'';
-        guard++;
-      }while(token&&guard<20);
-      if(!last){listEl.innerHTML='<div class="empty">This channel has no public videos.</div>';return}
-      const tail=last.slice().reverse();
-      listEl.innerHTML='<div class="tag">Earliest uploads on this channel</div>'+tail.map(rowv).join('');
-      chanCache.oldest=listEl.innerHTML;
-    }catch(e){listEl.innerHTML='<div class="empty">Could not load. '+esc(e.message||'')+'</div>'}
-    return;
-  }
-
-  /* ---- latest: uploads playlist, newest first, paged ---- */
-  if(!c.up){listEl.innerHTML='<div class="empty">This channel does not expose its uploads.</div>';return}
-  if(first){chanTok=''}
-  if(chanCache.latest&&first){listEl.innerHTML=chanCache.latest;return}
+async function channelPage(first){
   if(chanBusy)return;chanBusy=true;
+  const c=CH[chanId];const listEl=$('#chlist');
+  if(first){listEl.innerHTML='<div class="skel"></div><div class="skel"></div><div class="skel"></div>';$('#chmore')&&$('#chmore').remove()}
+  if(!c.up){listEl.innerHTML='<div class="empty">This channel does not expose its uploads.</div>';chanBusy=false;return}
   try{
     const j=await yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:50,pageToken:chanTok||''});
-    const items=(j.items||[]).map(it=>vObj(it.snippet.resourceId.videoId,{t:it.snippet.title,c:c.title,ch:chanId,img:bestTh(it.snippet.thumbnails),pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,cat:'Channel'}));
+    const items=(j.items||[]).map(it=>vObj(it.snippet.resourceId.videoId,{t:it.snippet.title,c:c.title,ch:chanId,img:bestTh(it.snippet.thumbnails),pub:it.contentDetails&&it.contentDetails.videoPublishedAt,cat:'Channel'}));
     chanTok=j.nextPageToken||'';
-    if(first)listEl.innerHTML='<div class="tag">Newest uploads first</div>';
+    if(first)listEl.innerHTML='';
     listEl.insertAdjacentHTML('beforeend',items.map(rowv).join(''));
-    if(first)chanCache.latest=listEl.innerHTML;
     const old=$('#chmore');if(old)old.remove();
-    if(chanTok){
-      $('#chp').insertAdjacentHTML('beforeend','<button class="loadmore" id="chmore">Load more videos</button>');
-      $('#chmore').onclick=()=>{$('#chmore').remove();loadChan('latest',false)};
-    }else if(!listEl.innerHTML.trim())listEl.innerHTML='<div class="empty">This channel has no public videos.</div>';
+    if(chanTok){$('#chp').insertAdjacentHTML('beforeend','<button class="loadmore" id="chmore">Load more videos</button>');
+      $('#chmore').onclick=()=>{$('#chmore').remove();channelPage(false)}}
+    else if(!listEl.innerHTML.trim())listEl.innerHTML='<div class="empty">This channel has no public videos.</div>';
   }catch(e){listEl.innerHTML='<div class="empty">Could not load videos. '+esc(e.message||'')+'</div>'}
   chanBusy=false;
-}
-
-function wirePlaylists(){
-  document.querySelectorAll('[data-plist]').forEach(el=>{
-    el.onclick=()=>openPlaylist(el.dataset.plist);
-  });
-}
-async function openPlaylist(pid){
-  const listEl=$('#chlist');if(!listEl)return;
-  const pl=V[pid]||{};
-  listEl.innerHTML='<div class="skel"></div><div class="skel"></div>';
-  try{
-    const j=await yt('playlistItems',{part:'snippet,contentDetails',playlistId:pid,maxResults:50});
-    const items=(j.items||[]).map(it=>vObj(it.snippet.resourceId.videoId,{t:it.snippet.title,c:(CH[chanId]||{}).title||'',ch:chanId,img:bestTh(it.snippet.thumbnails),pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,cat:'Playlist'}));
-    if(!items.length){listEl.innerHTML='<div class="empty">This playlist is empty.</div>';return}
-    listEl.innerHTML='<div class="tag">'+esc(pl.t||'Playlist')+' · '+items.length+' videos</div>'+
-      '<button class="loadmore" id="plback" style="margin:0 0 10px">‹ All playlists</button>'+items.map(rowv).join('');
-    $('#plback').onclick=()=>{const seg=$('#chsegwrap');if(seg)seg.innerHTML=chanSegs();loadChan('sections',true)};
-  }catch(e){listEl.innerHTML='<div class="empty">Could not load this playlist. '+esc(e.message||'')+'</div>'}
 }
 
 /* ---------------- shorts ---------------- */
@@ -717,7 +570,7 @@ function shorts(){
   const list=feed().slice(0,12);
   el.innerHTML=list.map(v=>'<section class="sx" data-id="'+v.id+'" style="background:linear-gradient(160deg,'+v.g[0]+','+v.g[1]+')"><div class="sf"><span>'+v.e+'</span></div><div class="sa"><button class="rb glass" data-sl="'+v.id+'" aria-label="Like">'+(S.liked.includes(v.id)?'♥':'♡')+'</button><button class="rb glass" data-sw="'+v.id+'" aria-label="Watch later">🕐</button><button class="rb glass" data-ss="'+v.id+'" aria-label="Share">↗</button></div><div class="sd glass"><b>'+esc(v.t)+'</b><span>'+esc(v.c)+' · swipe up</span></div></section>').join('');
   const io=new IntersectionObserver(es=>es.forEach(x=>{const id=x.target.dataset.id,f=x.target.querySelector('.sf');
-    if(x.isIntersecting&&x.intersectionRatio>.6){f.innerHTML='<iframe src="https://www.youtube-nocookie.com/embed/'+id+'?autoplay=1&playsinline=1&rel=0&loop=1&playlist='+id+'" allow="autoplay; encrypted-media; fullscreen" title="'+esc(V[id].t)+'"></iframe>'}
+    if(x.isIntersecting&&x.intersectionRatio>.6){f.innerHTML='<iframe src="https://www.youtube-nocookie.com/embed/'+id+'?autoplay=1&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&loop=1&playlist='+id+'" allow="autoplay; encrypted-media; fullscreen" title="'+esc(V[id].t)+'"></iframe>'}
     else if(f.querySelector('iframe'))f.innerHTML='<span>'+V[id].e+'</span>'}),{root:el,threshold:[.6]});
   el.querySelectorAll('.sx').forEach(s=>io.observe(s));
 }
@@ -744,8 +597,6 @@ document.addEventListener('click',e=>{
   const t=e.target.closest('[data-t]');if(t){tab=t.dataset.t;render();$('#main').scrollTop=0;return}
   const c=e.target.closest('[data-c]');if(c){cat=c.dataset.c;render();return}
   const kk=e.target.closest('[data-k]');if(kk){blockMenu(kk.dataset.k);return}
-  const sq=e.target.closest('[data-shelfq]');if(sq){tab='search';q=sq.dataset.shelfq;render();find(true);return}
-  const cmode=e.target.closest('[data-chmode]');if(cmode){loadChan(cmode.dataset.chmode,true);return}
   const cp=e.target.closest('[data-chplay]');if(cp){const rr=document.querySelector('#chlist .row[data-v]');if(rr)play(rr.dataset.v);else toast('No videos loaded yet');return}
   const co=e.target.closest('[data-chopen]');if(co&&!e.target.closest('button')){openVideoChannel(co.dataset.chopen);return}
   const ch=e.target.closest('[data-ch]');if(ch&&!e.target.closest('button')){openChannel(ch.dataset.ch);return}
