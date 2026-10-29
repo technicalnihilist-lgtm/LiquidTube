@@ -155,7 +155,7 @@ html[data-layout=full] .app{max-width:100%;height:100%;margin:0;border-radius:0;
 <div class="app" id="app">
 <section class="page" id="p-home">
  <div class="top"><div class="row"><div class="logo"><i></i>LiquidTube</div>
-  <div class="ic"><button class="glass" data-ic="plus" data-do="plus" aria-label="Create"></button><button class="glass" data-ic="cast" data-do="cast" aria-label="Cast"></button><button class="glass" data-ic="bell" data-do="bell" aria-label="Notifications"></button><button class="glass" id="theme" data-ic="user" aria-label="Switch theme"></button></div></div>
+  <div class="ic"><button class="glass" data-ic="plus" data-do="plus" aria-label="Create"></button><button class="glass" data-ic="cast" data-do="cast" aria-label="Cast"></button><button class="glass" data-ic="bell" data-do="bell" aria-label="Notifications"></button><button class="glass" id="you" data-ic="user" data-do="you" aria-label="You"></button></div></div>
   <div class="chips" id="chips"></div></div>
  <h2>Shorts</h2><div class="srow" id="srow"></div>
  <div id="feed" style="padding-top:12px;transition:opacity .2s"></div>
@@ -262,12 +262,24 @@ async function loadTrending(){
   try{
     const j=await yt('videos',{part:'snippet,statistics',chart:'mostPopular',regionCode:'IN',maxResults:24});
     const list=(j.items||[]).map(it=>vObj(it.id,{t:dec(it.snippet.title),c:dec(it.snippet.channelTitle),ch:it.snippet.channelId,
-      views:it.statistics&&it.statistics.viewCount,pub:it.snippet.publishedAt,cat:'All'}));
+      views:it.statistics&&it.statistics.viewCount,pub:it.snippet.publishedAt,
+      cat:CATMAP[+it.snippet.categoryId]||'All'}));
     await loadChannels(list.map(v=>v.ch));
     FEED.trending=list;return list;
   }catch(e){FEED.error=e.message||'offline';FEED.trending=[];return []}
 }
 const feed=()=>FEED.trending||[];
+const iso2sec=d=>{const m=/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/.exec(d||'');return m?(+m[1]||0)*3600+(+m[2]||0)*60+(+m[3]||0):0};
+async function loadDurations(list){
+  const ids=list.filter(v=>v.dur==null).map(v=>v.id).slice(0,50);
+  if(!ids.length)return;
+  try{
+    const j=await yt('videos',{part:'contentDetails',id:ids.join(',')});
+    (j.items||[]).forEach(it=>{if(V[it.id])V[it.id].dur=iso2sec(it.contentDetails&&it.contentDetails.duration)});
+  }catch(e){}
+}
+const SHORT_MAX=70;
+const shortsOf=()=>(FEED.shorts&&FEED.shorts.length?FEED.shorts:feed().filter(v=>v.dur&&v.dur<=SHORT_MAX));
 
 /* ---------- card + list renderers (reference markup) ---------- */
 const cardOf=v=>'<button class="card" data-v="'+esc(v.id)+'"><div class="thumb">'+thumbImg(v.id)+(v.views?'<u>'+num(v.views)+' views</u>':'')+'</div>'+
@@ -277,23 +289,59 @@ const meta=v=>[v.views?num(v.views)+' views':'',v.pub?ago(v.pub):''].filter(Bool
 const list=(arr,el)=>{el.innerHTML=arr.length?arr.map(cardOf).join(''):'<div class="empty">Nothing here yet.</div>'};
 
 /* ---------- chips ---------- */
-const CATS=['All','Music','Gaming','Sports','Podcasts','Live','Calm','AI music'];
-$('chips').innerHTML=CATS.map((c,i)=>'<button class="chip glass'+(i?'':' on')+'">'+c+'</button>').join('');
+const CATMAP={1:'Film',2:'Cars',10:'Music',15:'Animals',17:'Sports',19:'Travel',20:'Gaming',22:'People',23:'Comedy',24:'Entertainment',25:'News',26:'Howto',27:'Education',28:'Science',29:'Nonprofits'};
+let CATS=['All','Music','Gaming','Sports','Entertainment','News','Education'];
 let cat='All';
+function renderChips(){
+  const present=[...new Set(feed().map(v=>v.cat).filter(c=>c&&c!=='All'))];
+  CATS=['All',...present];
+  $('chips').innerHTML=CATS.map((c,i)=>'<button class="chip glass'+(c===cat?' on':'')+'">'+c+'</button>').join('');
+}
+renderChips();
 function chip(n){
   cat=n;
   [...$('chips').querySelectorAll('.chip')].forEach(b=>b.classList.toggle('on',b.textContent===n));
   const f=$('feed');f.style.opacity=0;
-  setTimeout(()=>{list(cat==='All'?feed():feed().filter(v=>(v.cat||'')===cat),f);f.style.opacity=1},140);
+  setTimeout(()=>{
+    const items=cat==='All'?feed():feed().filter(v=>v.cat===cat);
+    list(items,f);
+    if(!items.length)f.innerHTML='<div class="empty">Nothing in '+esc(cat)+' right now.</div>';
+    f.style.opacity=1;
+  },140);
 }
 $('chips').onclick=e=>{const b=e.target.closest('.chip');if(b)chip(b.textContent)};
 
 /* ---------- shorts strip + page ---------- */
-function renderShorts(){
-  const list=feed().slice(0,8);
+async function ensureShorts(){
+  if(FEED.shorts)return FEED.shorts;
+  try{
+    const c=JSON.parse(localStorage.getItem('lt_shorts')||'null');
+    if(c&&c.at&&Date.now()-c.at<12*36e5&&c.items&&c.items.length){
+      c.items.forEach(it=>vObj(it.id,it));
+      FEED.shorts=c.items.map(it=>V[it.id]).filter(Boolean);
+      if(FEED.shorts.length)return FEED.shorts;
+    }
+  }catch(e){}
+  await loadDurations(feed());
+  let list=feed().filter(v=>v.dur&&v.dur<=SHORT_MAX);
+  if(list.length<4){
+    try{
+      const j=await yt('search',{part:'snippet',type:'video',videoDuration:'short',maxResults:12,q:'#shorts'});
+      list=(j.items||[]).filter(it=>it.id&&it.id.videoId).map(it=>vObj(it.id.videoId,
+        {t:dec(it.snippet.title),c:dec(it.snippet.channelTitle),ch:it.snippet.channelId,pub:it.snippet.publishedAt,cat:'Shorts'}));
+      await loadChannels(list.map(v=>v.ch));
+    }catch(e){}
+  }
+  FEED.shorts=list.slice(0,12);
+  try{localStorage.setItem('lt_shorts',JSON.stringify({at:Date.now(),items:FEED.shorts.map(v=>({id:v.id,t:v.t,c:v.c,ch:v.ch,pub:v.pub,dur:v.dur}))}))}catch(e){}
+  return FEED.shorts;
+}
+async function renderShorts(){
+  const list=await ensureShorts();
   $('srow').innerHTML=list.map(v=>'<button class="sc" data-v="'+esc(v.id)+'"><img src="https://i.ytimg.com/vi/'+esc(v.id)+'/hqdefault.jpg" alt=""><b>'+esc(v.t)+'</b></button>').join('');
-  $('p-shorts').innerHTML=list.map(v=>'<div class="sh"><iframe src="https://www.youtube-nocookie.com/embed/'+esc(v.id)+'?playsinline=1&rel=0&modestbranding=1&enablejsapi=1" allow="autoplay; encrypted-media; fullscreen" title="'+esc(v.t)+'"></iframe>'+
-    '<div class="cap"><b>'+esc(v.c)+'</b><p>'+esc(v.t)+'</p></div></div>').join('');
+  $('p-shorts').innerHTML=list.length?list.map(v=>'<div class="sh"><iframe src="https://www.youtube-nocookie.com/embed/'+esc(v.id)+'?playsinline=1&rel=0&modestbranding=1&enablejsapi=1" allow="autoplay; encrypted-media; fullscreen" title="'+esc(v.t)+'"></iframe>'+
+    '<div class="cap"><b>'+esc(v.c)+'</b><p>'+esc(v.t)+'</p></div></div>').join('')
+    :'<div class="empty">No Shorts right now.</div>';
 }
 
 /* ---------- explore (shelves) ---------- */
@@ -416,6 +464,7 @@ function settingsHTML(){
     '<div style="font-size:12.5px;color:var(--mute);margin:-4px 2px 12px">0% solid glass · 100% fully see-through</div>'+
     '<div style="font-size:13px;font-weight:700;margin:0 2px 8px">Layout</div>'+
     '<div class="laychips">'+btn('phone','Phone')+btn('tablet','Tablet')+btn('full','Full screen')+'</div>'+
+    '<button class="opt glass" data-tgl="theme">Theme: '+(document.documentElement.dataset.theme==='dark'?'dark':'light')+'</button>'+
     '<button class="opt glass" data-opt="cc">Captions: '+(S.opt.cc?'on':'off')+'</button>'+
     '<button class="opt glass" data-opt="loop">Loop: '+(S.opt.loop?'on':'off')+'</button>'+
     '<button class="opt glass" data-opt="cmt">Comments: '+(S.opt.cmt?'on':'off')+'</button>';
@@ -427,6 +476,8 @@ $('sheet').addEventListener('input',e=>{
   applyGlass();
 });
 $('sheet').addEventListener('click',e=>{
+  const th=e.target.closest('[data-tgl="theme"]');
+  if(th){toggleTheme();th.textContent='Theme: '+(document.documentElement.dataset.theme==='dark'?'dark':'light');return}
   const b=e.target.closest('[data-lay]');
   if(!b)return;
   S.opt.layout=b.dataset.lay;save();applyLayout();
@@ -495,15 +546,20 @@ document.addEventListener('click',e=>{
   const sh=e.target.closest('[data-shelf]');
   if(sh){openS();qi.value=sh.textContent==='View All'?'':'';return}
   const d=e.target.closest('[data-do]');
-  if(d){const k=d.dataset.do;k==='bell'?sheet('Notifications','<div class="empty">No new notifications.</div>',0):k==='plus'?sheet('Create','<button class="opt glass">Upload a video</button><button class="opt glass">Create a Short</button>',0):toast('Not available on this device')}
+  if(d){const k=d.dataset.do;k==='you'?openLibrary():k==='bell'?sheet('Notifications','<div class="empty">No new notifications.</div>',0):k==='plus'?sheet('Create','<button class="opt glass">Upload a video</button><button class="opt glass">Create a Short</button>',0):toast('Not available on this device')}
 });
 
 /* ---------- theme ---------- */
-$('theme').onclick=()=>{const d=document.documentElement;const dark=d.dataset.theme?d.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;d.dataset.theme=dark?'light':'dark';applyGlass()};
-$('theme').removeAttribute('data-do');
+function toggleTheme(){
+  const d=document.documentElement;
+  const dark=d.dataset.theme?d.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+  d.dataset.theme=dark?'light':'dark';
+  applyGlass();
+}
 
 /* ---------- boot ---------- */
 loadTrending().then(()=>{
+  renderChips();
   list(feed(),$('feed'));
   renderShorts();
   renderExplore();
