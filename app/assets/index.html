@@ -157,7 +157,7 @@ html[data-layout=full] .app{max-width:100%;height:100%;margin:0;border-radius:0;
  <div class="top"><div class="row"><div class="logo"><i></i>LiquidTube</div>
   <div class="ic"><button class="glass" data-ic="plus" data-do="plus" aria-label="Create"></button><button class="glass" data-ic="cast" data-do="cast" aria-label="Cast"></button><button class="glass" data-ic="bell" data-do="bell" aria-label="Notifications"></button><button class="glass" id="you" data-ic="user" data-do="you" aria-label="You"></button></div></div>
   <div class="chips" id="chips"></div></div>
- <h2>Shorts</h2><div class="srow" id="srow"></div>
+ <h2 id="shorthead">Shorts</h2><div class="srow" id="srow"></div>
  <div id="feed" style="padding-top:12px;transition:opacity .2s"></div>
 </section>
 <section class="page" id="p-explore"><div class="top"><div class="row"><div class="logo">Explore</div><div class="ic"><button class="glass" data-ic="cast" data-do="cast" aria-label="Cast"></button><button class="glass" data-ic="more" data-do="more" aria-label="More"></button></div></div></div><div id="ex"></div></section>
@@ -278,26 +278,23 @@ async function loadDurations(list){
     (j.items||[]).forEach(it=>{if(V[it.id])V[it.id].dur=iso2sec(it.contentDetails&&it.contentDetails.duration)});
   }catch(e){}
 }
-const SHORT_MAX=70;
-const shortsOf=()=>(FEED.shorts&&FEED.shorts.length?FEED.shorts:feed().filter(v=>v.dur&&v.dur<=SHORT_MAX));
-
-/* ---------- card + list renderers (reference markup) ---------- */
+/* ---------- card + list renderers ---------- */
+const meta=v=>[v.views?num(v.views)+' views':'',v.pub?ago(v.pub):''].filter(Boolean).join(' · ');
 const cardOf=v=>'<button class="card" data-v="'+esc(v.id)+'"><div class="thumb">'+thumbImg(v.id)+(v.views?'<u>'+num(v.views)+' views</u>':'')+'</div>'+
   '<div class="meta">'+(v.ch&&CH[v.ch]&&CH[v.ch].av?'<img class="av" src="'+esc(CH[v.ch].av)+'" alt="">':'<div class="av" style="background:'+g(hash(v.id))+'"></div>')+
   '<div><b>'+esc(v.t)+'</b><span>'+esc(v.c)+(v.views?' · '+num(v.views)+' views':'')+(v.pub?' · '+ago(v.pub):'')+'</span></div></div></button>';
-const meta=v=>[v.views?num(v.views)+' views':'',v.pub?ago(v.pub):''].filter(Boolean).join(' · ');
-const list=(arr,el)=>{el.innerHTML=arr.length?arr.map(cardOf).join(''):'<div class="empty">Nothing here yet.</div>'};
+const list=(arr,el)=>{el.innerHTML=arr&&arr.length?arr.map(cardOf).join(''):'<div class="empty">Nothing here yet.</div>'};
 
 /* ---------- chips ---------- */
+let cat='All';
 const CATMAP={1:'Film',2:'Cars',10:'Music',15:'Animals',17:'Sports',19:'Travel',20:'Gaming',22:'People',23:'Comedy',24:'Entertainment',25:'News',26:'Howto',27:'Education',28:'Science',29:'Nonprofits'};
 let CATS=['All','Music','Gaming','Sports','Entertainment','News','Education'];
-let cat='All';
 function renderChips(){
   const present=[...new Set(feed().map(v=>v.cat).filter(c=>c&&c!=='All'))];
   CATS=['All',...present];
-  $('chips').innerHTML=CATS.map((c,i)=>'<button class="chip glass'+(c===cat?' on':'')+'">'+c+'</button>').join('');
+  if(!CATS.includes(cat))cat='All';
+  $('chips').innerHTML=CATS.map(c=>'<button class="chip glass'+(c===cat?' on':'')+'">'+c+'</button>').join('');
 }
-renderChips();
 function chip(n){
   cat=n;
   [...$('chips').querySelectorAll('.chip')].forEach(b=>b.classList.toggle('on',b.textContent===n));
@@ -311,33 +308,53 @@ function chip(n){
 }
 $('chips').onclick=e=>{const b=e.target.closest('.chip');if(b)chip(b.textContent)};
 
-/* ---------- shorts strip + page ---------- */
+const SHORT_MAX=60;                        // a real Short is a minute or less
+const isShort=v=>v&&typeof v.dur==='number'&&v.dur>0&&v.dur<=SHORT_MAX;
+
+async function verifyDurations(list){
+  const need=list.filter(v=>v&&typeof v.dur!=='number');
+  if(!need.length)return list;
+  await loadDurations(need);
+  return list;
+}
 async function ensureShorts(){
   if(FEED.shorts)return FEED.shorts;
+  /* cached list is only trusted when every entry still passes the duration check */
   try{
     const c=JSON.parse(localStorage.getItem('lt_shorts')||'null');
-    if(c&&c.at&&Date.now()-c.at<12*36e5&&c.items&&c.items.length){
+    if(c&&c.at&&Date.now()-c.at<12*36e5&&Array.isArray(c.items)&&c.items.length){
       c.items.forEach(it=>vObj(it.id,it));
-      FEED.shorts=c.items.map(it=>V[it.id]).filter(Boolean);
-      if(FEED.shorts.length)return FEED.shorts;
+      const ok=c.items.map(it=>V[it.id]).filter(isShort);
+      if(ok.length===c.items.length&&ok.length){FEED.shorts=ok;return ok}
+      localStorage.removeItem('lt_shorts');
     }
   }catch(e){}
+
   await loadDurations(feed());
-  let list=feed().filter(v=>v.dur&&v.dur<=SHORT_MAX);
+  let list=feed().filter(isShort);
+
   if(list.length<4){
     try{
       const j=await yt('search',{part:'snippet',type:'video',videoDuration:'short',maxResults:12,q:'#shorts'});
-      list=(j.items||[]).filter(it=>it.id&&it.id.videoId).map(it=>vObj(it.id.videoId,
+      const found=(j.items||[]).filter(it=>it.id&&it.id.videoId).map(it=>vObj(it.id.videoId,
         {t:dec(it.snippet.title),c:dec(it.snippet.channelTitle),ch:it.snippet.channelId,pub:it.snippet.publishedAt,cat:'Shorts'}));
-      await loadChannels(list.map(v=>v.ch));
+      /* never trust the search filter alone: measure every candidate */
+      await loadDurations(found);
+      await loadChannels(found.map(v=>v.ch));
+      list=found.filter(isShort);
     }catch(e){}
   }
-  FEED.shorts=list.slice(0,12);
-  try{localStorage.setItem('lt_shorts',JSON.stringify({at:Date.now(),items:FEED.shorts.map(v=>({id:v.id,t:v.t,c:v.c,ch:v.ch,pub:v.pub,dur:v.dur}))}))}catch(e){}
+
+  FEED.shorts=list.slice(0,12);            // always duration-checked, never the raw feed
+  try{localStorage.setItem('lt_shorts',JSON.stringify({at:Date.now(),
+    items:FEED.shorts.map(v=>({id:v.id,t:v.t,c:v.c,ch:v.ch,pub:v.pub,dur:v.dur}))}))}catch(e){}
   return FEED.shorts;
 }
 async function renderShorts(){
   const list=await ensureShorts();
+  const head=document.getElementById('shorthead');
+  if(head)head.style.display=list.length?'':'none';
+  $('srow').style.display=list.length?'flex':'none';
   $('srow').innerHTML=list.map(v=>'<button class="sc" data-v="'+esc(v.id)+'"><img src="https://i.ytimg.com/vi/'+esc(v.id)+'/hqdefault.jpg" alt=""><b>'+esc(v.t)+'</b></button>').join('');
   $('p-shorts').innerHTML=list.length?list.map(v=>'<div class="sh"><iframe src="https://www.youtube-nocookie.com/embed/'+esc(v.id)+'?playsinline=1&rel=0&modestbranding=1&enablejsapi=1" allow="autoplay; encrypted-media; fullscreen" title="'+esc(v.t)+'"></iframe>'+
     '<div class="cap"><b>'+esc(v.c)+'</b><p>'+esc(v.t)+'</p></div></div>').join('')
