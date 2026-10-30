@@ -4,6 +4,10 @@ A liquid-glass YouTube client for Android — the whole UI is one self-contained
 
 **[⬇ Download the APK](https://github.com/technicalnihilist-lgtm/LiquidTube/releases/latest)**
 
+### ▶ [Watch the 42-second demo](https://github.com/technicalnihilist-lgtm/LiquidTube/releases/download/v7.0-demo/LiquidTube-demo.mp4)
+
+A narrated walkthrough of Home, Explore, Your library, Settings (glass transparency + layouts) and Subscriptions — English voiceover, no setup needed.
+
 ![Platform](https://img.shields.io/badge/platform-Android%205.0%2B-3ddc84)
 ![Version](https://img.shields.io/badge/version-1.8-ff2d55)
 ![Size](https://img.shields.io/badge/APK-206%20KB-6a3bff)
