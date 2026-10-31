@@ -378,13 +378,14 @@ function chip(n){
 }
 $('chips').onclick=e=>{const b=e.target.closest('.chip');if(b)chip(b.textContent)};
 
-/* Shorts are removed everywhere: feed, search, shelves and channel pages */
-const SHORT_MAX=60;
+/* Long form only. YouTube Shorts can run up to 3 minutes, so anything at or
+   under that is treated as a short and never reaches the app. */
+const LONG_MIN=180;
 const SHORT_RE=/#shorts?\b|\/shorts\//i;
-const isShort=v=>!!v&&(SHORT_RE.test(v.t||'')||(typeof v.dur==='number'&&v.dur>0&&v.dur<=SHORT_MAX));
+const isShort=v=>!v||SHORT_RE.test(v.t||'')||(typeof v.dur==='number'&&v.dur>0&&v.dur<=LONG_MIN);
 async function dropShorts(list){
   list=(list||[]).filter(v=>v&&!SHORT_RE.test(v.t||'')&&!/^(Private|Deleted) video$/i.test(v.t||''));
-  await loadDurations(list);
+  await loadDurations(list);                 // every item is measured, not just the unknown ones
   return list.filter(v=>!isShort(v));
 }
 
@@ -429,15 +430,15 @@ function renderExplore(){
 const BADRE=/\breaction\b|\breacts?\b|\breacting\b|reaction\s*[!|]/i;
 const SECTIONS={
   anime:{
-    el:'animefeed', key:'lt_anime',
-    channels:['UC7eHSvqnDbZLCtW3JjPAg3A','UCcDvQM6NucVAlpryMA2K19A','UCQ6VArEt6chk0sRASWCIPhQ']
+    el:'animefeed', key:'lt_anime', q:'anime hindi dubbed full episode',
+    channels:['UCbooIOzIduLDQuXnjymX0LA','UCE_unrO5vPA_c-Kpci0zdxw','UCF-GU6WZnkTNto62Ew7n2Aw','UC7eHSvqnDbZLCtW3JjPAg3A']
   },
   cartoon:{
-    el:'cartoonfeed', key:'lt_cartoon',
-    channels:['UCiBigY9XM-HaOxUc269ympg','UCmYOUJTZiVW72PNdYPFfkDA','UCTA8MKozQTzeOLJV1BQVMrA','UC760cHmgkk00FRT1dw2DMdA']
+    el:'cartoonfeed', key:'lt_cartoon', q:'cartoon hindi full episode',
+    channels:['UC9iBBFfq7L3ipvodSLrU8gQ','UCj-SWZSE0AmotGSQ3apROHw','UCkytZQj3NccDV3tLMoOxRIQ','UCYhdnzvcr5g22CmvcwpPhrQ','UCiBigY9XM-HaOxUc269ympg']
   },
   movies:{
-    el:'moviesfeed', key:'lt_movies',
+    el:'moviesfeed', key:'lt_movies', q:'animated hindi movie full',
     channels:['UCkytZQj3NccDV3tLMoOxRIQ','UCYhdnzvcr5g22CmvcwpPhrQ','UC9iBBFfq7L3ipvodSLrU8gQ','UCj-SWZSE0AmotGSQ3apROHw','UCuvZqGuCLbDBdoP9-MPVsqg']
   }
 };
@@ -479,8 +480,21 @@ async function loadSection(name){
       });
     }catch(e){}
   }
+  let clean=await dropShorts(out.filter(keep));
+  if(clean.length<8&&cfg.q){
+    try{
+      const j=await yt('search',{part:'snippet',type:'video',maxResults:20,q:cfg.q,
+        videoDuration:'long',relevanceLanguage:'hi',regionCode:'IN',videoEmbeddable:'true'});
+      const extra=(j.items||[]).filter(it=>it.id&&it.id.videoId).map(it=>vObj(it.id.videoId,
+        {t:dec(it.snippet.title),c:dec(it.snippet.channelTitle),ch:it.snippet.channelId,
+         pub:it.snippet.publishedAt,cat:name==='anime'?'Anime':name==='cartoon'?'Cartoon':'Animation'}));
+      clean=clean.concat(await dropShorts(extra.filter(keep)));
+    }catch(e){}
+  }
   const seen=new Set();
-  const clean=out.filter(v=>!seen.has(v.id)&&seen.add(v.id)).filter(keep);
+  clean=clean.filter(v=>!seen.has(v.id)&&seen.add(v.id));
+  const hi=v=>/[\u0900-\u097F]|\bhindi\b/i.test(v.t||'')?1:0;
+  clean.sort((a,b)=>hi(b)-hi(a));      // Hindi titles first, then the rest
   await loadChannels(clean.map(v=>v.ch));
   SEC[name]=clean;
   try{localStorage.setItem(cfg.key,JSON.stringify({at:Date.now(),
@@ -527,6 +541,7 @@ function mount(id,title){
 }
 function play(id){
   const v=V[id];if(!v)return;
+  if(isShort(v)){toast('Shorts are turned off');return}
   cur=v;
   $('sheet').classList.remove('on');
   S.hist=S.hist.filter(x=>x!==id);S.hist.unshift(id);S.hist=S.hist.slice(0,100);
