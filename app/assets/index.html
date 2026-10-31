@@ -198,7 +198,7 @@ img.ld{opacity:1;scale:1}
  <div id="feed" style="padding-top:12px;transition:opacity .2s"><div class="ldr"><i></i><i></i><i></i></div><div class="skl"></div><div class="skl"></div><div class="skl"></div></div>
 </section>
 <section class="page" id="p-explore"><div class="top"><div class="row"><div class="logo">Explore</div><div class="ic"><button class="glass" data-ic="cast" data-do="cast" aria-label="Cast"></button><button class="glass" data-ic="more" data-do="more" aria-label="More"></button></div></div></div><div id="ex"></div></section>
-<section class="page" id="p-subs"><div class="top"><div class="logo">Subscriptions</div></div><div class="sg" id="sg"></div><h2 id="subh">Latest</h2><div id="subfeed"></div></section>
+<section class="page" id="p-anime"><div class="top"><div class="logo">Anime <span style="font-weight:600;color:var(--mute);font-size:13px">· Hindi</span></div></div><div id="animefeed"></div></section><section class="page" id="p-cartoon"><div class="top"><div class="logo">Cartoon <span style="font-weight:600;color:var(--mute);font-size:13px">· Hindi</span></div></div><div id="cartoonfeed"></div></section><section class="page" id="p-subs"><div class="top"><div class="logo">Subscriptions</div></div><div class="sg" id="sg"></div><h2 id="subh">Latest</h2><div id="subfeed"></div></section>
 <div id="search"><div class="sbar"><label class="glass"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" placeholder="Search videos" autocomplete="off"></label><button id="cancel">Cancel</button></div><div class="sug" id="sug"></div><div id="results"></div></div>
 <div id="scrim"></div>
 <div id="pl" class="glass"><div class="art thumb"></div><b id="ptitle"></b><span id="pmeta"></span><div class="prow"><button class="glass" id="ppp">Like</button><button class="glass" id="plk">Channel</button><button class="glass" id="psave">Save</button><button class="glass" id="pcm">Comments</button><button class="glass" id="pclose">Close</button></div></div>
@@ -209,7 +209,7 @@ img.ld{opacity:1;scale:1}
 </div>
 <script>
 const $=id=>document.getElementById(id);
-const I={plus:'<path d="M12 5v14M5 12h14"/>',cast:'<path d="M3 8V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5"/><path d="M3 12a8 8 0 0 1 8 8M3 16a4 4 0 0 1 4 4M3 20h.01"/>',bell:'<path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0"/>',user:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.2 18.5a7 7 0 0 1 11.6 0"/>',more:'<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',home:'<path d="M3 11 12 3l9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',explore:'<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',subs:'<rect x="3" y="7" width="18" height="13" rx="3"/><path d="M7 3h10M10 11l4 2.5-4 2.5z"/>',like:'<path d="M7 11v9H4v-9zM7 11l4-8c2 0 3 1.5 2.5 3.5L13 9h5.5a2 2 0 0 1 2 2.4l-1.3 6.5a2 2 0 0 1-2 1.6H7"/>',cmt:'<path d="M4 5h16v11H9l-5 4z"/>',share:'<path d="M4 12v7h16v-7M12 3v12M7.5 7.5 12 3l4.5 4.5"/>',remix:'<path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"/>',audio:'<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>'};
+const I={anime:'<rect x="3.5" y="4" width="17" height="16" rx="4"/><path d="M9 9.5v5l5-2.5z"/><path d="M7 4v16M17 4v16"/>',cartoon:'<circle cx="12" cy="12" r="8.5"/><circle cx="9" cy="10" r="1.3"/><circle cx="15" cy="10" r="1.3"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/>',plus:'<path d="M12 5v14M5 12h14"/>',cast:'<path d="M3 8V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5"/><path d="M3 12a8 8 0 0 1 8 8M3 16a4 4 0 0 1 4 4M3 20h.01"/>',bell:'<path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0"/>',user:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.2 18.5a7 7 0 0 1 11.6 0"/>',more:'<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',home:'<path d="M3 11 12 3l9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',explore:'<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',subs:'<rect x="3" y="7" width="18" height="13" rx="3"/><path d="M7 3h10M10 11l4 2.5-4 2.5z"/>',like:'<path d="M7 11v9H4v-9zM7 11l4-8c2 0 3 1.5 2.5 3.5L13 9h5.5a2 2 0 0 1 2 2.4l-1.3 6.5a2 2 0 0 1-2 1.6H7"/>',cmt:'<path d="M4 5h16v11H9l-5 4z"/>',share:'<path d="M4 12v7h16v-7M12 3v12M7.5 7.5 12 3l4.5 4.5"/>',remix:'<path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"/>',audio:'<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>'};
 const ic=n=>`<svg viewBox="0 0 24 24">${I[n]}</svg>`;
 document.querySelectorAll('[data-ic]').forEach(b=>b.innerHTML=ic(b.dataset.ic));
 /* ================= LiquidTube — live data on the liquid-glass shell ================= */
@@ -226,8 +226,15 @@ const bestTh=t=>{if(!t)return '';return (t.maxres||t.standard||t.high||t.medium|
 const cname=cc=>{try{return new Intl.DisplayNames(['en'],{type:'region'}).of(cc)||cc}catch(e){return cc}};
 const pic=id=>'https://i.ytimg.com/vi/'+id+'/maxresdefault.jpg';
 const QUAL=['maxresdefault','sddefault','hqdefault','mqdefault','default'];
-window.TH=function(img){const q=+img.dataset.q+1;if(q<QUAL.length){img.dataset.q=q;img.src='https://i.ytimg.com/vi/'+img.dataset.id+'/'+QUAL[q]+'.jpg'}else{img.style.display='none'}};
-const thumbImg=id=>'<img src="https://i.ytimg.com/vi/'+esc(id)+'/maxresdefault.jpg" alt="" loading="lazy" data-id="'+esc(id)+'" data-q="0" onerror="TH(this)">';
+window.THOK=function(img){
+  if(img.dataset.f)return;
+  if(img.naturalWidth<=121){
+    img.dataset.f='1';
+    img.src='https://i.ytimg.com/vi/'+img.dataset.id+'/hqdefault.jpg';
+  }
+};
+window.TH=function(img){if(img.dataset.f){img.style.opacity='0';return}img.dataset.f='1';img.src='https://i.ytimg.com/vi/'+img.dataset.id+'/hqdefault.jpg';};
+const thumbImg=id=>'<img src="https://i.ytimg.com/vi/'+esc(id)+'/maxresdefault.jpg" alt="" loading="lazy" data-id="'+esc(id)+'" data-q="0" onload="THOK(this)" onerror="TH(this)">';
 
 /* ---------- persisted state ---------- */
 const SKEY='lt';
@@ -324,7 +331,7 @@ async function loadDurations(list){
 /* ---------- card + list renderers ---------- */
 const meta=v=>[v.views?num(v.views)+' views':'',v.pub?ago(v.pub):''].filter(Boolean).join(' · ');
 const cardOf=(v,i)=>'<button class="card" style="--i:'+Math.min(i||0,8)+'" data-v="'+esc(v.id)+'"><div class="thumb">'+thumbImg(v.id)+(v.views?'<u>'+num(v.views)+' views</u>':'')+'</div>'+
-  '<div class="meta">'+(v.ch&&CH[v.ch]&&CH[v.ch].av?'<img class="av" src="'+esc(CH[v.ch].av)+'" alt="">':'<div class="av" style="background:'+g(hash(v.id))+'"></div>')+
+  '<div class="meta">'+(v.ch&&CH[v.ch]&&CH[v.ch].av?'<img class="av" src="'+esc(CH[v.ch].av)+'" alt="" onerror="this.style.visibility=\'hidden\'">':'<div class="av" style="background:'+g(hash(v.id))+'"></div>')+
   '<div><b>'+esc(v.t)+'</b><span>'+esc(v.c)+(v.views?' · '+num(v.views)+' views':'')+(v.pub?' · '+ago(v.pub):'')+'</span></div></div></button>';
 const list=(arr,el)=>{el.innerHTML=arr&&arr.length?arr.map(cardOf).join(''):'<div class="empty">Nothing here yet.</div>'};
 
@@ -396,6 +403,79 @@ function renderExplore(){
       el.innerHTML=list.slice(0,6).map(v=>'<div class="big" data-v="'+esc(v.id)+'"><img src="https://i.ytimg.com/vi/'+esc(v.id)+'/hqdefault.jpg" alt=""><div><b>'+esc(v.t)+'</b><small>'+esc(v.c)+'</small></div><button class="play glass" data-v="'+esc(v.id)+'">'+ic('home').replace(/<svg[\s\S]*<\/svg>/,'<svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>')+'Play</button></div>').join('');
     }).catch(()=>{const el=document.getElementById('car-'+sh.id);if(el)el.innerHTML=''});
   });
+}
+
+/* ---------- anime + cartoon (Hindi, no reactions) ---------- */
+const BADRE=/\breaction\b|\breacts?\b|\breacting\b|reaction\s*[!|]/i;
+const SECTIONS={
+  anime:{
+    el:'animefeed', key:'lt_anime',
+    channels:['UC7eHSvqnDbZLCtW3JjPAg3A','UCcDvQM6NucVAlpryMA2K19A','UCQ6VArEt6chk0sRASWCIPhQ']
+  },
+  cartoon:{
+    el:'cartoonfeed', key:'lt_cartoon',
+    channels:['UCiBigY9XM-HaOxUc269ympg','UCmYOUJTZiVW72PNdYPFfkDA','UCTA8MKozQTzeOLJV1BQVMrA','UC760cHmgkk00FRT1dw2DMdA']
+  }
+};
+const SEC={};
+
+function keep(v){
+  const t=(v.t||'');
+  if(!t)return false;
+  if(BADRE.test(t))return false;          // no reaction videos
+  if(/\bshorts?\b|#shorts/i.test(t))return false;
+  if(/^(Private|Deleted) video$/i.test(t))return false;
+  return true;
+}
+
+async function loadSection(name){
+  if(SEC[name])return SEC[name];
+  const cfg=SECTIONS[name];
+  try{
+    const c=JSON.parse(localStorage.getItem(cfg.key)||'null');
+    if(c&&c.at&&Date.now()-c.at<12*36e5&&Array.isArray(c.items)&&c.items.length){
+      c.items.forEach(it=>vObj(it.id,it));
+      SEC[name]=c.items.map(it=>V[it.id]).filter(Boolean);
+      if(SEC[name].length)return SEC[name];
+    }
+  }catch(e){}
+
+  const out=[];
+  for(const chId of cfg.channels){
+    try{
+      const c=await ensureChannel(chId);
+      if(!c.up)continue;
+      const j=await yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:12});
+      (j.items||[]).forEach(it=>{
+        const v=it.snippet&&it.snippet.resourceId;
+        if(!v||!v.videoId)return;
+        out.push(vObj(v.videoId,{t:dec(it.snippet.title),c:c.title,ch:chId,
+          pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,
+          cat:name==='anime'?'Anime':'Cartoon'}));
+      });
+    }catch(e){}
+  }
+  const seen=new Set();
+  const clean=out.filter(v=>!seen.has(v.id)&&seen.add(v.id)).filter(keep);
+  await loadChannels(clean.map(v=>v.ch));
+  SEC[name]=clean;
+  try{localStorage.setItem(cfg.key,JSON.stringify({at:Date.now(),
+    items:clean.map(v=>({id:v.id,t:v.t,c:v.c,ch:v.ch,pub:v.pub,cat:v.cat}))}))}catch(e){}
+  return clean;
+}
+async function renderSection(name){
+  const cfg=SECTIONS[name];
+  const box=document.getElementById(cfg.el);
+  if(!box)return;
+  if(box.dataset.done)return;
+  box.innerHTML='<div class="skl"></div><div class="skl"></div><div class="skl"></div>';
+  const list2=await loadSection(name);
+  box.dataset.done='1';
+  if(!list2.length){
+    box.innerHTML='<div class="empty">Could not load '+name+' videos right now.<br>Try again in a minute.</div>';
+    return;
+  }
+  box.innerHTML=list2.map(cardOf).join('');
 }
 
 /* ---------- subscriptions ---------- */
@@ -604,7 +684,7 @@ loadTrending().then(()=>new Promise(r=>setTimeout(r,Math.max(0,1100-(performance
 let tt;function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>e.classList.remove('on'),2200)}
 
 /* ---------- dock: glass lens + sliding pages (from the reference) ---------- */
-const P=['home','explore','subs'].map(n=>$('p-'+n)),T=['home','explore','subs'],L=['Home','Explore','Subscriptions'],N=T.length;
+const P=['home','explore','anime','cartoon','subs'].map(n=>$('p-'+n)),T=['home','explore','anime','cartoon','subs'],L=['Home','Explore','Anime','Cartoon','Subs'],N=T.length;
 $('tabrow').innerHTML=T.map((t,i)=>`<button class="tab" tabindex="0" data-i="${i}">${ic(t)}${L[i]}</button>`).join('');
 const tabs=$('tabs'),tabEls=[...tabs.querySelectorAll('.tab')];function replay(p){
   [...p.querySelectorAll('.chip,.vh,.card,.big,#sg>button')].slice(0,8).forEach((e,k)=>{e.style.animation='none';void e.offsetWidth;e.style.animation='';e.style.animationDelay=(k*55)+'ms'});
@@ -617,7 +697,10 @@ function render(anim){
   $('lens').style.transform=`translateX(${pos*(tabs.clientWidth-10)/N}px) scale(${press?1.18:1})`;
   tabEls.forEach((t,i)=>t.classList.toggle('on',i===Math.round(pos)));
   const idx=Math.round(pos);
-  if(idx!==lastIdx){lastIdx=idx;const l=$('lens');l.classList.remove('jelly');void l.offsetWidth;l.classList.add('jelly');replay(P[idx])}
+  if(idx!==lastIdx){lastIdx=idx;const l=$('lens');l.classList.remove('jelly');void l.offsetWidth;l.classList.add('jelly');replay(P[idx]);
+    const t=T[idx];
+    if(t==='anime')renderSection('anime');
+    if(t==='cartoon')renderSection('cartoon');}
 }
 const at=e=>{const r=tabs.getBoundingClientRect();return clamp((e.clientX-r.left-5)/((r.width-10)/N)-.5)};
 tabs.addEventListener('pointerdown',e=>{press=true;moved=false;sx=e.clientX;try{tabs.setPointerCapture(e.pointerId)}catch(_){}const n=Math.round(at(e));if(n===Math.round(pos))P[n].scrollTo({top:0,behavior:'smooth'});pos=n;render(true)});
