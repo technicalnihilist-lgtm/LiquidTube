@@ -198,7 +198,7 @@ img.ld{opacity:1;scale:1}
  <div id="feed" style="padding-top:12px;transition:opacity .2s"><div class="ldr"><i></i><i></i><i></i></div><div class="skl"></div><div class="skl"></div><div class="skl"></div></div>
 </section>
 <section class="page" id="p-explore"><div class="top"><div class="row"><div class="logo">Explore</div><div class="ic"><button class="glass" data-ic="cast" data-do="cast" aria-label="Cast"></button><button class="glass" data-ic="more" data-do="more" aria-label="More"></button></div></div></div><div id="ex"></div></section>
-<section class="page" id="p-anime"><div class="top"><div class="logo">Anime <span style="font-weight:600;color:var(--mute);font-size:13px">· Hindi</span></div></div><div id="animefeed"></div></section><section class="page" id="p-cartoon"><div class="top"><div class="logo">Cartoon <span style="font-weight:600;color:var(--mute);font-size:13px">· Hindi</span></div></div><div id="cartoonfeed"></div></section><section class="page" id="p-subs"><div class="top"><div class="logo">Subscriptions</div></div><div class="sg" id="sg"></div><h2 id="subh">Latest</h2><div id="subfeed"></div></section>
+<section class="page" id="p-anime"><div class="top"><div class="logo">Anime <span style="font-weight:600;color:var(--mute);font-size:13px">· Hindi</span></div></div><div id="animefeed"></div></section><section class="page" id="p-cartoon"><div class="top"><div class="logo">Cartoon <span style="font-weight:600;color:var(--mute);font-size:13px">· Hindi</span></div></div><div id="cartoonfeed"></div></section><section class="page" id="p-movies"><div class="top"><div class="logo">Animation <span style="font-weight:600;color:var(--mute);font-size:13px">· Hindi movies</span></div></div><div id="moviesfeed"></div></section><section class="page" id="p-subs"><div class="top"><div class="logo">Subscriptions</div></div><div class="sg" id="sg"></div><h2 id="subh">Latest</h2><div id="subfeed"></div></section>
 <div id="search"><div class="sbar"><label class="glass"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" placeholder="Search videos" autocomplete="off"></label><button id="cancel">Cancel</button></div><div class="sug" id="sug"></div><div id="results"></div></div>
 <div id="scrim"></div>
 <div id="pl" class="glass"><div class="art thumb"></div><b id="ptitle"></b><span id="pmeta"></span><div class="prow"><button class="glass" id="ppp">Like</button><button class="glass" id="plk">Channel</button><button class="glass" id="psave">Save</button><button class="glass" id="pcm">Comments</button><button class="glass" id="pclose">Close</button></div></div>
@@ -209,7 +209,7 @@ img.ld{opacity:1;scale:1}
 </div>
 <script>
 const $=id=>document.getElementById(id);
-const I={anime:'<rect x="3.5" y="4" width="17" height="16" rx="4"/><path d="M9 9.5v5l5-2.5z"/><path d="M7 4v16M17 4v16"/>',cartoon:'<circle cx="12" cy="12" r="8.5"/><circle cx="9" cy="10" r="1.3"/><circle cx="15" cy="10" r="1.3"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/>',plus:'<path d="M12 5v14M5 12h14"/>',cast:'<path d="M3 8V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5"/><path d="M3 12a8 8 0 0 1 8 8M3 16a4 4 0 0 1 4 4M3 20h.01"/>',bell:'<path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0"/>',user:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.2 18.5a7 7 0 0 1 11.6 0"/>',more:'<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',home:'<path d="M3 11 12 3l9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',explore:'<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',subs:'<rect x="3" y="7" width="18" height="13" rx="3"/><path d="M7 3h10M10 11l4 2.5-4 2.5z"/>',like:'<path d="M7 11v9H4v-9zM7 11l4-8c2 0 3 1.5 2.5 3.5L13 9h5.5a2 2 0 0 1 2 2.4l-1.3 6.5a2 2 0 0 1-2 1.6H7"/>',cmt:'<path d="M4 5h16v11H9l-5 4z"/>',share:'<path d="M4 12v7h16v-7M12 3v12M7.5 7.5 12 3l4.5 4.5"/>',remix:'<path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"/>',audio:'<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>'};
+const I={anime:'<rect x="3.5" y="4" width="17" height="16" rx="4"/><path d="M9 9.5v5l5-2.5z"/><path d="M7 4v16M17 4v16"/>',movies:'<rect x="3" y="6" width="18" height="12" rx="3"/><path d="M7 6v12M17 6v12M3 12h18"/>',cartoon:'<circle cx="12" cy="12" r="8.5"/><circle cx="9" cy="10" r="1.3"/><circle cx="15" cy="10" r="1.3"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/>',plus:'<path d="M12 5v14M5 12h14"/>',cast:'<path d="M3 8V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5"/><path d="M3 12a8 8 0 0 1 8 8M3 16a4 4 0 0 1 4 4M3 20h.01"/>',bell:'<path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0"/>',user:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.2 18.5a7 7 0 0 1 11.6 0"/>',more:'<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',home:'<path d="M3 11 12 3l9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',explore:'<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',subs:'<rect x="3" y="7" width="18" height="13" rx="3"/><path d="M7 3h10M10 11l4 2.5-4 2.5z"/>',like:'<path d="M7 11v9H4v-9zM7 11l4-8c2 0 3 1.5 2.5 3.5L13 9h5.5a2 2 0 0 1 2 2.4l-1.3 6.5a2 2 0 0 1-2 1.6H7"/>',cmt:'<path d="M4 5h16v11H9l-5 4z"/>',share:'<path d="M4 12v7h16v-7M12 3v12M7.5 7.5 12 3l4.5 4.5"/>',remix:'<path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"/>',audio:'<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>'};
 const ic=n=>`<svg viewBox="0 0 24 24">${I[n]}</svg>`;
 document.querySelectorAll('[data-ic]').forEach(b=>b.innerHTML=ic(b.dataset.ic));
 /* ================= LiquidTube — live data on the liquid-glass shell ================= */
@@ -233,7 +233,13 @@ window.THOK=function(img){
     img.src='https://i.ytimg.com/vi/'+img.dataset.id+'/hqdefault.jpg';
   }
 };
-window.TH=function(img){if(img.dataset.f){img.style.opacity='0';return}img.dataset.f='1';img.src='https://i.ytimg.com/vi/'+img.dataset.id+'/hqdefault.jpg';};
+window.TH=function(img){
+  if(img.dataset.f){                       // second failure: keep a tidy card, never a broken icon
+    img.style.display='none';
+    const p=img.parentElement;
+    if(p)p.style.background='linear-gradient(135deg,#23262f,#3d4256)';
+    return;
+  }img.dataset.f='1';img.src='https://i.ytimg.com/vi/'+img.dataset.id+'/hqdefault.jpg';};
 const thumbImg=id=>'<img src="https://i.ytimg.com/vi/'+esc(id)+'/maxresdefault.jpg" alt="" loading="lazy" data-id="'+esc(id)+'" data-q="0" onload="THOK(this)" onerror="TH(this)">';
 
 /* ---------- persisted state ---------- */
@@ -415,6 +421,10 @@ const SECTIONS={
   cartoon:{
     el:'cartoonfeed', key:'lt_cartoon',
     channels:['UCiBigY9XM-HaOxUc269ympg','UCmYOUJTZiVW72PNdYPFfkDA','UCTA8MKozQTzeOLJV1BQVMrA','UC760cHmgkk00FRT1dw2DMdA']
+  },
+  movies:{
+    el:'moviesfeed', key:'lt_movies',
+    channels:['UCkytZQj3NccDV3tLMoOxRIQ','UCYhdnzvcr5g22CmvcwpPhrQ','UC9iBBFfq7L3ipvodSLrU8gQ','UCj-SWZSE0AmotGSQ3apROHw','UCuvZqGuCLbDBdoP9-MPVsqg']
   }
 };
 const SEC={};
@@ -451,7 +461,7 @@ async function loadSection(name){
         if(!v||!v.videoId)return;
         out.push(vObj(v.videoId,{t:dec(it.snippet.title),c:c.title,ch:chId,
           pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,
-          cat:name==='anime'?'Anime':'Cartoon'}));
+          cat:name==='anime'?'Anime':name==='cartoon'?'Cartoon':'Animation'}));
       });
     }catch(e){}
   }
@@ -684,7 +694,7 @@ loadTrending().then(()=>new Promise(r=>setTimeout(r,Math.max(0,1100-(performance
 let tt;function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>e.classList.remove('on'),2200)}
 
 /* ---------- dock: glass lens + sliding pages (from the reference) ---------- */
-const P=['home','explore','anime','cartoon','subs'].map(n=>$('p-'+n)),T=['home','explore','anime','cartoon','subs'],L=['Home','Explore','Anime','Cartoon','Subs'],N=T.length;
+const P=['home','explore','anime','cartoon','movies','subs'].map(n=>$('p-'+n)),T=['home','explore','anime','cartoon','movies','subs'],L=['Home','Explore','Anime','Cartoon','Movies','Subs'],N=T.length;
 $('tabrow').innerHTML=T.map((t,i)=>`<button class="tab" tabindex="0" data-i="${i}">${ic(t)}${L[i]}</button>`).join('');
 const tabs=$('tabs'),tabEls=[...tabs.querySelectorAll('.tab')];function replay(p){
   [...p.querySelectorAll('.chip,.vh,.card,.big,#sg>button')].slice(0,8).forEach((e,k)=>{e.style.animation='none';void e.offsetWidth;e.style.animation='';e.style.animationDelay=(k*55)+'ms'});
@@ -700,7 +710,8 @@ function render(anim){
   if(idx!==lastIdx){lastIdx=idx;const l=$('lens');l.classList.remove('jelly');void l.offsetWidth;l.classList.add('jelly');replay(P[idx]);
     const t=T[idx];
     if(t==='anime')renderSection('anime');
-    if(t==='cartoon')renderSection('cartoon');}
+    if(t==='cartoon')renderSection('cartoon');
+    if(t==='movies')renderSection('movies');}
 }
 const at=e=>{const r=tabs.getBoundingClientRect();return clamp((e.clientX-r.left-5)/((r.width-10)/N)-.5)};
 tabs.addEventListener('pointerdown',e=>{press=true;moved=false;sx=e.clientX;try{tabs.setPointerCapture(e.pointerId)}catch(_){}const n=Math.round(at(e));if(n===Math.round(pos))P[n].scrollTo({top:0,behavior:'smooth'});pos=n;render(true)});
