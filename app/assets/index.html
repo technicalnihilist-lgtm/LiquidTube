@@ -19,7 +19,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .glass{position:relative;background:linear-gradient(135deg,var(--g1),var(--g2));backdrop-filter:blur(var(--glassBlur,16px)) saturate(190%) brightness(1.06);-webkit-backdrop-filter:blur(var(--glassBlur,16px)) saturate(190%) brightness(1.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.28),inset 0 1.5px 1px var(--rim),inset 0 -1.5px 1px rgba(255,255,255,.22),0 10px 30px var(--shade)}
 .glass::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(118deg,rgba(255,255,255,.6),rgba(255,255,255,0) 32%,rgba(255,255,255,0) 68%,rgba(255,255,255,.3));opacity:.5}
 /* pages */
-.page{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding-bottom:150px;scrollbar-width:none;background:radial-gradient(70% 22% at 100% 6%,rgba(255,70,110,.22),transparent),radial-gradient(70% 20% at 0% 48%,rgba(70,120,255,.2),transparent),radial-gradient(70% 20% at 100% 85%,rgba(160,80,255,.18),transparent),var(--bg);transition:transform .95s var(--bounce-soft),opacity .45s ease;will-change:transform,opacity}
+.page{position:absolute;inset:0;z-index:0;overflow-y:auto;overflow-x:hidden;padding-bottom:150px;scrollbar-width:none;background:radial-gradient(70% 22% at 100% 6%,rgba(255,70,110,.22),transparent),radial-gradient(70% 20% at 0% 48%,rgba(70,120,255,.2),transparent),radial-gradient(70% 20% at 100% 85%,rgba(160,80,255,.18),transparent),var(--bg);transition:transform .95s var(--bounce-soft),opacity .45s ease;will-change:transform,opacity}
 .page::-webkit-scrollbar{display:none}.drag .page{transition:none}
 .top{position:sticky;top:0;z-index:5;padding:calc(env(safe-area-inset-top,0px) + 10px) 14px 8px;background:linear-gradient(var(--bg) 72%,transparent)}
 .row{display:flex;align-items:center;justify-content:space-between}
@@ -32,7 +32,16 @@ svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke
 .chip{flex:none;padding:8px 16px;border-radius:99px;font-size:13.5px;font-weight:600;transition:background .3s,color .3s,scale .6s var(--bounce)}
 .chip.on{background:var(--ink);color:var(--bg);scale:1.06}
 h2{font-size:19px;font-weight:800;letter-spacing:-.03em;padding:14px 14px 8px}
-.card{margin:6px 14px 18px;text-align:left;display:block;width:calc(100% - 28px)}
+#feed,#subfeed,#chlist,#animefeed,#cartoonfeed,#moviesfeed,#results,#ex{perspective:1500px;perspective-origin:50% 40%}
+.card{margin:6px 14px 18px;text-align:left;display:block;width:calc(100% - 28px);
+  transform-style:preserve-3d;transform:translateZ(0);
+  transition:transform .55s var(--bounce),box-shadow .35s ease;
+  will-change:transform}
+.card.tilt{transition:transform .08s linear,box-shadow .2s ease}
+.card .thumb{transform:translateZ(0)}
+.card .meta{transform:translateZ(18px)}
+.card.tilt .thumb{box-shadow:0 26px 46px -18px rgba(10,12,26,.45)}
+html[data-depth=off] .card,html[data-depth=off] .card .meta{transform:none!important;transition:none}
 .thumb{aspect-ratio:16/9;border-radius:24px;position:relative;overflow:hidden;box-shadow:0 12px 30px var(--shade)}
 .thumb u{position:absolute;right:10px;bottom:10px;padding:2px 7px;border-radius:7px;background:#000a;color:#fff;font-size:11px;text-decoration:none}
 .meta{display:flex;gap:10px;padding:10px 4px}
@@ -54,7 +63,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 .sg{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:6px 14px 10px}
 .sg button{text-align:center;font-size:11.5px;font-weight:600}.sg i{display:block;width:100%;aspect-ratio:1;border-radius:50%;margin-bottom:6px;box-shadow:0 6px 16px var(--shade);transition:transform .3s,outline-color .3s;outline:3px solid transparent;outline-offset:2px}.sg .on i{outline-color:var(--red);transform:scale(.92)}
 /* ===== dock ===== */
-.dock{position:absolute;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);display:flex;gap:10px;z-index:20}
+.dock{position:absolute;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);display:flex;gap:10px;z-index:60;transform-style:flat}
 .tabs{flex:1;height:66px;position:relative;touch-action:pan-y;user-select:none;-webkit-user-select:none}
 .tabs .bg{position:absolute;inset:0;border-radius:99px}
 .lens{position:absolute;left:5px;top:5px;bottom:5px;width:calc((100% - 10px)/3);border-radius:99px;transition:transform .9s var(--bounce);--g1:rgba(255,255,255,.7);--g2:rgba(255,255,255,.22);pointer-events:none}
@@ -77,6 +86,11 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 #pl.on,#sheet.on{transform:none}
 #pl b{font-size:16px;line-height:1.3}#pl>span,.tm{font-size:12.5px;color:var(--mute)}.tm{display:flex;justify-content:space-between}
 .prow{display:flex;gap:10px;margin-top:4px}.prow button{flex:1;height:46px;border-radius:99px;font-weight:700}
+nav.dock{transition:transform .5s var(--bounce),box-shadow .4s ease}
+nav.dock:active{transform:scale(.985)}
+#sheet{transform-origin:50% 100%;transform:translateY(14px) rotateX(9deg) scale(.97);opacity:0;transition:transform .6s var(--bounce),opacity .35s ease}
+#sheet.on{transform:none;opacity:1}
+html[data-depth=off] nav.dock,html[data-depth=off] #sheet{transform:none!important}
 #sheet{max-height:70%}#sheet h3{font-size:17px;text-align:center;padding-bottom:4px}
 #shb{overflow:auto;display:flex;flex-direction:column;gap:12px;max-height:44vh}
 .cm{display:flex;gap:10px;font-size:13.5px;line-height:1.35}.cm .av{width:30px;height:30px}.cm small{color:var(--mute);display:block;font-size:11.5px}
@@ -244,8 +258,8 @@ const thumbImg=id=>'<img src="https://i.ytimg.com/vi/'+esc(id)+'/maxresdefault.j
 
 /* ---------- persisted state ---------- */
 const SKEY='lt';
-let S={liked:[],subs:[],later:[],hist:[],vd:{},pl:{},cats:{},opt:{cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,glass:45,layout:'phone'}};
-try{const p=JSON.parse(localStorage.getItem(SKEY)||'{}');Object.assign(S,p);S.opt=Object.assign({cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,glass:45,layout:'phone'},p.opt||{})}catch(e){}
+let S={liked:[],subs:[],later:[],hist:[],vd:{},pl:{},cats:{},opt:{cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,glass:45,layout:'phone'}};
+try{const p=JSON.parse(localStorage.getItem(SKEY)||'{}');Object.assign(S,p);S.opt=Object.assign({cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,glass:45,layout:'phone'},p.opt||{})}catch(e){}
 const save=()=>{try{localStorage.setItem(SKEY,JSON.stringify(S))}catch(e){}};
 S.vd=S.vd||{};try{localStorage.removeItem('lt_shorts')}catch(e){}
 document.addEventListener('touchstart',()=>{},{passive:true});
@@ -339,7 +353,7 @@ const meta=v=>[v.views?num(v.views)+' views':'',v.pub?ago(v.pub):''].filter(Bool
 const cardOf=(v,i)=>'<button class="card" style="--i:'+Math.min(i||0,8)+'" data-v="'+esc(v.id)+'"><div class="thumb">'+thumbImg(v.id)+(v.views?'<u>'+num(v.views)+' views</u>':'')+'</div>'+
   '<div class="meta">'+(v.ch&&CH[v.ch]&&CH[v.ch].av?'<img class="av" src="'+esc(CH[v.ch].av)+'" alt="" onerror="this.style.visibility=\'hidden\'">':'<div class="av" style="background:'+g(hash(v.id))+'"></div>')+
   '<div><b>'+esc(v.t)+'</b><span>'+esc(v.c)+(v.views?' · '+num(v.views)+' views':'')+(v.pub?' · '+ago(v.pub):'')+'</span></div></div></button>';
-const list=(arr,el)=>{el.innerHTML=arr&&arr.length?arr.map(cardOf).join(''):'<div class="empty">Nothing here yet.</div>'};
+const list=(arr,el)=>{el.innerHTML=arr&&arr.length?arr.map(cardOf).join(''):'<div class="empty">Nothing here yet.</div>';setTimeout(depthKick,60)};
 
 /* ---------- chips ---------- */
 let cat='All';
@@ -612,6 +626,7 @@ function settingsHTML(){
     '<div style="font-size:13px;font-weight:700;margin:0 2px 8px">Layout</div>'+
     '<div class="laychips">'+btn('phone','Phone')+btn('tablet','Tablet')+btn('full','Full screen')+'</div>'+
     '<button class="opt glass" data-tgl="theme">Theme: '+(document.documentElement.dataset.theme==='dark'?'dark':'light')+'</button>'+
+    '<button class="opt glass" data-opt="depth">3D depth: '+(DEPTH()?'on':'off')+'</button>'+
     '<button class="opt glass" data-opt="cc">Captions: '+(S.opt.cc?'on':'off')+'</button>'+
     '<button class="opt glass" data-opt="loop">Loop: '+(S.opt.loop?'on':'off')+'</button>'+
     '<button class="opt glass" data-opt="cmt">Comments: '+(S.opt.cmt?'on':'off')+'</button>';
@@ -651,7 +666,8 @@ $('shb').addEventListener('click',e=>{
       ids.length?ids.map(id=>V[id]?cardOf(V[id]):'').join(''):'<div class="empty">Nothing saved yet.</div>',0);
   }
   const o=e.target.closest('[data-opt]');
-  if(o){const k=o.dataset.opt;S.opt[k]=S.opt[k]?0:1;save();o.textContent=({cc:'Captions',loop:'Loop',cmt:'Comments'})[k]+': '+(S.opt[k]?'on':'off')}
+  if(o){const k=o.dataset.opt;S.opt[k]=S.opt[k]?0:1;save();if(k==='depth')applyDepth();
+    o.textContent=({cc:'Captions',loop:'Loop',cmt:'Comments',depth:'3D depth'})[k]+': '+(S.opt[k]?'on':'off')}
 });
 $('shpost').onclick=()=>toast('Comments open on YouTube');
 
@@ -718,6 +734,56 @@ loadTrending().then(()=>new Promise(r=>setTimeout(r,Math.max(0,1100-(performance
   renderExplore();
   renderSubs();
 });
+
+/* ---------- 3D depth: cards tilt under the finger ---------- */
+const DEPTH=()=>S.opt.depth!==0;
+function applyDepth(){document.documentElement.dataset.depth=DEPTH()?'on':'off'}
+applyDepth();
+
+let tiltEl=null;
+function tiltStart(e){
+  if(!DEPTH())return;
+  const card=e.target.closest('.card');
+  if(!card||e.pointerType==='mouse')return;
+  tiltEl=card;card.classList.add('tilt');
+}
+function tiltMove(e){
+  if(!tiltEl||!DEPTH())return;
+  if(!tiltEl.classList.contains('tilt'))tiltEl.classList.add('tilt');
+  const r=tiltEl.getBoundingClientRect();
+  const px=(e.clientX-r.left)/r.width-.5;      // -0.5 .. 0.5
+  const py=(e.clientY-r.top)/r.height-.5;
+  const rx=(-py*9).toFixed(2), ry=(px*11).toFixed(2);
+  tiltEl.style.transform=`rotateX(${rx}deg) rotateY(${ry}deg) translateZ(10px) scale(1.015)`;
+}
+function tiltEnd(){
+  if(!tiltEl)return;
+  const c=tiltEl;tiltEl=null;
+  c.style.transform='';
+  setTimeout(()=>c.classList.remove('tilt'),260);
+}
+/* cards recede slightly as they move away from the centre of the screen */
+let depthRaf=0;
+function depthScroll(){
+  if(!DEPTH())return;
+  const vh=innerHeight;
+  document.querySelectorAll('.page .card').forEach(c=>{
+    if(c.classList.contains('tilt'))return;
+    const r=c.getBoundingClientRect();
+    if(r.bottom<-80||r.top>vh+80){c.style.transform='';return}
+    const d=Math.min(1,Math.abs((r.top+r.height/2)-vh/2)/(vh*0.62));
+    c.style.transform=`translateZ(${(-d*30).toFixed(1)}px) scale(${(1-d*0.05).toFixed(3)})`;
+    c.style.opacity=(1-d*0.18).toFixed(3);
+  });
+}
+function depthKick(){if(!DEPTH())return;cancelAnimationFrame(depthRaf);depthRaf=requestAnimationFrame(depthScroll)}
+document.addEventListener('scroll',depthKick,{capture:true,passive:true});
+addEventListener('resize',depthKick);
+
+document.addEventListener('pointerdown',tiltStart,{passive:true});
+document.addEventListener('pointermove',tiltMove,{passive:true});
+document.addEventListener('pointerup',tiltEnd,{passive:true});
+document.addEventListener('pointercancel',tiltEnd,{passive:true});
 
 /* ---------- toast ---------- */
 let tt;function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>e.classList.remove('on'),2200)}
