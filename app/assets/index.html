@@ -198,7 +198,7 @@ img.ld{opacity:1;scale:1}
  <div id="feed" style="padding-top:12px;transition:opacity .2s"><div class="ldr"><i></i><i></i><i></i></div><div class="skl"></div><div class="skl"></div><div class="skl"></div></div>
 </section>
 <section class="page" id="p-explore"><div class="top"><div class="row"><div class="logo">Explore</div><div class="ic"><button class="glass" data-ic="cast" data-do="cast" aria-label="Cast"></button><button class="glass" data-ic="more" data-do="more" aria-label="More"></button></div></div></div><div id="ex"></div></section>
-<section class="page" id="p-anime"><div class="top"><div class="logo">Anime <span style="font-weight:600;color:var(--mute);font-size:13px">· Hindi</span></div></div><div id="animefeed"></div></section><section class="page" id="p-cartoon"><div class="top"><div class="logo">Cartoon <span style="font-weight:600;color:var(--mute);font-size:13px">· Hindi</span></div></div><div id="cartoonfeed"></div></section><section class="page" id="p-movies"><div class="top"><div class="logo">Animation <span style="font-weight:600;color:var(--mute);font-size:13px">· Hindi movies</span></div></div><div id="moviesfeed"></div></section><section class="page" id="p-subs"><div class="top"><div class="logo">Subscriptions</div></div><div class="sg" id="sg"></div><h2 id="subh">Latest</h2><div id="subfeed"></div></section>
+<section class="page" id="p-subs"><div class="top"><div class="logo">Subscriptions</div></div><div class="sg" id="sg"></div><h2 id="subh">Latest</h2><div id="subfeed"></div></section>
 <div id="search"><div class="sbar"><label class="glass"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" placeholder="Search videos" autocomplete="off"></label><button id="cancel">Cancel</button></div><div class="sug" id="sug"></div><div id="results"></div></div>
 <div id="scrim"></div>
 <div id="pl" class="glass"><div class="art thumb"></div><b id="ptitle"></b><span id="pmeta"></span><div class="prow"><button class="glass" id="ppp">Like</button><button class="glass" id="plk">Channel</button><button class="glass" id="psave">Save</button><button class="glass" id="pcm">Comments</button><button class="glass" id="pclose">Close</button></div></div>
@@ -345,16 +345,30 @@ const list=(arr,el)=>{el.innerHTML=arr&&arr.length?arr.map(cardOf).join(''):'<di
 let cat='All';
 const CATMAP={1:'Film',2:'Cars',10:'Music',15:'Animals',17:'Sports',19:'Travel',20:'Gaming',22:'People',23:'Comedy',24:'Entertainment',25:'News',26:'Howto',27:'Education',28:'Science',29:'Nonprofits'};
 let CATS=['All','Music','Gaming','Sports','Entertainment','News','Education'];
+const CUSTOM=[['Anime','anime'],['Cartoon','cartoon'],['Movies','movies']];
 function renderChips(){
   const present=[...new Set(feed().map(v=>v.cat).filter(c=>c&&c!=='All'))];
-  CATS=['All',...present];
+  CATS=['All',...CUSTOM.map(c=>c[0]),...present];
   if(!CATS.includes(cat))cat='All';
   $('chips').innerHTML=CATS.map(c=>'<button class="chip glass'+(c===cat?' on':'')+'">'+c+'</button>').join('');
 }
 function chip(n){
   cat=n;
   [...$('chips').querySelectorAll('.chip')].forEach(b=>b.classList.toggle('on',b.textContent===n));
-  const f=$('feed');f.style.opacity=0;
+  const f=$('feed');
+  const custom=CUSTOM.find(c=>c[0]===n);
+  if(custom){                                  // Anime / Cartoon / Movies live in the top chips
+    f.style.opacity=0;
+    f.innerHTML='<div class="skl"></div><div class="skl"></div><div class="skl"></div>';
+    f.style.opacity=1;
+    loadSection(custom[1]).then(items=>{
+      if(cat!==n)return;                        // user moved on
+      list(items,f);
+      if(!items.length)f.innerHTML='<div class="empty">Could not load '+esc(n)+' videos right now.</div>';
+    });
+    return;
+  }
+  f.style.opacity=0;
   setTimeout(()=>{
     const items=cat==='All'?feed():feed().filter(v=>v.cat===cat);
     list(items,f);
@@ -694,7 +708,7 @@ loadTrending().then(()=>new Promise(r=>setTimeout(r,Math.max(0,1100-(performance
 let tt;function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>e.classList.remove('on'),2200)}
 
 /* ---------- dock: glass lens + sliding pages (from the reference) ---------- */
-const P=['home','explore','anime','cartoon','movies','subs'].map(n=>$('p-'+n)),T=['home','explore','anime','cartoon','movies','subs'],L=['Home','Explore','Anime','Cartoon','Movies','Subs'],N=T.length;
+const P=['home','explore','subs'].map(n=>$('p-'+n)),T=['home','explore','subs'],L=['Home','Explore','Subscriptions'],N=T.length;
 $('tabrow').innerHTML=T.map((t,i)=>`<button class="tab" tabindex="0" data-i="${i}">${ic(t)}${L[i]}</button>`).join('');
 const tabs=$('tabs'),tabEls=[...tabs.querySelectorAll('.tab')];function replay(p){
   [...p.querySelectorAll('.chip,.vh,.card,.big,#sg>button')].slice(0,8).forEach((e,k)=>{e.style.animation='none';void e.offsetWidth;e.style.animation='';e.style.animationDelay=(k*55)+'ms'});
@@ -708,10 +722,7 @@ function render(anim){
   tabEls.forEach((t,i)=>t.classList.toggle('on',i===Math.round(pos)));
   const idx=Math.round(pos);
   if(idx!==lastIdx){lastIdx=idx;const l=$('lens');l.classList.remove('jelly');void l.offsetWidth;l.classList.add('jelly');replay(P[idx]);
-    const t=T[idx];
-    if(t==='anime')renderSection('anime');
-    if(t==='cartoon')renderSection('cartoon');
-    if(t==='movies')renderSection('movies');}
+}
 }
 const at=e=>{const r=tabs.getBoundingClientRect();return clamp((e.clientX-r.left-5)/((r.width-10)/N)-.5)};
 tabs.addEventListener('pointerdown',e=>{press=true;moved=false;sx=e.clientX;try{tabs.setPointerCapture(e.pointerId)}catch(_){}const n=Math.round(at(e));if(n===Math.round(pos))P[n].scrollTo({top:0,behavior:'smooth'});pos=n;render(true)});
