@@ -21,7 +21,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 /* pages */
 .page{position:absolute;inset:0;z-index:0;overflow-y:auto;overflow-x:hidden;padding-bottom:150px;scrollbar-width:none;background:radial-gradient(70% 22% at 100% 6%,rgba(255,70,110,.22),transparent),radial-gradient(70% 20% at 0% 48%,rgba(70,120,255,.2),transparent),radial-gradient(70% 20% at 100% 85%,rgba(160,80,255,.18),transparent),var(--bg);transition:transform .95s var(--bounce-soft),opacity .45s ease;will-change:transform,opacity}
 .page::-webkit-scrollbar{display:none}.drag .page{transition:none}
-.top{position:sticky;top:0;z-index:5;padding:calc(env(safe-area-inset-top,0px) + 10px) 14px 8px;background:linear-gradient(var(--bg) 72%,transparent)}
+.top{position:sticky;top:0;z-index:5;padding:calc(env(safe-area-inset-top,0px) + 10px) 14px 8px;background:linear-gradient(var(--bg) 84%,color-mix(in srgb,var(--bg) 70%,transparent) 100%);-webkit-backdrop-filter:blur(18px) saturate(180%);backdrop-filter:blur(18px) saturate(180%);transition:transform .18s linear}
 .row{display:flex;align-items:center;justify-content:space-between}
 .logo{display:flex;align-items:center;gap:6px;font-weight:800;font-size:19px;letter-spacing:-.04em}
 .logo i{width:30px;height:21px;border-radius:6px;background:var(--red);position:relative}
@@ -33,6 +33,9 @@ svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke
 .chip.on{background:var(--ink);color:var(--bg);scale:1.06}
 h2{font-size:19px;font-weight:800;letter-spacing:-.03em;padding:14px 14px 8px}
 #feed,#subfeed,#chlist,#animefeed,#cartoonfeed,#moviesfeed,#results,#ex{perspective:1500px;perspective-origin:50% 40%}
+.thumb img{will-change:transform;transform:scale(1.14);transition:transform .12s linear}
+html[data-parallax=off] .thumb img{transform:none!important;transition:none}
+.page{background-attachment:local}
 .card{margin:6px 14px 18px;text-align:left;display:block;width:calc(100% - 28px);
   transform-style:preserve-3d;transform:translateZ(0);
   transition:transform .55s var(--bounce),box-shadow .35s ease;
@@ -91,8 +94,8 @@ nav.dock:active{transform:scale(.985)}
 #sheet{transform-origin:50% 100%;transform:translateY(14px) rotateX(9deg) scale(.97);opacity:0;transition:transform .6s var(--bounce),opacity .35s ease}
 #sheet.on{transform:none;opacity:1}
 html[data-depth=off] nav.dock,html[data-depth=off] #sheet{transform:none!important}
-#sheet{max-height:70%}#sheet h3{font-size:17px;text-align:center;padding-bottom:4px}
-#shb{overflow:auto;display:flex;flex-direction:column;gap:12px;max-height:44vh}
+#sheet{max-height:84%;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 84px)}#sheet h3{font-size:17px;text-align:center;padding-bottom:4px}
+#shb{overflow:auto;display:flex;flex-direction:column;gap:12px;max-height:56vh;padding-bottom:6px}
 .cm{display:flex;gap:10px;font-size:13.5px;line-height:1.35}.cm .av{width:30px;height:30px}.cm small{color:var(--mute);display:block;font-size:11.5px}
 .nt{display:flex;gap:10px;align-items:center;font-size:13.5px}.nt .av{width:40px;height:40px}
 .opt{height:48px;border-radius:99px;font-weight:700}
@@ -258,8 +261,8 @@ const thumbImg=id=>'<img src="https://i.ytimg.com/vi/'+esc(id)+'/maxresdefault.j
 
 /* ---------- persisted state ---------- */
 const SKEY='lt';
-let S={liked:[],subs:[],later:[],hist:[],vd:{},pl:{},cats:{},opt:{cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,glass:45,layout:'phone'}};
-try{const p=JSON.parse(localStorage.getItem(SKEY)||'{}');Object.assign(S,p);S.opt=Object.assign({cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,glass:45,layout:'phone'},p.opt||{})}catch(e){}
+let S={liked:[],subs:[],later:[],hist:[],vd:{},pl:{},cats:{},opt:{cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,parallax:1,pdepth:65,glass:45,layout:'phone'}};
+try{const p=JSON.parse(localStorage.getItem(SKEY)||'{}');Object.assign(S,p);S.opt=Object.assign({cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,parallax:1,pdepth:65,glass:45,layout:'phone'},p.opt||{})}catch(e){}
 const save=()=>{try{localStorage.setItem(SKEY,JSON.stringify(S))}catch(e){}};
 S.vd=S.vd||{};try{localStorage.removeItem('lt_shorts')}catch(e){}
 document.addEventListener('touchstart',()=>{},{passive:true});
@@ -627,11 +630,18 @@ function settingsHTML(){
     '<div class="laychips">'+btn('phone','Phone')+btn('tablet','Tablet')+btn('full','Full screen')+'</div>'+
     '<button class="opt glass" data-tgl="theme">Theme: '+(document.documentElement.dataset.theme==='dark'?'dark':'light')+'</button>'+
     '<button class="opt glass" data-opt="depth">3D depth: '+(DEPTH()?'on':'off')+'</button>'+
+    '<button class="opt glass" data-opt="parallax">Parallax: '+(PARALLAX()?'on':'off')+'</button>'+
+    '<div class="setrow"><span>Depth &amp; parallax</span><input id="dsl" type="range" min="0" max="100" value="'+S.opt.pdepth+'" style="--p:'+S.opt.pdepth+'%"></div>'+
     '<button class="opt glass" data-opt="cc">Captions: '+(S.opt.cc?'on':'off')+'</button>'+
     '<button class="opt glass" data-opt="loop">Loop: '+(S.opt.loop?'on':'off')+'</button>'+
     '<button class="opt glass" data-opt="cmt">Comments: '+(S.opt.cmt?'on':'off')+'</button>';
 }
 $('sheet').addEventListener('input',e=>{
+  if(e.target.id==='dsl'){
+    S.opt.pdepth=+e.target.value;save();
+    e.target.style.setProperty('--p',S.opt.pdepth+'%');
+    depthKick();return;
+  }
   if(e.target.id!=='gsl')return;
   S.opt.glass=+e.target.value;save();
   e.target.style.setProperty('--p',S.opt.glass+'%');
@@ -667,7 +677,8 @@ $('shb').addEventListener('click',e=>{
   }
   const o=e.target.closest('[data-opt]');
   if(o){const k=o.dataset.opt;S.opt[k]=S.opt[k]?0:1;save();if(k==='depth')applyDepth();
-    o.textContent=({cc:'Captions',loop:'Loop',cmt:'Comments',depth:'3D depth'})[k]+': '+(S.opt[k]?'on':'off')}
+    if(k==='parallax')applyParallax();
+    o.textContent=({cc:'Captions',loop:'Loop',cmt:'Comments',depth:'3D depth',parallax:'Parallax'})[k]+': '+(S.opt[k]?'on':'off')}
 });
 $('shpost').onclick=()=>toast('Comments open on YouTube');
 
@@ -737,6 +748,7 @@ loadTrending().then(()=>new Promise(r=>setTimeout(r,Math.max(0,1100-(performance
 
 /* ---------- 3D depth: cards tilt under the finger ---------- */
 const DEPTH=()=>S.opt.depth!==0;
+const K=()=>Math.max(0,Math.min(100,+S.opt.pdepth||0))/100;   // 0 = flat, 1 = full depth
 function applyDepth(){document.documentElement.dataset.depth=DEPTH()?'on':'off'}
 applyDepth();
 
@@ -753,8 +765,9 @@ function tiltMove(e){
   const r=tiltEl.getBoundingClientRect();
   const px=(e.clientX-r.left)/r.width-.5;      // -0.5 .. 0.5
   const py=(e.clientY-r.top)/r.height-.5;
-  const rx=(-py*9).toFixed(2), ry=(px*11).toFixed(2);
-  tiltEl.style.transform=`rotateX(${rx}deg) rotateY(${ry}deg) translateZ(10px) scale(1.015)`;
+  const k=K();
+  const rx=(-py*9*k).toFixed(2), ry=(px*11*k).toFixed(2);
+  tiltEl.style.transform=`rotateX(${rx}deg) rotateY(${ry}deg) translateZ(${(10*k).toFixed(1)}px) scale(${(1+0.015*k).toFixed(3)})`;
 }
 function tiltEnd(){
   if(!tiltEl)return;
@@ -762,6 +775,50 @@ function tiltEnd(){
   c.style.transform='';
   setTimeout(()=>c.classList.remove('tilt'),260);
 }
+/* ---------- parallax: layers drift at different speeds (scroll + phone tilt) ---------- */
+const PARALLAX=()=>S.opt.parallax!==0;
+let gyroX=0,gyroY=0;
+function applyParallax(){
+  const on=PARALLAX();
+  document.documentElement.dataset.parallax=on?'on':'off';
+  if(!on){
+    document.querySelectorAll('.page').forEach(p=>p.style.backgroundPositionY='');
+    document.querySelectorAll('.thumb img').forEach(i=>i.style.transform='');
+  }
+}
+applyParallax();
+addEventListener('deviceorientation',e=>{
+  if(!PARALLAX())return;
+  gyroX=Math.max(-1,Math.min(1,(e.gamma||0)/35));
+  gyroY=Math.max(-1,Math.min(1,((e.beta||0)-45)/40));
+  parallaxKick();
+},{passive:true});
+
+function parallaxScroll(){
+  if(!PARALLAX())return;
+  const k=K();
+  const vh=innerHeight;
+  const pg=document.querySelector('.page:not([inert])');
+  if(pg)pg.style.backgroundPositionY=(-pg.scrollTop*0.22*k).toFixed(1)+'px';
+
+  /* the whole shell drifts: header, dock and chip row all move a little */
+  const top=document.querySelector('.page:not([inert]) .top');
+  if(top&&pg)top.style.transform=`translate3d(${(gyroX*3*k).toFixed(2)}px,${(-Math.min(pg.scrollTop,120)*0.06*k).toFixed(2)}px,0)`;
+  const dock=document.querySelector('.dock');
+  if(dock)dock.style.transform=`translate3d(${(gyroX*5*k).toFixed(2)}px,${(gyroY*2.5*k).toFixed(2)}px,0)`;
+  const chips=document.querySelector('.page:not([inert]) .chips');
+  if(chips)chips.style.transform=`translate3d(${(gyroX*-2.5*k).toFixed(2)}px,0,0)`;
+  document.querySelectorAll('.page .thumb img').forEach(img=>{
+    const box=img.parentElement;
+    const r=box.getBoundingClientRect();
+    if(r.bottom<-80||r.top>vh+80)return;
+    const rel=(r.top+r.height/2-vh/2)/(vh/2);          // -1 .. 1
+    const y=(-rel*7*k)+gyroY*2.5*k;
+    const x=gyroX*2.5*k;
+    img.style.transform=`translate3d(${x.toFixed(2)}%,${y.toFixed(2)}%,0) scale(1.14)`;
+  });
+}
+
 /* cards recede slightly as they move away from the centre of the screen */
 let depthRaf=0;
 function depthScroll(){
@@ -771,12 +828,15 @@ function depthScroll(){
     if(c.classList.contains('tilt'))return;
     const r=c.getBoundingClientRect();
     if(r.bottom<-80||r.top>vh+80){c.style.transform='';return}
+    const k=K();
     const d=Math.min(1,Math.abs((r.top+r.height/2)-vh/2)/(vh*0.62));
-    c.style.transform=`translateZ(${(-d*30).toFixed(1)}px) scale(${(1-d*0.05).toFixed(3)})`;
-    c.style.opacity=(1-d*0.18).toFixed(3);
+    c.style.transform=`translateZ(${(-d*30*k).toFixed(1)}px) scale(${(1-d*0.05*k).toFixed(3)})`;
+    c.style.opacity=(1-d*0.18*k).toFixed(3);
   });
 }
-function depthKick(){if(!DEPTH())return;cancelAnimationFrame(depthRaf);depthRaf=requestAnimationFrame(depthScroll)}
+let parallaxRaf=0;
+function parallaxKick(){if(!PARALLAX())return;cancelAnimationFrame(parallaxRaf);parallaxRaf=requestAnimationFrame(parallaxScroll)}
+function depthKick(){parallaxKick();if(!DEPTH())return;cancelAnimationFrame(depthRaf);depthRaf=requestAnimationFrame(depthScroll)}
 document.addEventListener('scroll',depthKick,{capture:true,passive:true});
 addEventListener('resize',depthKick);
 
