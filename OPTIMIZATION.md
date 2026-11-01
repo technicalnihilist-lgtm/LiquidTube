@@ -9,7 +9,7 @@ Dates: **1 Nov 2026 → 20 Nov 2026**, 10 items a day (one item per scheduled ru
 ---
 
 ## Day 1 — Startup & first paint
-- [ ] 1.1 Measure cold start to first paint and record the number in the log below
+- [x] 1.1 Measure cold start to first paint and record the number in the log below
 - [ ] 1.2 Inline critical CSS, defer the rest so the shell paints before styles finish
 - [ ] 1.3 Replace the 1100 ms artificial boot delay with a real "first frame ready" signal
 - [ ] 1.4 Render skeletons for the feed before the API call returns
@@ -250,8 +250,59 @@ Dates: **1 Nov 2026 → 20 Nov 2026**, 10 items a day (one item per scheduled ru
 
 ---
 
+## Startup baseline — Day 1, item 1.1
+
+Measured on 1 Nov 2026 with `tools/startup-bench.js`, which is committed so every
+later item (and 20.2) can be compared against the same number.
+
+**What is measured.** The whole UI is one HTML file loaded from the APK assets into
+the WebView, so the startup cost that can actually be moved is the web layer: parse
+the shell → paint it → fetch the feed → paint the feed. The bench serves
+`index.html` from the same `https://liquidtube.local/index.html` origin the WebView
+uses, mocks `googleapis.com` with fixed fixtures (150 ms round trip) and every image
+as a 1x1 PNG, and starts from an empty cache and an empty `localStorage`. It is
+deterministic and needs no device. Native WebView construction (a few hundred ms on
+a real phone) is **not** included — this is the web layer only.
+
+**Milestones**, ms from navigation start:
+
+| profile | first paint / FCP | DOMContentLoaded | shell visible (`.ready`) | first feed card |
+|---|---|---|---|---|
+| 1x, bench host (session A) | 1760 | 1524 | 2212 | 2212 |
+| 1x, bench host (session B) | 2364 | 2348 | 3328 | 3328 |
+| 4x CPU throttle (A) | 2636 | 4444 | 6000 | 6000 |
+| 4x CPU throttle (B) | 3184 | 5327 | 6224 | 6224 |
+| 6x CPU throttle (A) | 4168 | 6972 | 8452 | 8452 |
+| 6x CPU throttle (B) | 4204 | 6795 | 9548 | 9548 |
+
+Median of 5 cold runs per profile, two independent sessions. Run-to-run spread on
+this shared host is about ±20%, so the 4x column is the one to quote: a mid-range
+Android phone sits around there.
+
+**Baseline numbers to beat.**
+
+- Cold start → first paint: **2.6–3.2 s** at 4x CPU throttle (1.8–2.4 s unthrottled).
+- Shell actually visible to the user: **6.0–6.2 s** at 4x.
+- First feed card: the same instant as the shell, in every run.
+
+**What the numbers say.**
+
+1. `shell` and `feed` are identical in all six runs. The splash covers the whole
+   app until the data arrives, so the first thing the user sees that is not a
+   splash is gated on the network, not on rendering. Items 1.3 and 1.4 target this.
+2. The gap from `DCL` to `shell` at 4x is 1.5–1.6 s, and it is entirely the
+   `loadTrending → loadDurations → loadChannels` chain plus the fixed 1100 ms gate
+   in `reveal()`. At 1x the gate is not even binding — the three sequential API
+   calls cost more than the delay it was meant to hide.
+3. First paint lags `DCL` by 0.2–0.9 s. That is the cost of parsing and styling the
+   single 61 KB HTML file with its `backdrop-filter` glass layers before anything
+   can be rastered. Item 1.2 targets this.
+
+---
+
 ## Log
 
 | Date | Item | Result |
 |---|---|---|
 | — | schedule created | 200 items queued, 10 per day |
+| 1 Nov 2026 | 1.1 Measure cold start to first paint | Baseline recorded above: cold start → first paint **2.6–3.2 s at 4x CPU throttle** (1.8–2.4 s unthrottled), shell visible at 6.0–6.2 s, first feed card at the same instant as the shell. Added `tools/startup-bench.js` (puppeteer-core, dev-only, not shipped in the APK) so every later item is compared against the same measurement. No UI change. v7.7 (versionCode 32) |
