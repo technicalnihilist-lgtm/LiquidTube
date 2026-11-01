@@ -137,7 +137,11 @@ async function measure(browser, cpu, label) {
   // frame-aligned sampling of the two milestones the app itself owns
   await page.evaluateOnNewDocument(() => {
     window.__b = { shell: 0, feed: 0, cards: 0 };
-    const tick = () => {
+    // One probe, sampled from both a frame callback and a timer. The rAF sample is
+    // the accurate one; the timer is the fallback for a run where frames stall
+    // (a throttled, busy main thread can starve rAF for a second or more) so a
+    // milestone is never reported as a missing 0. First observation wins.
+    const probe = () => {
       const app = document.getElementById('app');
       const feed = document.getElementById('feed');
       if (app && !window.__b.shell && app.classList.contains('ready')) {
@@ -147,9 +151,11 @@ async function measure(browser, cpu, label) {
         window.__b.feed = performance.now();
         window.__b.cards = feed.querySelectorAll('.card').length;
       }
-      if (!(window.__b.shell && window.__b.feed)) requestAnimationFrame(tick);
+      return !!(window.__b.shell && window.__b.feed);
     };
+    const tick = () => { if (!probe()) requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
+    const iv = setInterval(() => { if (probe()) clearInterval(iv); }, 8);
   });
 
   await page.setRequestInterception(true);
@@ -187,7 +193,11 @@ async function measure(browser, cpu, label) {
     const paints = {};
     performance.getEntriesByType('paint').forEach(p => (paints[p.name] = p.startTime));
     const b = window.__b;
-    return {
+    const marks = {};
+    performance.getEntriesByType('mark').forEach(m => {
+      if (m.name.indexOf('lt:') === 0) marks[m.name.slice(3)] = m.startTime;
+    });
+    return Object.assign({ marks }, {
       fp: paints['first-paint'] || 0,
       fcp: paints['first-contentful-paint'] || 0,
       dcl: nav.domContentLoadedEventEnd || 0,
@@ -195,7 +205,7 @@ async function measure(browser, cpu, label) {
       shell: b.shell,
       feed: b.feed,
       cards: b.cards,
-    };
+    });
   });
   await page.close();
   return Object.assign({ label, cpu }, r);
@@ -231,6 +241,7 @@ async function measure(browser, cpu, label) {
       loadEnd: median(reps.map(r => r.loadEnd)),
       shell: median(reps.map(r => r.shell)),
       feed: median(reps.map(r => r.feed)),
+      marks: reps[0].marks || {},
     });
   }
   await browser.close();
@@ -249,6 +260,7 @@ async function measure(browser, cpu, label) {
   console.log('JSON ' + JSON.stringify(results.map(r => ({
     cpu: r.cpu, fp: Math.round(r.fp), fcp: Math.round(r.fcp), dcl: Math.round(r.dcl),
     load: Math.round(r.loadEnd), shell: Math.round(r.shell), feed: Math.round(r.feed),
+    marks: Object.fromEntries(Object.entries(r.marks).map(([k, v]) => [k, Math.round(v)])),
   }))));
 })().catch(e => {
   console.error(e);

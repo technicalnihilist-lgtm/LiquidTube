@@ -10,6 +10,9 @@ export PATH="$JAVA_HOME/bin:$PATH"
 BT="$ANDROID_HOME/build-tools/34.0.0"
 PLATFORM="$ANDROID_HOME/platforms/android-34/android.jar"
 APP="$(cd "$(dirname "$0")" && pwd)/app"
+# version comes from the manifest, so bumping it there is all that is needed
+VCODE="$(sed -n 's/.*android:versionCode="\([0-9]*\)".*/\1/p' "$APP/AndroidManifest.xml")"
+VNAME="$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' "$APP/AndroidManifest.xml")"
 OUT="$(pwd)/build"
 KS="${KS:-$HOME/.liquidtube/liquidtube.jks}"
 KSPASS="${KSPASS:-liquidtube}"
@@ -30,8 +33,8 @@ echo "== 2/6 linking manifest, resources and assets"
   -A "$APP/assets" \
   --min-sdk-version 21 \
   --target-sdk-version 34 \
-  --version-code 1 \
-  --version-name 1.0 \
+  --version-code "$VCODE" \
+  --version-name "$VNAME" \
   --auto-add-overlay
 
 echo "== 3/6 compiling java"

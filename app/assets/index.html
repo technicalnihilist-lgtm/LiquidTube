@@ -627,17 +627,56 @@ function toggleTheme(){
 
 /* ---------- boot ---------- */
 Object.values(S.vd||{}).forEach(o=>{if(o&&o.id)vObj(o.id,o)});
-const T0=performance.now();
-const reveal=()=>{if(window.__ltRestNow)window.__ltRestNow();const sp=$('splash');if(sp&&!sp.classList.contains('out')){sp.classList.add('out');$('app').classList.add('ready')}};
+/* startup timeline, in ms from navigation start: lt:data → lt:reveal → lt:paint */
+const mark=n=>{try{performance.mark('lt:'+n)}catch(e){}};
+let revealed=false;
+const reveal=()=>{
+  if(revealed)return;revealed=true;
+  if(window.__ltRestNow)window.__ltRestNow();
+  const sp=$('splash');
+  if(sp&&!sp.classList.contains('out')){sp.classList.add('out');$('app').classList.add('ready')}
+  mark('reveal');
+};
+/* Hard stop: nothing below may hold the splash up for more than 7 s. */
 setTimeout(reveal,7000);
-loadTrending().then(()=>new Promise(r=>setTimeout(r,Math.max(0,1100-(performance.now()-T0))))).then(()=>{
-  reveal();
+
+/* First-frame-ready signal: resolves once the frame that carries the shell has
+   actually been painted. Two rAFs land us after that frame; the timer and the
+   visibility check cover a WebView that is not rendering at all (started in the
+   background, or one that never fires rAF). Cached, so anything that needs the
+   signal later gets the same promise. */
+let frameReady=null;
+function firstFrame(){
+  if(frameReady)return frameReady;
+  return frameReady=new Promise(res=>{
+    let done=false;
+    const fin=()=>{if(done)return;done=true;mark('paint');res()};
+    if(document.visibilityState==='hidden')return fin();
+    requestAnimationFrame(()=>requestAnimationFrame(fin));
+    setTimeout(fin,400);
+  });
+}
+window.__ltFirstFrame=firstFrame;
+function paintShell(){
   renderChips();
   list(feed(),$('feed'));
   if(!feed().length&&FEED.error)$('feed').innerHTML='<div class="empty">Could not load videos.<br>'+esc(FEED.error)+'</div>';
   renderExplore();
   renderSubs();
-});
+}
+/* Boot: fetch → paint the shell → reveal, all in one task, so the first frame the
+   user sees already carries the chips and the feed instead of an empty shell.
+   Nothing here waits on a timer: the splash leaves as soon as the content behind
+   it exists, whether the feed took 80 ms or 2 s to arrive, and firstFrame()
+   reports the frame that actually painted it. */
+loadTrending().catch(e=>{if(!FEED.error)FEED.error=(e&&e.message)||'offline'})
+  .then(()=>{
+    mark('data');
+    if(window.__ltRestNow)window.__ltRestNow();   /* deferred sheet before the shell paints */
+    try{paintShell()}catch(e){}
+    reveal();
+    return firstFrame();
+  });
 
 /* ---------- 3D depth: cards tilt under the finger ---------- */
 const DEPTH=()=>S.opt.depth!==0;
