@@ -133,15 +133,49 @@ document.querySelectorAll('[data-ic]').forEach(b=>b.innerHTML=ic(b.dataset.ic));
 const G=[['#ff5f6d','#ffc371'],['#7f00ff','#e100ff'],['#00c6ff','#0072ff'],['#f7971e','#ffd200'],['#11998e','#38ef7d'],['#fc466b','#3f5efb'],['#232526','#6a6a8a'],['#ff9a9e','#a18cd1']];
 const g=i=>`linear-gradient(135deg,${G[i%8][0]},${G[i%8][1]})`;
 const APIKEY='AIzaSyBF449ShoVt-1qsWhO8VUdHU7v_2E72lNA';
+/* ---------- constants: resolved once at boot, never per call ----------
+   Everything here used to be rebuilt on every call: the escape table and its
+   regex, the entity decoder's five patterns, the duration / shorts / quota
+   patterns, the API, thumbnail and embed URL prefixes, the region and date
+   formatters and the colour-scheme query. A render pass or an API call now pays
+   only for its own work, and each literal has one definition to keep in step.
+   The two Intl formatters are built on first use, so boot pays nothing for them. */
+const API_BASE='https://www.googleapis.com/youtube/v3/';
+const THUMB_BASE='https://i.ytimg.com/vi/';
+const EMBED_BASE='https://www.youtube-nocookie.com/embed/';
+const DEC_RE=[/&amp;/g,/&quot;/g,/&#39;/g,/&lt;/g,/&gt;/g];
+const DEC_TO=['&','"',"'",'<','>'];
+const DUR_RE=/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/;
+const PRIVATE_RE=/^(Private|Deleted) video$/i;
+const SHORTS_TAG_RE=/\bshorts?\b|#shorts/i;
+const HINDI_RE=/[\u0900-\u097F]|\bhindi\b/i;
+const QUOTA_RE=/quota/i;
+const YT_ORIGIN_RE=/^https:\/\/(www\.)?youtube(-nocookie)?\.com$/;
+const SVG_TAG_RE=/<svg[\s\S]*<\/svg>/;
 const V={},CH={},FEED={trending:null,error:''};
-const esc=t=>String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const dec=t=>String(t==null?'':t).replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+const ESCMAP={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'};
+const ESC_RE=/[&<>"]/g;
+const escMap=c=>ESCMAP[c];
+const esc=t=>String(t==null?'':t).replace(ESC_RE,escMap);
+const dec=t=>{let s=String(t==null?'':t);for(let i=0;i<DEC_RE.length;i++)s=s.replace(DEC_RE[i],DEC_TO[i]);return s};
 const hash=s=>{s=String(s==null?'':s);let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h};
 const num=n=>{n=+n||0;if(n>=1e9)return (n/1e9).toFixed(1).replace('.0','')+'B';if(n>=1e6)return (n/1e6).toFixed(1).replace('.0','')+'M';if(n>=1e3)return (n/1e3).toFixed(1).replace('.0','')+'K';return n?String(n):''};
 const ago=iso=>{if(!iso)return '';const d=(Date.now()-new Date(iso).getTime())/864e5;if(d<1)return 'today';if(d<30)return Math.floor(d)+'d ago';if(d<365)return Math.floor(d/30)+'mo ago';return Math.floor(d/365)+'y ago'};
 const bestTh=t=>{if(!t)return '';return (t.maxres||t.standard||t.high||t.medium||t.default||{}).url||''};
-const cname=cc=>{try{return new Intl.DisplayNames(['en'],{type:'region'}).of(cc)||cc}catch(e){return cc}};
-const pic=id=>'https://i.ytimg.com/vi/'+id+'/maxresdefault.jpg';
+let REGION_FMT=null,REGION_TRIED=false;const REGION_MEMO=new Map();
+const cname=cc=>{cc=String(cc==null?'':cc);
+  if(!REGION_TRIED){REGION_TRIED=true;try{REGION_FMT=new Intl.DisplayNames(['en'],{type:'region'})}catch(e){REGION_FMT=null}}
+  if(!REGION_FMT)return cc;
+  const m=REGION_MEMO.get(cc);if(m!==undefined)return m;
+  let v;try{v=REGION_FMT.of(cc)||cc}catch(e){v=cc}
+  REGION_MEMO.set(cc,v);return v};
+const DATE_OPTS={day:'numeric',month:'short',year:'numeric'};
+let DATE_FMT=null,DATE_TRIED=false;
+const dfmt=d=>{if(!DATE_TRIED){DATE_TRIED=true;try{DATE_FMT=new Intl.DateTimeFormat('en-IN',DATE_OPTS)}catch(e){DATE_FMT=null}}
+  return DATE_FMT?DATE_FMT.format(d):d.toLocaleDateString('en-IN',DATE_OPTS)};
+const DARK_MQ=(()=>{try{return matchMedia('(prefers-color-scheme:dark)')}catch(e){return null}})();
+const isDark=()=>{const t=document.documentElement.dataset.theme;if(t)return t==='dark';return !!(DARK_MQ&&DARK_MQ.matches)};
+const pic=id=>THUMB_BASE+id+'/maxresdefault.jpg';
 const QUAL=['maxresdefault','sddefault','hqdefault','mqdefault','default'];
 window.THOK=function(img){
   if(img.dataset.f)return;
@@ -157,7 +191,7 @@ window.TH=function(img){
     if(p)p.style.background='linear-gradient(135deg,#23262f,#3d4256)';
     return;
   }img.dataset.f='1';img.src='https://i.ytimg.com/vi/'+img.dataset.id+'/hqdefault.jpg';};
-const thumbImg=id=>'<img src="https://i.ytimg.com/vi/'+esc(id)+'/maxresdefault.jpg" alt="" loading="lazy" data-id="'+esc(id)+'" data-q="0" onload="THOK(this)" onerror="TH(this)">';
+const thumbImg=id=>'<img src="'+THUMB_BASE+esc(id)+'/maxresdefault.jpg" alt="" loading="lazy" data-id="'+esc(id)+'" data-q="0" onload="THOK(this)" onerror="TH(this)">';
 
 /* ---------- persisted state ---------- */
 const SKEY='lt';
@@ -169,6 +203,7 @@ document.addEventListener('touchstart',()=>{},{passive:true});
 document.addEventListener('load',e=>{const t=e.target;if(t&&(t.tagName==='IMG'||t.tagName==='IFRAME'))t.classList.add('ld')},true);
 document.addEventListener('error',e=>{const t=e.target;if(t&&t.tagName==='IMG'&&!t.hasAttribute('onerror'))t.classList.add('ld')},true);
 const LDR='<div class="ldr"><i></i><i></i><i></i></div>';
+const LDRABS=LDR.replace('class="ldr"','class="ldr abs"');
 const on=(a,x)=>a.includes(x);
 const toggle=(a,x)=>{const i=a.indexOf(x);if(i<0)a.push(x);else a.splice(i,1);save();return i<0};
 
@@ -176,7 +211,7 @@ const toggle=(a,x)=>{const i=a.indexOf(x);if(i<0)a.push(x);else a.splice(i,1);sa
 function applyGlass(){
   const t=Math.max(0,Math.min(100,+S.opt.glass||0))/100;          // 0 = solid, 1 = very see-through
   const root=document.documentElement;
-  const dark=root.dataset.theme==='dark'||(!root.dataset.theme&&matchMedia('(prefers-color-scheme:dark)').matches);
+  const dark=isDark();
   const base=dark?[96,96,116]:[255,255,255];
   const a1=dark?(0.74-0.46*t):(0.93-0.71*t);
   const a2=Math.max(.05,a1*0.45);
@@ -191,8 +226,9 @@ applyLayout();applyGlass();
 
 /* ---------- YouTube API ---------- */
 async function yt(path,params){
-  const q=new URLSearchParams(Object.assign({},params,{key:APIKEY}));
-  const r=await fetch('https://www.googleapis.com/youtube/v3/'+path+'?'+q.toString());
+  const q=new URLSearchParams(params||{});
+  q.set('key',APIKEY);                      // the key is one constant, appended here only
+  const r=await fetch(API_BASE+path+'?'+q);
   const j=await r.json();
   if(j.error)throw new Error(j.error.message||'YouTube API error');
   return j;
@@ -242,7 +278,7 @@ async function loadTrending(){
   }catch(e){FEED.error=e.message||'offline';FEED.trending=[];return []}
 }
 const feed=()=>FEED.trending||[];
-const iso2sec=d=>{const m=/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/.exec(d||'');return m?(+m[1]||0)*3600+(+m[2]||0)*60+(+m[3]||0):0};
+const iso2sec=d=>{const m=DUR_RE.exec(d||'');return m?(+m[1]||0)*3600+(+m[2]||0)*60+(+m[3]||0):0};
 async function loadDurations(list){
   const ids=list.filter(v=>v.dur==null).map(v=>v.id).slice(0,50);
   if(!ids.length)return;
@@ -263,6 +299,7 @@ let cat='All';
 const CATMAP={1:'Film',2:'Cars',10:'Music',15:'Animals',17:'Sports',19:'Travel',20:'Gaming',22:'People',23:'Comedy',24:'Entertainment',25:'News',26:'Howto',27:'Education',28:'Science',29:'Nonprofits'};
 let CATS=['All','Music','Gaming','Sports','Entertainment','News','Education'];
 const CUSTOM=[['Anime','anime'],['Cartoon','cartoon'],['Movies','movies']];
+const CHIPS_BASE=['All',...CUSTOM.map(c=>c[0])];
 function renderChips(){
   const present=[...new Set(feed().map(v=>v.cat).filter(c=>c&&c!=='All'))];
   CATS=['All',...CUSTOM.map(c=>c[0]),...present];
@@ -305,12 +342,13 @@ const LONG_MIN=180;
 const SHORT_RE=/#shorts?\b|\/shorts\//i;
 const isShort=v=>!v||SHORT_RE.test(v.t||'')||(typeof v.dur==='number'&&v.dur>0&&v.dur<=LONG_MIN);
 async function dropShorts(list){
-  list=(list||[]).filter(v=>v&&!SHORT_RE.test(v.t||'')&&!/^(Private|Deleted) video$/i.test(v.t||''));
+  list=(list||[]).filter(v=>v&&!SHORT_RE.test(v.t||'')&&!PRIVATE_RE.test(v.t||''));
   await loadDurations(list);                 // every item is measured, not just the unknown ones
   return list.filter(v=>!isShort(v));
 }
 
 /* ---------- explore (shelves) ---------- */
+const PLAY_IC=ic('home').replace(SVG_TAG_RE,'<svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>');
 const SHELVES=[
   {id:'multiai',title:'Multi AI Music',kind:'channel',ch:'UCNf1ThUNWLARtz8m86xOp1A'},
   {id:'calm',title:'Calm music',q:'calm relaxing music playlist'},
@@ -344,7 +382,7 @@ function renderExplore(){
     loadShelf(sh).then(list=>{
       const el=document.getElementById('car-'+sh.id);
       if(!el)return;
-      el.innerHTML=list.slice(0,6).map(v=>'<div class="big" data-v="'+esc(v.id)+'"><img src="https://i.ytimg.com/vi/'+esc(v.id)+'/hqdefault.jpg" alt=""><div><b>'+esc(v.t)+'</b><small>'+esc(v.c)+'</small></div><button class="play glass" data-v="'+esc(v.id)+'">'+ic('home').replace(/<svg[\s\S]*<\/svg>/,'<svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>')+'Play</button></div>').join('');
+      el.innerHTML=list.slice(0,6).map(v=>'<div class="big" data-v="'+esc(v.id)+'"><img src="'+THUMB_BASE+esc(v.id)+'/hqdefault.jpg" alt=""><div><b>'+esc(v.t)+'</b><small>'+esc(v.c)+'</small></div><button class="play glass" data-v="'+esc(v.id)+'">'+PLAY_IC+'Play</button></div>').join('');
     }).catch(()=>{const el=document.getElementById('car-'+sh.id);if(el)el.innerHTML=''});
   });
 }
@@ -371,8 +409,8 @@ function keep(v){
   const t=(v.t||'');
   if(!t)return false;
   if(BADRE.test(t))return false;          // no reaction videos
-  if(/\bshorts?\b|#shorts/i.test(t))return false;
-  if(/^(Private|Deleted) video$/i.test(t))return false;
+  if(SHORTS_TAG_RE.test(t))return false;
+  if(PRIVATE_RE.test(t))return false;
   return true;
 }
 
@@ -416,7 +454,7 @@ async function loadSection(name){
   }
   const seen=new Set();
   clean=clean.filter(v=>!seen.has(v.id)&&seen.add(v.id));
-  const hi=v=>/[\u0900-\u097F]|\bhindi\b/i.test(v.t||'')?1:0;
+  const hi=v=>HINDI_RE.test(v.t||'')?1:0;
   clean.sort((a,b)=>hi(b)-hi(a));      // Hindi titles first, then the rest
   await loadChannels(clean.map(v=>v.ch));
   SEC[name]=clean;
@@ -458,7 +496,7 @@ $('sg').addEventListener('click',e=>{const b=e.target.closest('[data-ch]');if(b)
 let cur=null;
 function mount(id,title){
   const a=$('pl').querySelector('.art');
-  a.innerHTML=LDR.replace('class="ldr"','class="ldr abs"')+'<iframe src="https://www.youtube-nocookie.com/embed/'+esc(id)+'?autoplay=1&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&enablejsapi=1'+(S.opt.cc?'&cc_load_policy=1':'')+'" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="'+esc(title||'')+'"></iframe>';
+  a.innerHTML=LDRABS+'<iframe src="'+EMBED_BASE+esc(id)+'?autoplay=1&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&enablejsapi=1'+(S.opt.cc?'&cc_load_policy=1':'')+'" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="'+esc(title||'')+'"></iframe>';
   const f=a.querySelector('iframe');
   f.addEventListener('load',()=>{try{f.contentWindow.postMessage(JSON.stringify({event:'listening'}),'*')}catch(e){}});
 }
@@ -488,7 +526,7 @@ $('pclose').onclick=closeAll;
 /* loop, driven by the player's own message channel (no playlist param) */
 addEventListener('message',e=>{
   const o=String(e.origin||'');
-  if(!/^https:\/\/(www\.)?youtube(-nocookie)?\.com$/.test(o))return;
+  if(!YT_ORIGIN_RE.test(o))return;
   let d=e.data;if(typeof d==='string'){try{d=JSON.parse(d)}catch(x){return}}
   if(!d||d.event!=='onStateChange')return;
   if(+d.info===0&&S.opt.loop&&cur)mount(cur.id,cur.t);
@@ -499,7 +537,7 @@ function openChannel(id){
   sheet('Channel',LDR+'<div class="skl" style="height:120px"></div>',0);
   ensureChannel(id).then(c=>{
     const st=[c.vids?num(c.vids)+' videos':'',c.subs?num(c.subs)+' subscribers':'',c.views?num(c.views)+' views':''].filter(Boolean).join(' · ');
-    const jd=c.joined?new Date(c.joined).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'';
+    const jd=c.joined?dfmt(new Date(c.joined)):'';
     const subbed=S.subs.includes(c.id);
     $('sht').textContent=c.title;
     $('shb').innerHTML='<div class="chh">'+(c.av?'<img src="'+esc(c.av)+'" alt="">':'<div class="av" style="background:'+g(hash(c.id))+'"></div>')+
@@ -612,7 +650,7 @@ async function find(){
     if(id!==seq)return;
     $('results').innerHTML=list.length?list.map(cardOf).join(''):'<div class="empty">No videos match that.</div>';
   }catch(e){
-    const q=/quota/i.test(String(e.message||''));
+    const q=QUOTA_RE.test(String(e.message||''));
     $('results').innerHTML='<div class="empty">'+(q?"YouTube's daily search limit is used up.":'Search failed. '+esc(e.message||''))+'</div>';
   }
 }
@@ -633,7 +671,7 @@ document.addEventListener('click',e=>{
 /* ---------- theme ---------- */
 function toggleTheme(){
   const d=document.documentElement;
-  const dark=d.dataset.theme?d.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+  const dark=isDark();
   d.dataset.theme=dark?'light':'dark';
   applyGlass();
 }
@@ -677,7 +715,7 @@ window.__ltFirstFrame=firstFrame;
    on the network. It starts no request of its own. */
 const SK3='<div class="skl"></div><div class="skl"></div><div class="skl"></div>';
 function paintSkeleton(){
-  const chips=['All',...CUSTOM.map(c=>c[0])];
+  const chips=CHIPS_BASE;
   $('chips').innerHTML=chips.map(c=>'<button class="chip glass'+(c===cat?' on':'')+'">'+c+'</button>').join('');
   $('feed').innerHTML=LDR+SK3;
   $('ex').innerHTML=shelfSkeleton();
