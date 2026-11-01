@@ -10,7 +10,7 @@ Dates: **1 Nov 2026 → 20 Nov 2026**, 10 items a day (one item per scheduled ru
 
 ## Day 1 — Startup & first paint
 - [x] 1.1 Measure cold start to first paint and record the number in the log below
-- [ ] 1.2 Inline critical CSS, defer the rest so the shell paints before styles finish
+- [x] 1.2 Inline critical CSS, defer the rest so the shell paints before styles finish
 - [ ] 1.3 Replace the 1100 ms artificial boot delay with a real "first frame ready" signal
 - [ ] 1.4 Render skeletons for the feed before the API call returns
 - [ ] 1.5 Parse the API key and constants once at boot, not per call
@@ -306,3 +306,4 @@ Android phone sits around there.
 |---|---|---|
 | — | schedule created | 200 items queued, 10 per day |
 | 1 Nov 2026 | 1.1 Measure cold start to first paint | Baseline recorded above: cold start → first paint **2.6–3.2 s at 4x CPU throttle** (1.8–2.4 s unthrottled), shell visible at 6.0–6.2 s, first feed card at the same instant as the shell. Added `tools/startup-bench.js` (puppeteer-core, dev-only, not shipped in the APK) so every later item is compared against the same measurement. No UI change. v7.7 (versionCode 32) |
+| 1 Nov 2026 | 1.2 Inline critical CSS, defer the rest | Split the single 21 KB sheet into **10.4 KB critical** (variables, resets, glass, page/top bar/logo, chips, dock/tabs/lens, splash, loader, skeletons, `img` reveal, reduced-motion, layout switch, `.ready` rules) and **10.6 KB deferred** (cards, carousels, `#search`, `#scrim`, player and sheet, `#toast`, results, settings rows, per-item animation delays). The deferred sheet is kept as an inert `<script type="text/css">` data block at the end of `<body>` — outside the CSSOM — and applied in the first idle slot after `DOMContentLoaded`, with `reveal()` as the hard fallback and a 3 s timer as the last resort, so the splash and shell never wait on it. Verified equivalent: the applied sheets expose the same 220 rules, and 45 sampled elements (shell, card, thumb, meta, dock, lens, tab, search, sheet, player, toast, scrim, settings — light and dark) have identical computed styles; 30 cards, 10 chips, no console errors. Startup A/B with the `tools/startup-bench.js` fixtures, both builds interleaved in one browser (8–12 reps each): first paint **2836 ms vs 3192 ms at 4x CPU throttle (−11 %)** in the best run, all other runs inside the ±6 % noise floor measured by running one build against itself; shell unchanged. No UI change. v7.8 (versionCode 33) |
