@@ -45,6 +45,13 @@ h2{font-size:19px;font-weight:800;letter-spacing:-.03em;padding:14px 14px 8px}
 .sbtn{width:66px;height:66px;border-radius:50%;display:grid;place-items:center;flex:none;transition:scale .6s var(--bounce)}.sbtn:active{scale:.86}
 @media(prefers-reduced-motion:reduce){:root{--bounce:cubic-bezier(.25,.9,.3,1);--bounce-soft:cubic-bezier(.25,.9,.3,1)}.skl{animation:none}}
 
+/* ---- overlays: off-screen until the deferred sheet lands ---- */
+/* #search, #pl, #sheet, #scrim and #toast are revealed only by their `.on`
+   class, so keeping them hidden here cannot change the UI. It only stops them
+   painting as bare flow content in the first frames, before the deferred sheet
+   (which carries their positioning) has been applied. */
+#search:not(.on),#pl:not(.on),#sheet:not(.on),#scrim:not(.on),#toast:not(.on){position:absolute;opacity:0;pointer-events:none}
+
 /* ---- layout switch ---- */
 html[data-layout=tablet] .app{max-width:640px}
 html[data-layout=tablet] body{font-size:16.5px}
@@ -278,6 +285,10 @@ function chip(n){
     });
     return;
   }
+  if(!FEED.trending&&!FEED.error){            // feed still in flight: keep the skeletons
+    f.innerHTML=LDR+SK3;
+    return;
+  }
   f.style.opacity=0;
   setTimeout(()=>{
     const items=cat==='All'?feed():feed().filter(v=>v.cat===cat);
@@ -324,9 +335,11 @@ async function loadShelf(sh){
   list=await dropShorts(list);
   SHELF[sh.id]=list;return list;
 }
+/* the carousel placeholders, used both for the boot skeleton and by renderExplore */
+const shelfSkeleton=()=>SHELVES.map(sh=>'<div class="vh"><h2>'+esc(sh.title)+'</h2><button class="va glass" data-shelf="'+sh.id+'">View All</button></div>'+
+  '<div class="car" id="car-'+sh.id+'"><div class="skl"></div><div class="skl"></div></div>').join('');
 function renderExplore(){
-  $('ex').innerHTML=SHELVES.map(sh=>'<div class="vh"><h2>'+esc(sh.title)+'</h2><button class="va glass" data-shelf="'+sh.id+'">View All</button></div>'+
-    '<div class="car" id="car-'+sh.id+'"><div class="skl"></div><div class="skl"></div></div>').join('');
+  $('ex').innerHTML=shelfSkeleton();
   SHELVES.forEach(sh=>{
     loadShelf(sh).then(list=>{
       const el=document.getElementById('car-'+sh.id);
@@ -627,7 +640,8 @@ function toggleTheme(){
 
 /* ---------- boot ---------- */
 Object.values(S.vd||{}).forEach(o=>{if(o&&o.id)vObj(o.id,o)});
-/* startup timeline, in ms from navigation start: lt:data → lt:reveal → lt:paint */
+/* startup timeline, in ms from navigation start:
+   lt:shell → lt:reveal → lt:paint (skeleton frame) → lt:data → lt:feed → lt:feedpaint */
 const mark=n=>{try{performance.mark('lt:'+n)}catch(e){}};
 let revealed=false;
 const reveal=()=>{
@@ -657,6 +671,18 @@ function firstFrame(){
   });
 }
 window.__ltFirstFrame=firstFrame;
+/* Skeleton shell: the loading state the app already ships — the static #feed
+   skeletons, the chip row, the carousel placeholders — painted before the feed
+   request comes back, so the first frame is the shell and the splash never sits
+   on the network. It starts no request of its own. */
+const SK3='<div class="skl"></div><div class="skl"></div><div class="skl"></div>';
+function paintSkeleton(){
+  const chips=['All',...CUSTOM.map(c=>c[0])];
+  $('chips').innerHTML=chips.map(c=>'<button class="chip glass'+(c===cat?' on':'')+'">'+c+'</button>').join('');
+  $('feed').innerHTML=LDR+SK3;
+  $('ex').innerHTML=shelfSkeleton();
+  $('subfeed').innerHTML=SK3;
+}
 function paintShell(){
   renderChips();
   list(feed(),$('feed'));
@@ -664,17 +690,22 @@ function paintShell(){
   renderExplore();
   renderSubs();
 }
-/* Boot: fetch → paint the shell → reveal, all in one task, so the first frame the
-   user sees already carries the chips and the feed instead of an empty shell.
-   Nothing here waits on a timer: the splash leaves as soon as the content behind
-   it exists, whether the feed took 80 ms or 2 s to arrive, and firstFrame()
-   reports the frame that actually painted it. */
+/* Boot, in two stages. Stage 1 needs no network: the shell and its skeletons are
+   painted and the splash leaves on the first frame the app can actually produce,
+   however long the feed takes. Stage 2 lands the data and swaps the skeletons for
+   cards in place. Nothing waits on a timer. */
+paintSkeleton();
+mark('shell');
+reveal();
+firstFrame();                                    /* lt:paint = the skeleton frame */
 loadTrending().catch(e=>{if(!FEED.error)FEED.error=(e&&e.message)||'offline'})
   .then(()=>{
     mark('data');
-    if(window.__ltRestNow)window.__ltRestNow();   /* deferred sheet before the shell paints */
+    if(window.__ltRestNow)window.__ltRestNow();   /* deferred sheet before the cards paint */
     try{paintShell()}catch(e){}
     reveal();
+    mark('feed');
+    requestAnimationFrame(()=>requestAnimationFrame(()=>mark('feedpaint')));
     return firstFrame();
   });
 
