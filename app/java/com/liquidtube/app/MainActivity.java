@@ -7,9 +7,11 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.webkit.ConsoleMessage;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -40,6 +42,10 @@ public class MainActivity extends Activity {
             "youtu.be", "google.com"
     };
     private static final String START_URL = "https://" + HOST + "/index.html";
+
+    /** Logcat tag, and the only console prefix that is forwarded to it. */
+    private static final String TAG = "LiquidTube";
+    private static final String LOG_PREFIX = "lt-";
 
     private static final String BACK_JS =
             "(function(){"
@@ -200,6 +206,22 @@ public class MainActivity extends Activity {
     }
 
     private class Chrome extends WebChromeClient {
+        /**
+         * The page's startup timeline (a single "lt-startup ..." line per launch) is the
+         * only console output that reaches logcat: `adb logcat -s LiquidTube` shows the
+         * boot milestones of every run, so a startup regression is visible on a device
+         * instead of only in a benchmark. Everything else the page, an embed or a
+         * third-party script prints is dropped, so nothing else can end up in the log.
+         */
+        @Override
+        public boolean onConsoleMessage(ConsoleMessage m) {
+            String msg = m == null ? null : m.message();
+            if (msg != null && msg.startsWith(LOG_PREFIX)) {
+                Log.i(TAG, msg);
+            }
+            return true;
+        }
+
         @Override
         public void onShowCustomView(View view, CustomViewCallback callback) {
             if (customView != null) {

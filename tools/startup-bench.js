@@ -24,6 +24,12 @@
  *   shell  #app gets .ready — splash starts leaving, the real shell is visible
  *   feed   first .card painted in #feed
  *
+ * It also prints the app's own startup timeline (the `lt-startup ...` line the
+ * build logs on every launch, see `window.__ltTimeline`): the cumulative ms of
+ * every boot milestone plus the previous run's total, so a regression shows up as
+ * a bigger number against the same line from the last run instead of being felt
+ * later. Paste two runs side by side to compare.
+ *
  * Usage:
  *   npm i puppeteer-core                     # dev only, not shipped in the APK
  *   node tools/startup-bench.js [repoDir] [apiDelayMs] [reps]
@@ -186,6 +192,9 @@ async function measure(browser, cpu, label) {
 
   await page.goto('https://' + ORIGIN + '/index.html', { waitUntil: 'load', timeout: 60000 });
   await page.waitForFunction('window.__b.feed > 0', { timeout: 60000 });
+  // the app writes its timeline once the boot has settled; wait for it so the line
+  // is complete, but never let a missing one fail the measurement
+  await page.waitForFunction('!!window.__ltTimeline', { timeout: 5000 }).catch(() => {});
   await sleep(120);
 
   const r = await page.evaluate(() => {
@@ -205,6 +214,7 @@ async function measure(browser, cpu, label) {
       shell: b.shell,
       feed: b.feed,
       cards: b.cards,
+      tl: window.__ltTimeline || '',
     });
   });
   await page.close();
@@ -242,6 +252,7 @@ async function measure(browser, cpu, label) {
       shell: median(reps.map(r => r.shell)),
       feed: median(reps.map(r => r.feed)),
       marks: reps[0].marks || {},
+      tl: reps.map(r => r.tl).filter(Boolean),
     });
   }
   await browser.close();
@@ -257,10 +268,16 @@ async function measure(browser, cpu, label) {
                 f(r.shell) + f(r.feed) + String(r.cards).padStart(7));
   }
   console.log('');
+  console.log('app timeline, lt-startup line as the build logs it (first rep of each profile):');
+  for (const r of results) {
+    console.log('  ' + r.label.padEnd(16) + (r.tl[0] || '(none)'));
+  }
+  console.log('');
   console.log('JSON ' + JSON.stringify(results.map(r => ({
     cpu: r.cpu, fp: Math.round(r.fp), fcp: Math.round(r.fcp), dcl: Math.round(r.dcl),
     load: Math.round(r.loadEnd), shell: Math.round(r.shell), feed: Math.round(r.feed),
     marks: Object.fromEntries(Object.entries(r.marks).map(([k, v]) => [k, Math.round(v)])),
+    timeline: r.tl[0] || '',
   }))));
 })().catch(e => {
   console.error(e);

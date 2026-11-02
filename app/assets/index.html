@@ -243,7 +243,9 @@ function applyLayout(){
 applyLayout();applyGlass();
 
 /* ---------- YouTube API ---------- */
+let tlReq=0;                                /* first request of the boot, marked once */
 async function yt(path,params){
+  if(!tlReq){tlReq=1;mark('req')}            /* separates JS work from network in the timeline */
   const q=new URLSearchParams(params||{});
   q.set('key',APIKEY);                      // the key is one constant, appended here only
   const r=await fetch(API_BASE+path+'?'+q);
@@ -718,9 +720,56 @@ function toggleTheme(){
 
 /* ---------- boot ---------- */
 Object.values(S.vd||{}).forEach(o=>{if(o&&o.id)vObj(o.id,o)});
-/* startup timeline, in ms from navigation start:
-   lt:shell → lt:reveal → lt:paint (skeleton frame) → lt:data → lt:feed → lt:feedpaint */
-const mark=n=>{try{performance.mark('lt:'+n)}catch(e){}};
+/* ---------- startup timeline ----------
+   Milestones in the order they happen, ms from navigation start:
+   lt:shell → lt:cache → lt:reveal → lt:paint (skeleton frame) → lt:req (first API
+   call leaving) → lt:data → lt:feed → lt:feedpaint → lt:input.
+   Each mark is two numbers in a fixed-size array — no DOM, no request, no storage
+   while booting — and the whole run is written out once, as a single line, when
+   the boot has settled. That line carries every milestone and the previous boot's
+   total, so a regression is a bigger number in the log rather than something felt
+   later. It stays on window.__ltTimeline for tools/startup-bench.js, and the
+   WebView forwards only `lt-` lines to logcat (see MainActivity). */
+const TL_CAP=16,TL=[];                      /* hard bound: marks past this are dropped */
+let tlDone=false,tlTimer=0;
+const mark=n=>{
+  if(TL.length<TL_CAP)TL.push([n,Math.round(performance.now())]);
+  try{performance.mark('lt:'+n)}catch(e){}
+  tlSettle();
+};
+/* The timeline is written as soon as the feed has painted — that is the end of
+   the boot — so the line never waits on anything. The deferred-listener mark is
+   included when it landed before that (it usually does: it is attached in an idle
+   slot after the skeleton frame, well before the feed comes back); when it has
+   not, it is simply absent from the line. A boot that never reaches feedpaint is
+   written out by the deadline below, with whatever it managed to reach. */
+function tlSettle(){
+  if(tlDone)return;
+  for(let i=0;i<TL.length;i++)if(TL[i][0]==='feedpaint')return tlFlush();
+}
+const TL_KEY='lt_boot';
+function tlFlush(partial){
+  if(tlDone)return;tlDone=true;clearTimeout(tlTimer);
+  try{
+    const ms={};TL.forEach(m=>{ms[m[0]]=m[1]});
+    let total=0;for(const k in ms)if(ms[k]>total)total=ms[k];   /* when the boot finished */
+    let prev=0;
+    try{const p=JSON.parse(localStorage.getItem(TL_KEY)||'0');prev=(p&&p.v===1&&+p.t)||0}catch(e){}
+    let line='lt-startup';
+    ['shell','cache','reveal','paint','req','data','feed','feedpaint','input'].forEach(n=>{
+      if(n in ms)line+=' '+n+'='+ms[n];
+    });
+    /* warm = this boot painted the cached feed ('cache' is only marked on that
+       path), err = the feed came back as an error; both are what the numbers
+       above have to be read against. */
+    line+=' total='+total+' prev='+prev+(prev?' vs_prev='+(total-prev>0?'+':'')+(total-prev):'')
+      +' warm='+('cache' in ms?1:0)+' err='+(FEED.error?1:0)+(partial?' partial=1':'');
+    window.__ltTimeline=line;
+    try{localStorage.setItem(TL_KEY,JSON.stringify({v:1,t:total,at:Date.now()}))}catch(e){}
+    try{console.info(line)}catch(e){}
+  }catch(e){}
+}
+tlTimer=setTimeout(()=>tlFlush(1),12000);   /* last resort: never leave a boot unlogged */
 let revealed=false;
 const reveal=()=>{
   if(revealed)return;revealed=true;
