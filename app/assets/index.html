@@ -164,7 +164,13 @@ const HINDI_RE=/[\u0900-\u097F]|\bhindi\b/i;
 const QUOTA_RE=/quota/i;
 const YT_ORIGIN_RE=/^https:\/\/(www\.)?youtube(-nocookie)?\.com$/;
 const SVG_TAG_RE=/<svg[\s\S]*<\/svg>/;
-const V={},CH={},FEED={trending:null,error:''};
+const V={},CH={},FEED={trending:null,error:'',cached:null,at:0};
+/* Last feed, kept so a reopen paints real cards before any request is made.
+   FEED.cached is only ever a paint source: FEED.trending stays null until the
+   network answers, so loadTrending() still refreshes on every launch. CAV holds
+   just the channel avatars the cached cards need, so the partial cache never
+   stands in for a full CH entry (loadChannels/ensureChannel keep fetching). */
+const FKEY='lt_feed',FVER=1,CAV={};
 const ESCMAP={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'};
 const ESC_RE=/[&<>"]/g;
 const escMap=c=>ESCMAP[c];
@@ -275,6 +281,7 @@ function vObj(id,d){
   const v=Object.assign({id,t:'',c:'',ch:'',views:'',pub:'',cat:'All',g:G[hash(id)%8]},V[id]||{});
   if(d.t)v.t=d.t;if(d.c)v.c=d.c;if(d.ch)v.ch=d.ch;
   if(d.views!=null)v.views=d.views;if(d.pub)v.pub=d.pub;if(d.cat)v.cat=d.cat;
+  if(d.dur!=null)v.dur=d.dur;                  // kept by the feed cache, so a cached card is complete
   V[id]=v;return v;
 }
 async function loadTrending(){
@@ -286,10 +293,29 @@ async function loadTrending(){
       cat:CATMAP[+it.snippet.categoryId]||'All'}));
     const clean=await dropShorts(list);
     await loadChannels(clean.map(v=>v.ch));
-    FEED.trending=clean;return clean;
+    FEED.trending=clean;FEED.cached=null;saveFeedCache(clean);return clean;
   }catch(e){FEED.error=e.message||'offline';FEED.trending=[];return []}
 }
-const feed=()=>FEED.trending||[];
+const feed=()=>FEED.trending||FEED.cached||[];
+/* ---------- last-feed cache (localStorage) ---------- */
+function readFeedCache(){
+  try{
+    const raw=localStorage.getItem(FKEY);if(!raw)return null;
+    const c=JSON.parse(raw);
+    if(!c||c.v!==FVER||!Array.isArray(c.items))return null;
+    const items=c.items.filter(o=>o&&typeof o.id==='string'&&o.id);   // shape check
+    return items.length?{at:+c.at||0,items,chav:c.chav||{}}:null;
+  }catch(e){return null}
+}
+function saveFeedCache(items){
+  try{
+    const chav={};
+    (items||[]).forEach(v=>{const av=v&&v.ch&&CH[v.ch]&&CH[v.ch].av;if(av)chav[v.ch]=av});
+    const at=Date.now();
+    localStorage.setItem(FKEY,JSON.stringify({v:FVER,at,chav,items:(items||[]).map(v=>({id:v.id,t:v.t,c:v.c,ch:v.ch,views:v.views,pub:v.pub,cat:v.cat,dur:v.dur}))}));
+    FEED.at=at;
+  }catch(e){}                                   // quota or private mode: no cache, no failure
+}
 const iso2sec=d=>{const m=DUR_RE.exec(d||'');return m?(+m[1]||0)*3600+(+m[2]||0)*60+(+m[3]||0):0};
 async function loadDurations(list){
   const ids=list.filter(v=>v.dur==null).map(v=>v.id).slice(0,50);
@@ -301,8 +327,10 @@ async function loadDurations(list){
 }
 /* ---------- card + list renderers ---------- */
 const meta=v=>[v.views?num(v.views)+' views':'',v.pub?ago(v.pub):''].filter(Boolean).join(' · ');
+/* avatar for a card: the live channel object, else the avatar kept in the feed cache */
+const chAv=id=>((CH[id]&&CH[id].av)||CAV[id]||'');
 const cardOf=(v,i)=>'<button class="card" style="--i:'+Math.min(i||0,8)+'" data-v="'+esc(v.id)+'"><div class="thumb">'+thumbImg(v.id)+(v.views?'<u>'+num(v.views)+' views</u>':'')+'</div>'+
-  '<div class="meta">'+(v.ch&&CH[v.ch]&&CH[v.ch].av?'<img class="av" src="'+esc(CH[v.ch].av)+'" alt="" onerror="this.style.visibility=\'hidden\'">':'<div class="av" style="background:'+g(hash(v.id))+'"></div>')+
+  '<div class="meta">'+(v.ch&&chAv(v.ch)?'<img class="av" src="'+esc(chAv(v.ch))+'" alt="" onerror="this.style.visibility=\'hidden\'">':'<div class="av" style="background:'+g(hash(v.id))+'"></div>')+
   '<div><b>'+esc(v.t)+'</b><span>'+esc(v.c)+(v.views?' · '+num(v.views)+' views':'')+(v.pub?' · '+ago(v.pub):'')+'</span></div></div></button>';
 const list=(arr,el)=>{el.innerHTML=arr&&arr.length?arr.map(cardOf).join(''):'<div class="empty">Nothing here yet.</div>';setTimeout(depthKick,60)};
 
@@ -334,7 +362,7 @@ function chip(n){
     });
     return;
   }
-  if(!FEED.trending&&!FEED.error){            // feed still in flight: keep the skeletons
+  if(!FEED.trending&&!FEED.cached&&!FEED.error){   // nothing to show yet: keep the skeletons
     f.innerHTML=LDR+SK3;
     return;
   }
@@ -727,9 +755,14 @@ window.__ltFirstFrame=firstFrame;
    on the network. It starts no request of its own. */
 const SK3='<div class="skl"></div><div class="skl"></div><div class="skl"></div>';
 function paintSkeleton(){
-  const chips=CHIPS_BASE;
-  $('chips').innerHTML=chips.map(c=>'<button class="chip glass'+(c===cat?' on':'')+'">'+c+'</button>').join('');
-  $('feed').innerHTML=LDR+SK3;
+  if(feed().length){                           /* last feed known: real cards, no request */
+    renderChips();
+    list(feed(),$('feed'));
+    mark('cache');
+  }else{
+    $('chips').innerHTML=CHIPS_BASE.map(c=>'<button class="chip glass'+(c===cat?' on':'')+'">'+c+'</button>').join('');
+    $('feed').innerHTML=LDR+SK3;
+  }
   $('ex').innerHTML=shelfSkeleton();
   $('subfeed').innerHTML=SK3;
 }
@@ -744,6 +777,10 @@ function paintShell(){
    painted and the splash leaves on the first frame the app can actually produce,
    however long the feed takes. Stage 2 lands the data and swaps the skeletons for
    cards in place. Nothing waits on a timer. */
+/* The last feed, if there is one, is on screen before the first frame: this is
+   the only stage-1 work that reads storage, and it costs one JSON.parse. */
+{const fc=readFeedCache();
+ if(fc){Object.assign(CAV,fc.chav);fc.items.forEach(o=>vObj(o.id,o));FEED.cached=fc.items;FEED.at=fc.at}}
 paintSkeleton();
 mark('shell');
 reveal();
