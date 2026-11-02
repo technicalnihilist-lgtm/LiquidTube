@@ -809,45 +809,81 @@ function onOrient(e){
   parallaxKick();
 }
 
+/* Read pass, then write pass. This used to interleave the two: the page's own
+   writes (background offset, header, dock and chip drift) dirtied the style tree
+   before the first rect was measured, so that first thumbnail read paid for a
+   full recalc, and every card after it forced the next one. Nothing written here
+   changes layout — transform and background-position only — so measuring the
+   whole frame first and writing afterwards yields exactly the same values, with
+   one layout flush per frame instead of one per element. */
+const relBuf=[];
 function parallaxScroll(){
   if(!PARALLAX())return;
   const k=K();
   const vh=innerHeight;
   const pg=document.querySelector('.page:not([inert])');
-  if(pg)pg.style.backgroundPositionY=(-pg.scrollTop*0.22*k).toFixed(1)+'px';
+  const top=document.querySelector('.page:not([inert]) .top');
+  const dock=document.querySelector('.dock');
+  const chips=document.querySelector('.page:not([inert]) .chips');
+  const imgs=document.querySelectorAll('.page .thumb img');
+
+  /* ---- read pass ---- */
+  const st=pg?pg.scrollTop:0;
+  relBuf.length=0;
+  for(let i=0;i<imgs.length;i++){
+    const r=imgs[i].parentElement.getBoundingClientRect();
+    relBuf.push(r.bottom<-80||r.top>vh+80?null:(r.top+r.height/2-vh/2)/(vh/2));   // -1 .. 1, null = off screen
+  }
+
+  /* ---- write pass ---- */
+  if(pg)pg.style.backgroundPositionY=(-st*0.22*k).toFixed(1)+'px';
 
   /* the whole shell drifts: header, dock and chip row all move a little */
-  const top=document.querySelector('.page:not([inert]) .top');
-  if(top&&pg)top.style.transform=`translate3d(${(gyroX*3*k).toFixed(2)}px,${(-Math.min(pg.scrollTop,120)*0.06*k).toFixed(2)}px,0)`;
-  const dock=document.querySelector('.dock');
+  if(top&&pg)top.style.transform=`translate3d(${(gyroX*3*k).toFixed(2)}px,${(-Math.min(st,120)*0.06*k).toFixed(2)}px,0)`;
   if(dock)dock.style.transform=`translate3d(${(gyroX*5*k).toFixed(2)}px,${(gyroY*2.5*k).toFixed(2)}px,0)`;
-  const chips=document.querySelector('.page:not([inert]) .chips');
   if(chips)chips.style.transform=`translate3d(${(gyroX*-2.5*k).toFixed(2)}px,0,0)`;
-  document.querySelectorAll('.page .thumb img').forEach(img=>{
-    const box=img.parentElement;
-    const r=box.getBoundingClientRect();
-    if(r.bottom<-80||r.top>vh+80)return;
-    const rel=(r.top+r.height/2-vh/2)/(vh/2);          // -1 .. 1
+  const x=gyroX*2.5*k;
+  for(let i=0;i<imgs.length;i++){
+    const rel=relBuf[i];
+    if(rel===null)continue;
     const y=(-rel*7*k)+gyroY*2.5*k;
-    const x=gyroX*2.5*k;
-    img.style.transform=`translate3d(${x.toFixed(2)}%,${y.toFixed(2)}%,0) scale(1.14)`;
-  });
+    imgs[i].style.transform=`translate3d(${x.toFixed(2)}%,${y.toFixed(2)}%,0) scale(1.14)`;
+  }
 }
 
-/* cards recede slightly as they move away from the centre of the screen */
+/* cards recede slightly as they move away from the centre of the screen.
+   Same split as the parallax pass, and it matters more here: this is the loop the
+   first depth frame after boot and every scroll frame runs, over every card on
+   every page. All the rects are measured before the first transform is written,
+   so the frame lays out once instead of once per card. The buffer keeps the two
+   reasons to skip a card apart — off screen (transform cleared, as before) and
+   under the finger (left exactly as the tilt wrote it). */
 let depthRaf=0;
+const rectBuf=[],SKIP_CARD=-1;
 function depthScroll(){
   if(!DEPTH())return;
   const vh=innerHeight;
-  document.querySelectorAll('.page .card').forEach(c=>{
-    if(c.classList.contains('tilt'))return;
+  const k=K();
+  const cards=document.querySelectorAll('.page .card');
+
+  /* ---- read pass ---- */
+  rectBuf.length=0;
+  for(let i=0;i<cards.length;i++){
+    const c=cards[i];
+    if(c.classList.contains('tilt')){rectBuf.push(SKIP_CARD);continue}
     const r=c.getBoundingClientRect();
-    if(r.bottom<-80||r.top>vh+80){c.style.transform='';return}
-    const k=K();
-    const d=Math.min(1,Math.abs((r.top+r.height/2)-vh/2)/(vh*0.62));
+    rectBuf.push(r.bottom<-80||r.top>vh+80?null:[r.top,r.height]);
+  }
+
+  /* ---- write pass ---- */
+  for(let i=0;i<cards.length;i++){
+    const m=rectBuf[i],c=cards[i];
+    if(m===SKIP_CARD)continue;
+    if(m===null){c.style.transform='';continue}
+    const d=Math.min(1,Math.abs((m[0]+m[1]/2)-vh/2)/(vh*0.62));
     c.style.transform=`translateZ(${(-d*30*k).toFixed(1)}px) scale(${(1-d*0.05*k).toFixed(3)})`;
     c.style.opacity=(1-d*0.18*k).toFixed(3);
-  });
+  }
 }
 let parallaxRaf=0;
 function parallaxKick(){if(!PARALLAX())return;cancelAnimationFrame(parallaxRaf);parallaxRaf=requestAnimationFrame(parallaxScroll)}
@@ -894,19 +930,39 @@ let tt;function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on'
 /* ---------- dock: glass lens + sliding pages (from the reference) ---------- */
 const P=['home','explore','subs'].map(n=>$('p-'+n)),T=['home','explore','subs'],L=['Home','Explore','Subscriptions'],N=T.length;
 $('tabrow').innerHTML=T.map((t,i)=>`<button class="tab" tabindex="0" data-i="${i}">${ic(t)}${L[i]}</button>`).join('');
-const tabs=$('tabs'),tabEls=[...tabs.querySelectorAll('.tab')];function replay(p){
-  [...p.querySelectorAll('.chip,.vh,.card,.big,#sg>button')].slice(0,8).forEach((e,k)=>{e.style.animation='none';void e.offsetWidth;e.style.animation='';e.style.animationDelay=(k*55)+'ms'});
+const tabs=$('tabs'),tabEls=[...tabs.querySelectorAll('.tab')];
+/* Restart the lens' jelly and the page's staggered rise animations. A restart
+   only takes effect once the "animation:none" state has been committed, so one
+   style flush is unavoidable — but one flush for the whole batch replaces the
+   nine the old per-element loop forced (one for the lens, then one per element).
+   Read pass first, then the write pass. */
+function replay(p){
+  const els=[...p.querySelectorAll('.chip,.vh,.card,.big,#sg>button')].slice(0,8);
+  const l=$('lens');
+  l.classList.remove('jelly');
+  for(let i=0;i<els.length;i++)els[i].style.animation='none';
+  void p.offsetWidth;                                     /* the single forced layout */
+  l.classList.add('jelly');
+  for(let i=0;i<els.length;i++){const e=els[i];e.style.animation='';e.style.animationDelay=(i*55)+'ms'}
 }
 let pos=0,press=false,moved=false,sx=0,lastIdx=0;
 const clamp=v=>Math.max(0,Math.min(N-1,v));
 function render(anim){
+  /* Read pass: the only thing the writes below need from layout is which tab is
+     current, so nothing here measures the DOM. The lens position used to read
+     `tabs.clientWidth` on every frame — a forced layout per drag frame, and one
+     on the boot path before the shell had ever been laid out. Its own width is
+     calc((100% - 10px)/3) of the strip, so a percentage translate lands on the
+     exact same pixel as `pos * (tabs.clientWidth - 10) / 3` without measuring. */
+  const idx=Math.round(pos);
+  const change=idx!==lastIdx;
+  lastIdx=idx;
+  /* Write pass */
   $('app').classList.toggle('drag',!anim);
   P.forEach((p,i)=>{const d=i-pos,a=Math.min(1,Math.abs(d));p.style.transform=`translateX(${d*100}%) scale(${1-a*.05})`;p.style.opacity=1-a*.4;p.inert=Math.abs(d)>.45;p.style.pointerEvents=Math.abs(d)>.45?'none':''});
-  $('lens').style.transform=`translateX(${pos*(tabs.clientWidth-10)/N}px) scale(${press?1.18:1})`;
-  tabEls.forEach((t,i)=>t.classList.toggle('on',i===Math.round(pos)));
-  const idx=Math.round(pos);
-  if(idx!==lastIdx){lastIdx=idx;const l=$('lens');l.classList.remove('jelly');void l.offsetWidth;l.classList.add('jelly');replay(P[idx]);
-}
+  $('lens').style.transform=`translateX(${pos*100}%) scale(${press?1.18:1})`;
+  tabEls.forEach((t,i)=>t.classList.toggle('on',i===idx));
+  if(change)replay(P[idx]);
 }
 const at=e=>{const r=tabs.getBoundingClientRect();return clamp((e.clientX-r.left-5)/((r.width-10)/N)-.5)};
 tabs.addEventListener('pointerdown',e=>{press=true;moved=false;sx=e.clientX;try{tabs.setPointerCapture(e.pointerId)}catch(_){}const n=Math.round(at(e));if(n===Math.round(pos))P[n].scrollTo({top:0,behavior:'smooth'});pos=n;render(true)});
