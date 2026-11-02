@@ -310,12 +310,14 @@ async function unitTests(file) {
   let threw = 0;
   for (let i = 0; i < 2; i++) { try { await w.yt('search', { part: 'snippet', q: 'fail-test' }) } catch (e) { threw++ } }
   const nFail = env.reqs.filter(u => /fail-test/.test(u)).length;
-  ok('an API error is not cached', threw === 2 && nFail === 2, 'threw ' + threw + '/2, requests ' + nFail);
+  // since item 2.3 a 5xx is retried once, so each of the two calls costs two
+  // attempts: still nothing cached, and the second call still goes out
+  ok('an API error is not cached', threw === 2 && nFail === 4, 'threw ' + threw + '/2, requests ' + nFail);
   env.fail = 'throw';
   threw = 0;
   for (let i = 0; i < 2; i++) { try { await w.yt('search', { part: 'snippet', q: 'throw-test' }) } catch (e) { threw++ } }
   const nThrow = env.reqs.filter(u => /throw-test/.test(u)).length;
-  ok('a network throw is not cached', threw === 2 && nThrow === 2, 'threw ' + threw + '/2, requests ' + nThrow);
+  ok('a network throw is not cached', threw === 2 && nThrow === 4, 'threw ' + threw + '/2, requests ' + nThrow);
   env.fail = null;
   // and a later success is cached normally
   await w.yt('search', { part: 'snippet', q: 'fail-test' });

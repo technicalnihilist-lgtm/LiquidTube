@@ -206,7 +206,9 @@ async function unitTests(file) {
     w.yt('search', { part: 'snippet', q: q + '-fail' }).then(() => 'ok', () => 'err'),
     w.yt('search', { part: 'snippet', q: q + '-fail' }).then(() => 'ok', () => 'err'),
   ]);
-  ok('an API error is shared by both callers', fail[0] === 'err' && fail[1] === 'err' && env.reqs.length === n + 1,
+  // since item 2.3 a 5xx is retried once, and the retry is part of the shared
+  // promise: both callers still see one request (plus its retry), not two
+  ok('an API error is shared by both callers', fail[0] === 'err' && fail[1] === 'err' && env.reqs.length === n + 2,
     fail.join('/') + ', requests ' + (env.reqs.length - n));
   ok('the failed slot is released', st().fly === 0, 'fly ' + st().fly);
   env.fail = null;
@@ -220,7 +222,7 @@ async function unitTests(file) {
     w.yt('search', { part: 'snippet', q: q + '-throw' }).then(() => 'ok', () => 'err'),
     w.yt('search', { part: 'snippet', q: q + '-throw' }).then(() => 'ok', () => 'err'),
   ]);
-  ok('a network throw is shared and released', thr[0] === 'err' && thr[1] === 'err' && env.reqs.length === n + 1 && st().fly === 0,
+  ok('a network throw is shared and released', thr[0] === 'err' && thr[1] === 'err' && env.reqs.length === n + 2 && st().fly === 0,
     'requests ' + (env.reqs.length - n) + ', fly ' + st().fly);
   env.fail = null;
 

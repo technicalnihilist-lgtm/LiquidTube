@@ -269,8 +269,16 @@ applyLayout();applyGlass();
    hands out — every call site only reads it. This is what makes a double tap
    free: a chip tapped twice while its section is loading, "View All" pressed
    again before the shelf's search comes back, the same query retyped inside one
-   round trip, a channel sheet reopened while the first is still fetching. */
-const RQ=new Map(),RQ_MAX=48,RQ_ST={hit:0,miss:0,evict:0,join:0};
+   round trip, a channel sheet reopened while the first is still fetching.
+
+   A request that fails for a transient reason is tried once more, after an
+   exponential backoff, before the failure is handed to the caller. Transient
+   means a 5xx, a 429, or a fetch that never got a response at all (offline, DNS,
+   a reset connection, TLS). A 4xx is an answer, not a glitch — a revoked key, a
+   quota refusal, a not-found — so it is never repeated. The retry lives inside
+   the in-flight promise, so callers that joined a request also wait for its
+   retry and still share one result, and only a success is written to the cache. */
+const RQ=new Map(),RQ_MAX=48,RQ_ST={hit:0,miss:0,evict:0,join:0,retry:0,retryOk:0,retryFail:0};
 const RQI=new Map();                                               /* key -> promise on the wire */
 const RQ_TTL_SEARCH=6e5,RQ_TTL_CHART=6e5,RQ_TTL_UPLOADS=18e5,RQ_TTL_CHANNEL=6*36e5,RQ_TTL_DUR=12*36e5;
 function rqTtl(path,params){
@@ -299,16 +307,52 @@ function rqPut(k,j,ttl,now){
   }
   RQ.set(k,{at:now,ttl,j});
 }
-window.__ltReqCache=()=>({size:RQ.size,max:RQ_MAX,hit:RQ_ST.hit,miss:RQ_ST.miss,evict:RQ_ST.evict,join:RQ_ST.join,fly:RQI.size});
-/* the actual round trip; kept separate so the in-flight slot can be registered
-   before the first await — an async function never throws synchronously, so the
-   slot is always set before anything can clear it */
-async function rqFetch(ck,path,params,q,now){
+window.__ltReqCache=()=>({size:RQ.size,max:RQ_MAX,hit:RQ_ST.hit,miss:RQ_ST.miss,evict:RQ_ST.evict,join:RQ_ST.join,retry:RQ_ST.retry,retryOk:RQ_ST.retryOk,retryFail:RQ_ST.retryFail,fly:RQI.size});
+/* One retry, with exponential backoff, for the failures worth retrying. The wait
+   doubles per attempt (RQ_RETRY_BASE, capped at RQ_RETRY_CAP) plus up to 50 %
+   jitter, so several calls that failed together do not come back in lockstep.
+   RQ_RETRY_MAX=1 means two attempts in total: a boot can pay at most ~0.75 s of
+   extra waiting, not a retry storm. */
+const RQ_RETRY_MAX=1,RQ_RETRY_BASE=500,RQ_RETRY_CAP=4000;
+const rqSleep=ms=>new Promise(r=>setTimeout(r,ms));
+function rqBackoff(attempt){
+  const base=Math.min(RQ_RETRY_CAP,RQ_RETRY_BASE*Math.pow(2,attempt));
+  return base+Math.floor(Math.random()*base*0.5);
+}
+function rqErr(msg,status){const e=new Error(msg);e.status=status|0;return e}
+function rqWorthRetry(e){
+  if(!e||e.name==='AbortError')return false;  /* cancelled on purpose: never repeated */
+  const s=e.status|0;
+  if(!s)return true;                          /* no response at all: the network failed */
+  return s===429||(s>=500&&s<=599);
+}
+/* one attempt: the status, the body and the API's own error message all become
+   an Error carrying `status`, which is what the retry decision above reads */
+async function rqOnce(path,q){
   const r=await fetch(API_BASE+path+'?'+q);
-  const j=await r.json();
-  if(j.error)throw new Error(j.error.message||'YouTube API error');
-  rqPut(ck,j,rqTtl(path,params),now);        /* `now` is pre-fetch: the TTL never runs long */
+  let j=null,parsed=true;
+  try{j=await r.json()}catch(e){parsed=false}
+  if(j&&j.error)throw rqErr(j.error.message||'YouTube API error',r.status);
+  if(!r.ok)throw rqErr('HTTP '+r.status,r.status);
+  if(!parsed||!j)throw rqErr('Malformed response',r.status);
   return j;
+}
+/* the round trip, with its retry; kept separate so the in-flight slot can be
+   registered before the first await — an async function never throws
+   synchronously, so the slot is always set before anything can clear it */
+async function rqFetch(ck,path,params,q,now){
+  for(let attempt=0;;attempt++){
+    try{
+      const j=await rqOnce(path,q);
+      rqPut(ck,j,rqTtl(path,params),now);    /* `now` is pre-fetch: the TTL never runs long */
+      if(attempt)RQ_ST.retryOk++;
+      return j;
+    }catch(e){
+      if(attempt>=RQ_RETRY_MAX||!rqWorthRetry(e)){if(attempt)RQ_ST.retryFail++;throw e}
+      RQ_ST.retry++;
+      await rqSleep(rqBackoff(attempt));
+    }
+  }
 }
 let tlReq=0;                                /* first request of the boot, marked once */
 async function yt(path,params){
