@@ -788,12 +788,14 @@ function applyParallax(){
   }
 }
 applyParallax();
-addEventListener('deviceorientation',e=>{
+/* Named, not anonymous: the sensor subscription is one of the listeners that is
+   attached after the first frame (see bindInput), so it must be referable. */
+function onOrient(e){
   if(!PARALLAX())return;
   gyroX=Math.max(-1,Math.min(1,(e.gamma||0)/35));
   gyroY=Math.max(-1,Math.min(1,((e.beta||0)-45)/40));
   parallaxKick();
-},{passive:true});
+}
 
 function parallaxScroll(){
   if(!PARALLAX())return;
@@ -838,13 +840,41 @@ function depthScroll(){
 let parallaxRaf=0;
 function parallaxKick(){if(!PARALLAX())return;cancelAnimationFrame(parallaxRaf);parallaxRaf=requestAnimationFrame(parallaxScroll)}
 function depthKick(){parallaxKick();if(!DEPTH())return;cancelAnimationFrame(depthRaf);depthRaf=requestAnimationFrame(depthScroll)}
-document.addEventListener('scroll',depthKick,{capture:true,passive:true});
-addEventListener('resize',depthKick);
-
-document.addEventListener('pointerdown',tiltStart,{passive:true});
-document.addEventListener('pointermove',tiltMove,{passive:true});
-document.addEventListener('pointerup',tiltEnd,{passive:true});
-document.addEventListener('pointercancel',tiltEnd,{passive:true});
+/* Non-critical input listeners — the gyro subscription, the scroll/resize that
+   drive the parallax and depth passes, and the four document-level pointer
+   listeners behind the card tilt — are attached only once the shell's first
+   frame has actually been painted, in the next idle slot. None of them can
+   affect anything the user sees before that frame: at that point nothing has
+   been scrolled, nothing has been tilted and no orientation sample has arrived.
+   Attaching them at parse time instead meant the sensor pipeline could start,
+   and a document-level scroll handler could run its full parallax/depth pass,
+   while the splash was still up. Everything else (clicks, image load/error,
+   the player's message bridge, the layout resize) stays bound from the start,
+   because those are needed on the very first interaction or the first paint. */
+let inputBound=false;
+function bindInput(){
+  if(inputBound)return;inputBound=true;
+  addEventListener('deviceorientation',onOrient,{passive:true});
+  document.addEventListener('scroll',depthKick,{capture:true,passive:true});
+  addEventListener('resize',depthKick);
+  document.addEventListener('pointerdown',tiltStart,{passive:true});
+  document.addEventListener('pointermove',tiltMove,{passive:true});
+  document.addEventListener('pointerup',tiltEnd,{passive:true});
+  document.addEventListener('pointercancel',tiltEnd,{passive:true});
+  /* If the page had already been scrolled in the window before these landed,
+     sync the depth/parallax state once. Guarded on a non-zero offset so the
+     at-rest frame is exactly what it was: with nothing scrolled, no scroll
+     event would have fired before either, so no pass may run. */
+  const pg=document.querySelector('.page:not([inert])');
+  if(pg&&pg.scrollTop>0)depthKick();
+  mark('input');
+}
+function scheduleInput(){
+  if(window.requestIdleCallback)requestIdleCallback(bindInput,{timeout:600});
+  else setTimeout(bindInput,0);
+}
+if(window.__ltFirstFrame)window.__ltFirstFrame().then(scheduleInput);
+else scheduleInput();
 
 /* ---------- toast ---------- */
 let tt;function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>e.classList.remove('on'),2200)}
