@@ -256,8 +256,22 @@ applyLayout();applyGlass();
    failure. The map is capped at RQ_MAX entries and evicts the oldest first, so
    it cannot grow with the number of distinct queries typed in a session. The
    stored object is handed straight to the caller, which only reads it: every
-   call site maps or filters `items` into objects of its own. */
-const RQ=new Map(),RQ_MAX=48,RQ_ST={hit:0,miss:0,evict:0};
+   call site maps or filters `items` into objects of its own.
+
+   A call that is still on the wire is shared, not repeated. `RQI` holds the
+   promise of every request that has been sent but has not answered yet, under
+   the same key, so a second call for the same query before the first returns
+   joins it instead of spending another round trip and another quota unit. The
+   slot is cleared the moment the response lands (or the request fails), and a
+   success has already been put in `RQ` by then, so the next call is an ordinary
+   cache hit and a failure leaves nothing behind to block a retry. Two callers
+   share one parsed response object, which is exactly what a cache hit already
+   hands out — every call site only reads it. This is what makes a double tap
+   free: a chip tapped twice while its section is loading, "View All" pressed
+   again before the shelf's search comes back, the same query retyped inside one
+   round trip, a channel sheet reopened while the first is still fetching. */
+const RQ=new Map(),RQ_MAX=48,RQ_ST={hit:0,miss:0,evict:0,join:0};
+const RQI=new Map();                                               /* key -> promise on the wire */
 const RQ_TTL_SEARCH=6e5,RQ_TTL_CHART=6e5,RQ_TTL_UPLOADS=18e5,RQ_TTL_CHANNEL=6*36e5,RQ_TTL_DUR=12*36e5;
 function rqTtl(path,params){
   if(path==='channels')return RQ_TTL_CHANNEL;                       /* title, avatar, subs */
@@ -285,21 +299,33 @@ function rqPut(k,j,ttl,now){
   }
   RQ.set(k,{at:now,ttl,j});
 }
-window.__ltReqCache=()=>({size:RQ.size,max:RQ_MAX,hit:RQ_ST.hit,miss:RQ_ST.miss,evict:RQ_ST.evict});
+window.__ltReqCache=()=>({size:RQ.size,max:RQ_MAX,hit:RQ_ST.hit,miss:RQ_ST.miss,evict:RQ_ST.evict,join:RQ_ST.join,fly:RQI.size});
+/* the actual round trip; kept separate so the in-flight slot can be registered
+   before the first await — an async function never throws synchronously, so the
+   slot is always set before anything can clear it */
+async function rqFetch(ck,path,params,q,now){
+  const r=await fetch(API_BASE+path+'?'+q);
+  const j=await r.json();
+  if(j.error)throw new Error(j.error.message||'YouTube API error');
+  rqPut(ck,j,rqTtl(path,params),now);        /* `now` is pre-fetch: the TTL never runs long */
+  return j;
+}
 let tlReq=0;                                /* first request of the boot, marked once */
 async function yt(path,params){
   if(!tlReq){tlReq=1;mark('req')}            /* separates JS work from network in the timeline */
   const ck=rqKey(path,params),now=Date.now();
   const hit=rqGet(ck,now);
   if(hit){RQ_ST.hit++;return hit}
+  const flying=RQI.get(ck);
+  if(flying){RQ_ST.join++;return flying}      /* already on the wire: share it, send nothing */
   RQ_ST.miss++;
   const q=new URLSearchParams(params||{});
   q.set('key',APIKEY);                      // the key is one constant, appended here only
-  const r=await fetch(API_BASE+path+'?'+q);
-  const j=await r.json();
-  if(j.error)throw new Error(j.error.message||'YouTube API error');
-  rqPut(ck,j,rqTtl(path,params),now);        /* `now` is pre-fetch: the TTL never runs long */
-  return j;
+  const p=rqFetch(ck,path,params,q,now);
+  RQI.set(ck,p);
+  const clear=()=>{RQI.delete(ck)};          /* settled, either way: no stale slot, no retry blocked */
+  p.then(clear,clear);
+  return p;
 }
 const cdn=u=>String(u||'').replace('//yt3.ggpht.com/','//yt3.googleusercontent.com/');
 function cObj(c){
