@@ -243,14 +243,62 @@ function applyLayout(){
 applyLayout();applyGlass();
 
 /* ---------- YouTube API ---------- */
+/* Every API call goes through one request cache. The key is the path plus the
+   sorted parameters with `key` left out, so two calls that would send the same
+   query share one entry, and each entry carries a TTL chosen per endpoint: a
+   channel's metadata and a video's duration are good for hours, an upload list
+   for half an hour, the trending chart and a search for ten minutes. A repeat
+   inside that window is answered from memory — no round trip, no quota unit —
+   which is what the search box (a call per keystroke), a shelf's "View All"
+   (the same search again), a reopened channel sheet and a chip tapped twice
+   all hit. Only a successful response is stored: a throw, a 500 or a quota
+   refusal leaves no entry, so the next call retries instead of serving the
+   failure. The map is capped at RQ_MAX entries and evicts the oldest first, so
+   it cannot grow with the number of distinct queries typed in a session. The
+   stored object is handed straight to the caller, which only reads it: every
+   call site maps or filters `items` into objects of its own. */
+const RQ=new Map(),RQ_MAX=48,RQ_ST={hit:0,miss:0,evict:0};
+const RQ_TTL_SEARCH=6e5,RQ_TTL_CHART=6e5,RQ_TTL_UPLOADS=18e5,RQ_TTL_CHANNEL=6*36e5,RQ_TTL_DUR=12*36e5;
+function rqTtl(path,params){
+  if(path==='channels')return RQ_TTL_CHANNEL;                       /* title, avatar, subs */
+  if(path==='videos')return (params&&params.chart)?RQ_TTL_CHART:RQ_TTL_DUR;  /* chart vs durations */
+  if(path==='playlistItems')return RQ_TTL_UPLOADS;
+  if(path==='search')return RQ_TTL_SEARCH;
+  return RQ_TTL_CHART;
+}
+function rqKey(path,params){
+  const q=new URLSearchParams(params||{}),parts=[];
+  q.forEach((v,k)=>{if(k!=='key')parts.push(k+'='+v)});
+  parts.sort();                                                    /* order of the call does not matter */
+  return path+'?'+parts.join('&');
+}
+function rqGet(k,now){
+  const e=RQ.get(k);
+  if(!e)return null;
+  if(now-e.at>=e.ttl){RQ.delete(k);return null}                    /* stale: dropped on read, no timer */
+  return e.j;
+}
+function rqPut(k,j,ttl,now){
+  if(RQ.size>=RQ_MAX){                                             /* bound: oldest insertion goes first */
+    const o=RQ.keys().next();
+    if(!o.done){RQ.delete(o.value);RQ_ST.evict++}
+  }
+  RQ.set(k,{at:now,ttl,j});
+}
+window.__ltReqCache=()=>({size:RQ.size,max:RQ_MAX,hit:RQ_ST.hit,miss:RQ_ST.miss,evict:RQ_ST.evict});
 let tlReq=0;                                /* first request of the boot, marked once */
 async function yt(path,params){
   if(!tlReq){tlReq=1;mark('req')}            /* separates JS work from network in the timeline */
+  const ck=rqKey(path,params),now=Date.now();
+  const hit=rqGet(ck,now);
+  if(hit){RQ_ST.hit++;return hit}
+  RQ_ST.miss++;
   const q=new URLSearchParams(params||{});
   q.set('key',APIKEY);                      // the key is one constant, appended here only
   const r=await fetch(API_BASE+path+'?'+q);
   const j=await r.json();
   if(j.error)throw new Error(j.error.message||'YouTube API error');
+  rqPut(ck,j,rqTtl(path,params),now);        /* `now` is pre-fetch: the TTL never runs long */
   return j;
 }
 const cdn=u=>String(u||'').replace('//yt3.ggpht.com/','//yt3.googleusercontent.com/');
