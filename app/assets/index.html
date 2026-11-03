@@ -282,9 +282,29 @@ applyLayout();applyGlass();
    How long an entry stays good is the endpoint table below (rqTtl) unless the
    response itself says otherwise. A caching header on the response —
    Cache-Control, Pragma, or the older Expires/Date pair — is honoured instead,
-   and can only ever shorten that window, never lengthen it (rqHdrFresh). */
-const RQ=new Map(),RQ_MAX=48,RQ_ST={hit:0,miss:0,evict:0,join:0,retry:0,retryOk:0,retryFail:0,hdr:0,keep:0};
-const RQI=new Map();                                               /* key -> promise on the wire */
+   and can only ever shorten that window, never lengthen it (rqHdrFresh).
+
+   A request can also belong to a page. `yt(path, params, 'explore')` tags it
+   with the tab whose DOM its answer is rendered into, and every tab change
+   (pageSwitch, called from render) narrows the set of pages the app is filling
+   to the tab the user is on: a request whose owning page is not in that set, and
+   that no page in it is waiting for either, is aborted through an AbortController
+   — the connection closes, the body is never parsed, nothing is cached, and no
+   quota is spent on a list nobody is looking at any more. A tagged call for a
+   page outside the set is not even sent, so a half-finished chain (a shelf that
+   was waiting on a shared channel lookup) stops at its next step instead of
+   firing one more request for a tab nobody is on. Every owner of such a request
+   already tolerates a failure (a shelf's promise is caught in paintShelf, a
+   section's in chip) and every page re-drives whatever it never got when it is
+   entered again (exploreResume, homeResume), so what the user finally sees is
+   unchanged. Never abandoned: a request nobody tagged (the feed, the channel
+   queue, durations, the search box, the player — shared or needed everywhere), a
+   request an untagged caller has joined (it is no longer one page's private
+   work), and a request the page now on screen is waiting for. Without
+   AbortController the tagging is inert and every request runs to completion
+   exactly as before. */
+const RQ=new Map(),RQ_MAX=48,RQ_ST={hit:0,miss:0,evict:0,join:0,retry:0,retryOk:0,retryFail:0,hdr:0,keep:0,abort:0};
+const RQI=new Map();                                               /* key -> {p, ac, own} on the wire */
 const RQ_TTL_SEARCH=6e5,RQ_TTL_CHART=6e5,RQ_TTL_UPLOADS=18e5,RQ_TTL_CHANNEL=6*36e5,RQ_TTL_DUR=12*36e5;
 function rqTtl(path,params){
   if(path==='channels')return RQ_TTL_CHANNEL;                       /* title, avatar, subs */
@@ -312,7 +332,26 @@ function rqPut(k,j,ttl,now){
   }
   RQ.set(k,{at:now,ttl,j});
 }
-window.__ltReqCache=()=>({size:RQ.size,max:RQ_MAX,hit:RQ_ST.hit,miss:RQ_ST.miss,evict:RQ_ST.evict,join:RQ_ST.join,retry:RQ_ST.retry,retryOk:RQ_ST.retryOk,retryFail:RQ_ST.retryFail,hdr:RQ_ST.hdr,keep:RQ_ST.keep,fly:RQI.size});
+window.__ltReqCache=()=>({size:RQ.size,max:RQ_MAX,hit:RQ_ST.hit,miss:RQ_ST.miss,evict:RQ_ST.evict,join:RQ_ST.join,retry:RQ_ST.retry,retryOk:RQ_ST.retryOk,retryFail:RQ_ST.retryFail,hdr:RQ_ST.hdr,keep:RQ_ST.keep,abort:RQ_ST.abort,fly:RQI.size});
+/* ---------- abandoning the work of a page the user has left ---------- */
+const RQ_ABORT=typeof AbortController==='function';
+/* The pages whose content the app is filling right now. At boot that is Home and
+   Explore, because the shell paints the feed and starts the shelves together; a
+   tab change narrows it to the tab the user is actually on. */
+let want=new Set(['home','explore']);
+const pageWanted=p=>want.has(p);
+function rqAbort(){                        /* the same shape fetch rejects with, so callers can tell it apart */
+  const e=new Error('Request abandoned');e.name='AbortError';return e;
+}
+function rqAbandon(page){                  /* `page` is the tab the user is on now */
+  if(!RQ_ABORT||!page)return;
+  want=new Set([page]);
+  [...RQI.values()].forEach(en=>{
+    if(!en.own||en.own.has(page))return;   /* untagged, or the page now on screen wants it */
+    if(en.ac)en.ac.abort();                /* nobody on screen is waiting for this any more */
+    RQ_ST.abort++;
+  });
+}
 /* One retry, with exponential backoff, for the failures worth retrying. The wait
    doubles per attempt (RQ_RETRY_BASE, capped at RQ_RETRY_CAP) plus up to 50 %
    jitter, so several calls that failed together do not come back in lockstep.
@@ -394,8 +433,8 @@ function rqHdrFresh(h,now){
    an Error carrying `status`, which is what the retry decision above reads. A
    success hands back the parsed body and the response's Headers, which the
    caller reads for freshness. */
-async function rqOnce(path,q){
-  const r=await fetch(API_BASE+path+'?'+q);
+async function rqOnce(path,q,sig){
+  const r=await fetch(API_BASE+path+'?'+q,sig?{signal:sig}:undefined);   /* aborted here if the page was left */
   let j=null,parsed=true;
   try{j=await r.json()}catch(e){parsed=false}
   if(j&&j.error)throw rqErr(j.error.message||'YouTube API error',r.status);
@@ -406,10 +445,10 @@ async function rqOnce(path,q){
 /* the round trip, with its retry; kept separate so the in-flight slot can be
    registered before the first await — an async function never throws
    synchronously, so the slot is always set before anything can clear it */
-async function rqFetch(ck,path,params,q,now){
+async function rqFetch(ck,path,params,q,now,sig){
   for(let attempt=0;;attempt++){
     try{
-      const r=await rqOnce(path,q);
+      const r=await rqOnce(path,q,sig);
       const base=rqTtl(path,params),hd=rqHdrFresh(r.h,now);
       const ttl=hd&&hd.ttl<base?hd.ttl:base; /* the table is the ceiling: a header only shortens */
       if(ttl>0){
@@ -426,18 +465,27 @@ async function rqFetch(ck,path,params,q,now){
   }
 }
 let tlReq=0;                                /* first request of the boot, marked once */
-async function yt(path,params){
+async function yt(path,params,own){
   if(!tlReq){tlReq=1;mark('req')}            /* separates JS work from network in the timeline */
   const ck=rqKey(path,params),now=Date.now();
   const hit=rqGet(ck,now);
   if(hit){RQ_ST.hit++;return hit}
+  if(RQ_ABORT&&own&&!want.has(own))throw rqAbort();   /* that page is not on screen: do not even ask */
   const flying=RQI.get(ck);
-  if(flying){RQ_ST.join++;return flying}      /* already on the wire: share it, send nothing */
+  if(flying){                                /* already on the wire: share it, send nothing */
+    RQ_ST.join++;
+    if(flying.own){                          /* who else is waiting decides whether it can be abandoned */
+      if(own)flying.own.add(own);            /* a second page now needs it too */
+      else flying.own=null;                  /* an untagged waiter needs it everywhere: keep it */
+    }
+    return flying.p;
+  }
   RQ_ST.miss++;
   const q=new URLSearchParams(params||{});
   q.set('key',APIKEY);                      // the key is one constant, appended here only
-  const p=rqFetch(ck,path,params,q,now);
-  RQI.set(ck,p);
+  const ac=own&&RQ_ABORT?new AbortController():null;
+  const p=rqFetch(ck,path,params,q,now,ac?ac.signal:null);
+  RQI.set(ck,{p,ac,own:own?new Set([own]):null});
   const clear=()=>{RQI.delete(ck)};          /* settled, either way: no stale slot, no retry blocked */
   p.then(clear,clear);
   return p;
@@ -607,6 +655,14 @@ const list=(arr,el)=>{el.innerHTML=arr&&arr.length?arr.map(cardOf).join(''):'<di
 
 /* ---------- chips ---------- */
 let cat='All';
+let secPending=null;   /* a chip section whose load was abandoned by a page switch */
+function homeResume(){  /* entering Home again: re-run it, on the skeletons already on screen */
+  const n=secPending;
+  if(!n||cat!==n)return;
+  if(!CUSTOM.some(c=>c[0]===n))return;
+  secPending=null;
+  chip(n);
+}
 const CATMAP={1:'Film',2:'Cars',10:'Music',15:'Animals',17:'Sports',19:'Travel',20:'Gaming',22:'People',23:'Comedy',24:'Entertainment',25:'News',26:'Howto',27:'Education',28:'Science',29:'Nonprofits'};
 let CATS=['All','Music','Gaming','Sports','Entertainment','News','Education'];
 const CUSTOM=[['Anime','anime'],['Cartoon','cartoon'],['Movies','movies']];
@@ -626,10 +682,20 @@ function chip(n){
     f.style.opacity=0;
     f.innerHTML='<div class="skl"></div><div class="skl"></div><div class="skl"></div>';
     f.style.opacity=1;
+    secPending=null;
     loadSection(custom[1]).then(items=>{
+      if(secPending===n)secPending=null;
       if(cat!==n)return;                        // user moved on
       list(items,f);
       if(!items.length)f.innerHTML='<div class="empty">Could not load '+esc(n)+' videos right now.</div>';
+    }).catch(e=>{
+      if(e&&e.name==='AbortError'){             /* left the page: the skeletons stay, homeResume re-runs it */
+        if(cat===n)secPending=n;
+        return;
+      }
+      if(cat!==n)return;
+      list([],f);
+      f.innerHTML='<div class="empty">Could not load '+esc(n)+' videos right now.</div>';
     });
     return;
   }
@@ -675,14 +741,16 @@ async function loadShelf(sh){
   let list=[];
   if(sh.kind==='channel'){
     const c=await ensureChannel(sh.ch);
+    if(!pageWanted('explore'))throw rqAbort();   /* left Explore while the channel was loading */
     if(!c.up)throw new Error('no uploads');
-    const j=await yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:10});
+    const j=await yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:10},'explore');
     list=(j.items||[]).filter(it=>it.snippet&&it.snippet.resourceId).map(it=>vObj(it.snippet.resourceId.videoId,
       {t:dec(it.snippet.title),c:c.title,ch:sh.ch,pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,cat:sh.title}));
   }else{
-    const j=await yt('search',{part:'snippet',type:'video',maxResults:10,q:sh.q});
+    const j=await yt('search',{part:'snippet',type:'video',maxResults:10,q:sh.q},'explore');
     list=(j.items||[]).filter(it=>it.id&&it.id.videoId).map(it=>vObj(it.id.videoId,
       {t:dec(it.snippet.title),c:dec(it.snippet.channelTitle),ch:it.snippet.channelId,pub:it.snippet.publishedAt,cat:sh.title}));
+    if(!pageWanted('explore'))throw rqAbort();
     await loadChannels(list.map(v=>v.ch));
   }
   list=await dropShorts(list);
@@ -691,15 +759,35 @@ async function loadShelf(sh){
 /* the carousel placeholders, used both for the boot skeleton and by renderExplore */
 const shelfSkeleton=()=>SHELVES.map(sh=>'<div class="vh"><h2>'+esc(sh.title)+'</h2><button class="va glass" data-shelf="'+sh.id+'">View All</button></div>'+
   '<div class="car" id="car-'+sh.id+'"><div class="skl"></div><div class="skl"></div></div>').join('');
+/* A shelf's load is tagged 'explore' (see loadShelf), so it can be abandoned
+   when the user leaves Explore. SHELF_BUSY keeps a shelf that is already on the
+   wire from being started twice when Explore is re-entered, and the abort path
+   leaves the placeholder alone instead of blanking the carousel — exploreResume
+   re-runs it the moment the tab is on screen again. */
+const SHELF_BUSY=new Set();
+function fillShelf(sh,list){
+  const el=document.getElementById('car-'+sh.id);
+  if(!el)return;
+  el.innerHTML=list.slice(0,6).map(v=>'<div class="big" data-v="'+esc(v.id)+'"><img src="'+THUMB_BASE+esc(v.id)+'/hqdefault.jpg" alt=""><div><b>'+esc(v.t)+'</b><small>'+esc(v.c)+'</small></div><button class="play glass" data-v="'+esc(v.id)+'">'+PLAY_IC+'Play</button></div>').join('');
+}
+function paintShelf(sh){
+  if(SHELF_BUSY.has(sh.id))return;           /* already on the wire: it fills itself */
+  SHELF_BUSY.add(sh.id);
+  loadShelf(sh).then(list=>{SHELF_BUSY.delete(sh.id);fillShelf(sh,list)})
+    .catch(e=>{
+      SHELF_BUSY.delete(sh.id);
+      if(e&&e.name==='AbortError')return;    /* the page was left: exploreResume picks it up again */
+      const el=document.getElementById('car-'+sh.id);if(el)el.innerHTML='';
+    });
+}
 function renderExplore(){
   $('ex').innerHTML=shelfSkeleton();
-  SHELVES.forEach(sh=>{
-    loadShelf(sh).then(list=>{
-      const el=document.getElementById('car-'+sh.id);
-      if(!el)return;
-      el.innerHTML=list.slice(0,6).map(v=>'<div class="big" data-v="'+esc(v.id)+'"><img src="'+THUMB_BASE+esc(v.id)+'/hqdefault.jpg" alt=""><div><b>'+esc(v.t)+'</b><small>'+esc(v.c)+'</small></div><button class="play glass" data-v="'+esc(v.id)+'">'+PLAY_IC+'Play</button></div>').join('');
-    }).catch(()=>{const el=document.getElementById('car-'+sh.id);if(el)el.innerHTML=''});
-  });
+  SHELVES.forEach(paintShelf);
+}
+/* entering Explore again: only the shelves that never landed are re-driven, so
+   the ones already on screen are untouched */
+function exploreResume(){
+  SHELVES.forEach(sh=>{if(!SHELF[sh.id])paintShelf(sh)});
 }
 
 /* ---------- anime + cartoon (Hindi, no reactions) ---------- */
@@ -743,10 +831,11 @@ async function loadSection(name){
 
   const out=[];
   for(const chId of cfg.channels){
+    if(!pageWanted('home'))throw rqAbort();      /* left the page: stop, homeResume re-runs the section */
     try{
       const c=await ensureChannel(chId);
       if(!c.up)continue;
-      const j=await yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:12});
+      const j=await yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:12},'home');
       (j.items||[]).forEach(it=>{
         const v=it.snippet&&it.snippet.resourceId;
         if(!v||!v.videoId)return;
@@ -754,18 +843,18 @@ async function loadSection(name){
           pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,
           cat:name==='anime'?'Anime':name==='cartoon'?'Cartoon':'Animation'}));
       });
-    }catch(e){}
+    }catch(e){if(e&&e.name==='AbortError')throw e}   /* abandoned: stop the whole section */
   }
   let clean=await dropShorts(out.filter(keep));
   if(clean.length<8&&cfg.q){
     try{
       const j=await yt('search',{part:'snippet',type:'video',maxResults:20,q:cfg.q,
-        videoDuration:'long',relevanceLanguage:'hi',regionCode:'IN',videoEmbeddable:'true'});
+        videoDuration:'long',relevanceLanguage:'hi',regionCode:'IN',videoEmbeddable:'true'},'home');
       const extra=(j.items||[]).filter(it=>it.id&&it.id.videoId).map(it=>vObj(it.id.videoId,
         {t:dec(it.snippet.title),c:dec(it.snippet.channelTitle),ch:it.snippet.channelId,
          pub:it.snippet.publishedAt,cat:name==='anime'?'Anime':name==='cartoon'?'Cartoon':'Animation'}));
       clean=clean.concat(await dropShorts(extra.filter(keep)));
-    }catch(e){}
+    }catch(e){if(e&&e.name==='AbortError')throw e}
   }
   const seen=new Set();
   clean=clean.filter(v=>!seen.has(v.id)&&seen.add(v.id));
@@ -783,7 +872,9 @@ async function renderSection(name){
   if(!box)return;
   if(box.dataset.done)return;
   box.innerHTML='<div class="skl"></div><div class="skl"></div><div class="skl"></div>';
-  const list2=await loadSection(name);
+  let list2;
+  try{list2=await loadSection(name)}
+  catch(e){if(e&&e.name==='AbortError')return;throw e}   /* left the page: leave it undone, retry later */
   box.dataset.done='1';
   if(!list2.length){
     box.innerHTML='<div class="empty">Could not load '+name+' videos right now.<br>Try again in a minute.</div>';
@@ -1315,13 +1406,23 @@ function render(anim){
      exact same pixel as `pos * (tabs.clientWidth - 10) / 3` without measuring. */
   const idx=Math.round(pos);
   const change=idx!==lastIdx;
+  const was=lastIdx;
   lastIdx=idx;
   /* Write pass */
   $('app').classList.toggle('drag',!anim);
   P.forEach((p,i)=>{const d=i-pos,a=Math.min(1,Math.abs(d));p.style.transform=`translateX(${d*100}%) scale(${1-a*.05})`;p.style.opacity=1-a*.4;p.inert=Math.abs(d)>.45;p.style.pointerEvents=Math.abs(d)>.45?'none':''});
   $('lens').style.transform=`translateX(${pos*100}%) scale(${press?1.18:1})`;
   tabEls.forEach((t,i)=>t.classList.toggle('on',i===idx));
-  if(change)replay(P[idx]);
+  if(change){replay(P[idx]);if(idx!==was)pageSwitch(was,idx)}
+}
+/* The active tab changed. Any request on the wire that belongs to a page which is
+   not the one now on screen is abandoned, and the page being entered re-drives
+   what it never got — nothing new is requested on a page that is already
+   complete, and a page that is not on screen holds no request. */
+function pageSwitch(from,to){
+  rqAbandon(T[to]);
+  if(to===1)exploreResume();
+  else if(to===0)homeResume();
 }
 const at=e=>{const r=tabs.getBoundingClientRect();return clamp((e.clientX-r.left-5)/((r.width-10)/N)-.5)};
 tabs.addEventListener('pointerdown',e=>{press=true;moved=false;sx=e.clientX;try{tabs.setPointerCapture(e.pointerId)}catch(_){}const n=Math.round(at(e));if(n===Math.round(pos))P[n].scrollTo({top:0,behavior:'smooth'});pos=n;render(true)});
