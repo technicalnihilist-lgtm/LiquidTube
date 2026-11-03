@@ -277,8 +277,13 @@ applyLayout();applyGlass();
    a reset connection, TLS). A 4xx is an answer, not a glitch — a revoked key, a
    quota refusal, a not-found — so it is never repeated. The retry lives inside
    the in-flight promise, so callers that joined a request also wait for its
-   retry and still share one result, and only a success is written to the cache. */
-const RQ=new Map(),RQ_MAX=48,RQ_ST={hit:0,miss:0,evict:0,join:0,retry:0,retryOk:0,retryFail:0};
+   retry and still share one result, and only a success is written to the cache.
+
+   How long an entry stays good is the endpoint table below (rqTtl) unless the
+   response itself says otherwise. A caching header on the response —
+   Cache-Control, Pragma, or the older Expires/Date pair — is honoured instead,
+   and can only ever shorten that window, never lengthen it (rqHdrFresh). */
+const RQ=new Map(),RQ_MAX=48,RQ_ST={hit:0,miss:0,evict:0,join:0,retry:0,retryOk:0,retryFail:0,hdr:0,keep:0};
 const RQI=new Map();                                               /* key -> promise on the wire */
 const RQ_TTL_SEARCH=6e5,RQ_TTL_CHART=6e5,RQ_TTL_UPLOADS=18e5,RQ_TTL_CHANNEL=6*36e5,RQ_TTL_DUR=12*36e5;
 function rqTtl(path,params){
@@ -307,7 +312,7 @@ function rqPut(k,j,ttl,now){
   }
   RQ.set(k,{at:now,ttl,j});
 }
-window.__ltReqCache=()=>({size:RQ.size,max:RQ_MAX,hit:RQ_ST.hit,miss:RQ_ST.miss,evict:RQ_ST.evict,join:RQ_ST.join,retry:RQ_ST.retry,retryOk:RQ_ST.retryOk,retryFail:RQ_ST.retryFail,fly:RQI.size});
+window.__ltReqCache=()=>({size:RQ.size,max:RQ_MAX,hit:RQ_ST.hit,miss:RQ_ST.miss,evict:RQ_ST.evict,join:RQ_ST.join,retry:RQ_ST.retry,retryOk:RQ_ST.retryOk,retryFail:RQ_ST.retryFail,hdr:RQ_ST.hdr,keep:RQ_ST.keep,fly:RQI.size});
 /* One retry, with exponential backoff, for the failures worth retrying. The wait
    doubles per attempt (RQ_RETRY_BASE, capped at RQ_RETRY_CAP) plus up to 50 %
    jitter, so several calls that failed together do not come back in lockstep.
@@ -326,8 +331,69 @@ function rqWorthRetry(e){
   if(!s)return true;                          /* no response at all: the network failed */
   return s===429||(s>=500&&s<=599);
 }
+/* ---------- what the response says about its own freshness ---------- */
+/* The server is the authority on how long its answer stays good, so a caching
+   header on a response is honoured ahead of the endpoint table in rqTtl().
+   Read: Cache-Control (max-age, s-maxage, no-cache, no-store), Pragma: no-cache
+   when there is no Cache-Control, and Expires with Date for servers that only
+   send the old pair; Age is subtracted because it is time the response already
+   spent in a cache, and Date is subtracted too when it is older than the
+   request, because that is time it already spent on the wire. Two limits keep
+   this from doing damage. A header may only SHORTEN the endpoint's window,
+   never extend it, so a server (or a CDN in front of it) that says
+   max-age=86400 cannot make a search result or the trending chart a day stale.
+   And a header that says do not keep it — no-store, no-cache, max-age=0, an
+   Expires in the past — is taken at its word and nothing is stored, so the next
+   call goes out; the callers that joined the request still get the response.
+   Nothing said means rqTtl() decides, which is what happens today: the live
+   endpoint sends no Cache-Control, no Expires, no Age and no ETag at all, and
+   its CORS response exposes only vary, content-encoding, date, server and
+   content-length, so this reader finds nothing and every call keeps exactly the
+   window item 2.1 gave it. It is a fallback for the day the server, a proxy or
+   a CDN starts saying something. `h` is the response's Headers, or undefined in
+   a harness that does not provide one. */
+function rqHdr(h,k){try{return h?String(h.get(k)||''):''}catch(e){return ''}}
+function rqSecs(v){                                               /* a header's delta-seconds, or -1 */
+  if(v===undefined||v===null||v==='')return -1;
+  const n=parseInt(v,10);
+  return isFinite(n)&&n>=0?n:-1;
+}
+function rqStamp(h,k){                                            /* a header's HTTP date, or -1 */
+  const t=Date.parse(rqHdr(h,k));
+  return isFinite(t)?t:-1;
+}
+function rqHdrFresh(h,now){
+  if(!h)return null;                                              /* no headers at all: the table decides */
+  const cc=rqHdr(h,'cache-control').toLowerCase(),d={};
+  if(cc)cc.split(',').forEach(p=>{                                /* `k=v`, `k`; quoted values unquoted */
+    const i=p.indexOf('='),k=(i<0?p:p.slice(0,i)).trim();
+    if(k)d[k]=i<0?'':p.slice(i+1).trim().replace(/^"(.*)"$/,'$1');
+  });
+  let max=-1,store=true,src='';
+  const m=rqSecs(d['max-age']);
+  if(m>=0){max=m;src='max-age'}
+  else{const sm=rqSecs(d['s-maxage']);if(sm>=0){max=sm;src='s-maxage'}}
+  if(!cc&&rqHdr(h,'pragma').toLowerCase()==='no-cache'){max=0;src='pragma'}
+  if('no-cache' in d){max=0;src='no-cache'}                        /* wins over any max-age beside it */
+  if('no-store' in d){store=false;src='no-store'}
+  if(!store)return {ttl:0,store:false,src:src};
+  let ttl=-1;
+  if(max>=0)ttl=max*1000;
+  else{
+    const exp=rqStamp(h,'expires');
+    if(exp>=0){const dt=rqStamp(h,'date');ttl=Math.max(0,exp-(dt>=0?dt:now));src='expires'}
+  }
+  if(ttl<0)return null;                                           /* nothing usable said */
+  const age=rqSecs(rqHdr(h,'age'));
+  if(age>0)ttl-=age*1000;
+  const dt=rqStamp(h,'date');
+  if(dt>=0&&now>dt)ttl-=now-dt;
+  return {ttl:ttl>0?ttl:0,store:true,src:src};
+}
 /* one attempt: the status, the body and the API's own error message all become
-   an Error carrying `status`, which is what the retry decision above reads */
+   an Error carrying `status`, which is what the retry decision above reads. A
+   success hands back the parsed body and the response's Headers, which the
+   caller reads for freshness. */
 async function rqOnce(path,q){
   const r=await fetch(API_BASE+path+'?'+q);
   let j=null,parsed=true;
@@ -335,7 +401,7 @@ async function rqOnce(path,q){
   if(j&&j.error)throw rqErr(j.error.message||'YouTube API error',r.status);
   if(!r.ok)throw rqErr('HTTP '+r.status,r.status);
   if(!parsed||!j)throw rqErr('Malformed response',r.status);
-  return j;
+  return {j:j,h:r.headers};
 }
 /* the round trip, with its retry; kept separate so the in-flight slot can be
    registered before the first await — an async function never throws
@@ -343,10 +409,15 @@ async function rqOnce(path,q){
 async function rqFetch(ck,path,params,q,now){
   for(let attempt=0;;attempt++){
     try{
-      const j=await rqOnce(path,q);
-      rqPut(ck,j,rqTtl(path,params),now);    /* `now` is pre-fetch: the TTL never runs long */
+      const r=await rqOnce(path,q);
+      const base=rqTtl(path,params),hd=rqHdrFresh(r.h,now);
+      const ttl=hd&&hd.ttl<base?hd.ttl:base; /* the table is the ceiling: a header only shortens */
+      if(ttl>0){
+        rqPut(ck,r.j,ttl,now);               /* `now` is pre-fetch: the TTL never runs long */
+        if(ttl<base)RQ_ST.hdr++;             /* this window came from the response */
+      }else RQ_ST.keep++;                    /* the response said not to keep it */
       if(attempt)RQ_ST.retryOk++;
-      return j;
+      return r.j;
     }catch(e){
       if(attempt>=RQ_RETRY_MAX||!rqWorthRetry(e)){if(attempt)RQ_ST.retryFail++;throw e}
       RQ_ST.retry++;
