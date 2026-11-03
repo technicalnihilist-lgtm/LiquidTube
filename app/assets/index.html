@@ -451,22 +451,78 @@ function cObj(c){
     desc:dec(sn.description||''),up:(cd.relatedPlaylists&&cd.relatedPlaylists.uploads)||'',
     banner:cdn((br.image&&br.image.bannerExternalUrl)||''),trailer:(br.channel&&br.channel.unsubscribedTrailer)||''};
 }
+/* ---------- channel lookups: one queue, groups of 50 ----------
+   Every `channels` lookup goes through this queue, whatever asked for it: the
+   feed, a section, a shelf, the player, the channel sheet. Ids are collected
+   first and the groups are cut on the next microtask, so every caller in the
+   same task contributes to the same set; the set is cut into groups of CH_BATCH
+   (the API's ceiling for one call) and each group is sent exactly once — an id
+   already queued, already on the wire or already in CH is never asked for
+   again. A group is released the moment its own response lands, so a waiter
+   never waits for the groups behind it. Errors reach the waiters of that group
+   and nobody else, which is what keeps ensureChannel's message intact. */
+const CH_BATCH=50;                 /* ids per `channels` call, the API's limit */
+const CH_PAR=4;                    /* groups on the wire at once */
+const CH_PART='snippet,statistics,contentDetails,brandingSettings';
+const CH_Q=new Map();              /* id -> the waiters still owed that channel */
+const CH_SENT=new Set();           /* ids a group already carries: never sent twice */
+const CH_ST={batch:0,ids:0,join:0,err:0};
+let chTick=0;                      /* 1 while a flush is queued */
+function chRelease(id,err){
+  const w=CH_Q.get(id);if(!w)return;
+  CH_Q.delete(id);CH_SENT.delete(id);
+  for(let i=0;i<w.length;i++){try{w[i](err||null)}catch(e){}}
+}
+async function chGroup(ids){
+  let err=null;
+  CH_ST.batch++;CH_ST.ids+=ids.length;
+  try{
+    const j=await yt('channels',{part:CH_PART,id:ids.join(',')});
+    (j.items||[]).forEach(c=>{CH[c.id]=cObj(c)});
+  }catch(e){err=e||new Error('Could not load');CH_ST.err++}
+  for(let i=0;i<ids.length;i++)chRelease(ids[i],err);
+}
+function chFlush(){
+  chTick=0;
+  const ids=[];
+  CH_Q.forEach((w,id)=>{if(!CH_SENT.has(id)){CH_SENT.add(id);ids.push(id)}});
+  if(!ids.length)return;
+  let next=0;
+  const step=()=>{                                  /* a runner takes the next free group */
+    const at=next*CH_BATCH;next++;
+    if(at>=ids.length)return Promise.resolve();
+    return chGroup(ids.slice(at,at+CH_BATCH)).then(step);
+  };
+  const run=[];
+  for(let k=0;k<CH_PAR&&k*CH_BATCH<ids.length;k++)run.push(step());
+  Promise.all(run).then(()=>{},()=>{});
+}
+/* queue these ids and resolve once each of them is settled (loaded or failed).
+   Resolves with the errors, in no particular order; never rejects. */
+function chWant(ids){
+  const wait=[];
+  (ids||[]).forEach(id=>{
+    if(!id||CH[id])return;
+    let w=CH_Q.get(id);
+    if(w)CH_ST.join++;              /* already owed: one id, one group, many waiters */
+    else{w=[];CH_Q.set(id,w)}
+    wait.push(new Promise(res=>w.push(res)));
+  });
+  if(!wait.length)return Promise.resolve([]);
+  if(!chTick){chTick=1;Promise.resolve().then(chFlush)}   /* the merge window: this task */
+  return Promise.all(wait);
+}
 async function loadChannels(ids){
-  const need=[...new Set((ids||[]).filter(id=>id&&!CH[id]))];
-  for(let i=0;i<need.length;i+=50){
-    try{
-      const j=await yt('channels',{part:'snippet,statistics,contentDetails,brandingSettings',id:need.slice(i,i+50).join(',')});
-      (j.items||[]).forEach(c=>{CH[c.id]=cObj(c)});
-    }catch(e){}
-  }
+  await chWant(ids);          /* a failed group's error is dropped here, as before */
 }
 async function ensureChannel(id){
   if(CH[id]&&CH[id].up!==undefined)return CH[id];
-  const j=await yt('channels',{part:'snippet,statistics,contentDetails,brandingSettings',id});
-  const c=(j.items||[])[0];
-  if(!c)throw new Error('Channel not found');
-  CH[id]=cObj(c);return CH[id];
+  const r=await chWant([id]);
+  if(CH[id])return CH[id];
+  for(let i=0;i<r.length;i++)if(r[i])throw r[i];
+  throw new Error('Channel not found');
 }
+window.__ltChanQueue=()=>({batch:CH_ST.batch,ids:CH_ST.ids,join:CH_ST.join,err:CH_ST.err,queued:CH_Q.size,sent:CH_SENT.size});
 function vObj(id,d){
   d=d||{};id=id||'';
   const v=Object.assign({id,t:'',c:'',ch:'',views:'',pub:'',cat:'All',g:G[hash(id)%8]},V[id]||{});

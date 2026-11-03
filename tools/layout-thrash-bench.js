@@ -50,6 +50,28 @@ const ago = h => new Date(Date.now() - h * 36e5).toISOString();
 
 // Same fixture shape as tools/startup-bench.js, so the two tools measure the
 // same feed (24 cards, 6 channels, 3 shelves, 6 subscriptions).
+/* The API answers a `channels` call with the ids it was asked for, and with an
+   empty `items` for an id it does not know. A mock that always answers with its
+   whole channel list instead would let a one-id lookup hand back a different
+   channel than the one asked for — something the real endpoint never does — so
+   every harness echoes the requested ids here and synthesises the ones its
+   fixture does not hold. */
+function chanAnswer(url, base) {
+  const U = typeof url === 'string' ? new URL(url) : url;
+  const want = String(U.searchParams.get('id') || '').split(',').filter(Boolean);
+  if (!want.length) return base;
+  const have = new Map(base.items.map(c => [c.id, c]));
+  return {
+    items: want.map(id => have.get(id) || {
+      id,
+      snippet: { title: 'Channel ' + id.slice(2, 8), customUrl: 'c' + id.slice(2, 8), publishedAt: '2015-04-02T10:00:00Z', country: 'IN', description: 'A sample channel.', thumbnails: { medium: { url: 'https://yt3.ggpht.com/' + id + '.jpg' } } },
+      statistics: { subscriberCount: '1000', videoCount: '10', viewCount: '10000' },
+      contentDetails: { relatedPlaylists: { uploads: 'UU' + id.slice(2) } },
+      brandingSettings: { image: { bannerExternalUrl: '' }, channel: {} },
+    }),
+  };
+}
+
 function apiBody(url) {
   const u = new URL(url);
   const p = u.pathname;
@@ -72,7 +94,7 @@ function apiBody(url) {
     };
   }
   if (p.endsWith('/channels')) {
-    return {
+    return chanAnswer(url, {
       items: CH_IDS.map((id, i) => ({
         id,
         snippet: {
@@ -87,7 +109,7 @@ function apiBody(url) {
         contentDetails: { relatedPlaylists: { uploads: 'UU' + i + 'xxxxxxxxxxxxxxxxxxxx' } },
         brandingSettings: { image: { bannerExternalUrl: '' }, channel: {} },
       })),
-    };
+    });
   }
   if (p.endsWith('/playlistItems')) {
     return {

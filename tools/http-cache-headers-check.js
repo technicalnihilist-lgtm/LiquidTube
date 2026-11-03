@@ -89,10 +89,32 @@ const F = {
   },
 };
 
+/* The API answers a `channels` call with the ids it was asked for, and with an
+   empty `items` for an id it does not know. A mock that always answers with its
+   whole channel list instead would let a one-id lookup hand back a different
+   channel than the one asked for — something the real endpoint never does — so
+   every harness echoes the requested ids here and synthesises the ones its
+   fixture does not hold. */
+function chanAnswer(url, base) {
+  const U = typeof url === 'string' ? new URL(url) : url;
+  const want = String(U.searchParams.get('id') || '').split(',').filter(Boolean);
+  if (!want.length) return base;
+  const have = new Map(base.items.map(c => [c.id, c]));
+  return {
+    items: want.map(id => have.get(id) || {
+      id,
+      snippet: { title: 'Channel ' + id.slice(2, 8), customUrl: 'c' + id.slice(2, 8), publishedAt: '2015-04-02T10:00:00Z', country: 'IN', description: 'A sample channel.', thumbnails: { medium: { url: 'https://yt3.ggpht.com/' + id + '.jpg' } } },
+      statistics: { subscriberCount: '1000', videoCount: '10', viewCount: '10000' },
+      contentDetails: { relatedPlaylists: { uploads: 'UU' + id.slice(2) } },
+      brandingSettings: { image: { bannerExternalUrl: '' }, channel: {} },
+    }),
+  };
+}
+
 function apiBody(url) {
   const u = new URL(url), p = u.pathname;
   if (p.endsWith('/videos')) return (u.searchParams.get('part') || '').includes('contentDetails') ? F.durations : F.videos;
-  if (p.endsWith('/channels')) return F.channels;
+  if (p.endsWith('/channels')) return chanAnswer(u, F.channels);
   if (p.endsWith('/playlistItems')) return F.playlistItems;
   if (p.endsWith('/search')) return F.search;
   return {};
@@ -382,7 +404,11 @@ async function main() {
     ok(JSON.stringify(A.boot) === JSON.stringify(B.boot), 'boot surfaces identical');
     ok(JSON.stringify(A.search) === JSON.stringify(B.search), 'search results identical');
     ok(JSON.stringify(A.player) === JSON.stringify(B.player), 'player identical');
-    ok(JSON.stringify(A.allReqs) === JSON.stringify(B.allReqs), 'request log identical (' + A.allReqs.length + ' vs ' + B.allReqs.length + ')');
+    // since item 2.5 the channel lookups are cut into groups on the next
+    // microtask, so a shelf's channel call can leave after the searches the same
+    // tick started — the same requests, in a slightly different order
+    const sorted = l => l.slice().sort();
+    ok(JSON.stringify(sorted(A.allReqs)) === JSON.stringify(sorted(B.allReqs)), 'the same requests go out (' + A.allReqs.length + ' vs ' + B.allReqs.length + ')');
     ok(A.cache.hit === B.cache.hit && A.cache.miss === B.cache.miss, 'same hits and misses', JSON.stringify([A.cache, B.cache]));
     ok(B.cache.hdr === 0 && B.cache.keep === 0, 'live headers never shorten and never drop', JSON.stringify(B.cache));
   }

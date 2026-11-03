@@ -70,11 +70,33 @@ const F = {
   playlist: { items: [] },
 };
 
+/* The API answers a `channels` call with the ids it was asked for, and with an
+   empty `items` for an id it does not know. A mock that always answers with its
+   whole channel list instead would let a one-id lookup hand back a different
+   channel than the one asked for — something the real endpoint never does — so
+   every harness echoes the requested ids here and synthesises the ones its
+   fixture does not hold. */
+function chanAnswer(url, base) {
+  const U = typeof url === 'string' ? new URL(url) : url;
+  const want = String(U.searchParams.get('id') || '').split(',').filter(Boolean);
+  if (!want.length) return base;
+  const have = new Map(base.items.map(c => [c.id, c]));
+  return {
+    items: want.map(id => have.get(id) || {
+      id,
+      snippet: { title: 'Channel ' + id.slice(2, 8), customUrl: 'c' + id.slice(2, 8), publishedAt: '2015-04-02T10:00:00Z', country: 'IN', description: 'A sample channel.', thumbnails: { medium: { url: 'https://yt3.ggpht.com/' + id + '.jpg' } } },
+      statistics: { subscriberCount: '1000', videoCount: '10', viewCount: '10000' },
+      contentDetails: { relatedPlaylists: { uploads: 'UU' + id.slice(2) } },
+      brandingSettings: { image: { bannerExternalUrl: '' }, channel: {} },
+    }),
+  };
+}
+
 // /channels carries part=contentDetails too, so it has to be matched first
 const apiBody = u =>
   u.includes('/search') ? F.search :
   u.includes('/playlistItems') ? F.playlist :
-  u.includes('/channels') ? F.channels :
+  u.includes('/channels') ? chanAnswer(u, F.channels) :
   u.includes('contentDetails') ? F.durations : F.videos;
 
 // Records the first frame that carries .ready and the first real card.
