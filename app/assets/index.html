@@ -564,14 +564,38 @@ function saveFeedCache(items){
   }catch(e){}                                   // quota or private mode: no cache, no failure
 }
 const iso2sec=d=>{const m=DUR_RE.exec(d||'');return m?(+m[1]||0)*3600+(+m[2]||0)*60+(+m[3]||0):0};
+/* Durations are asked for only when a list really needs them.
+   Two ways an item stops counting as unknown: it already has a duration (from
+   the feed cache, an earlier list or this session), or the API has already
+   answered about it without one — a deleted or private video in a playlist, a
+   video with no contentDetails. Those ids are remembered for the session, so
+   reopening the same list (the channel sheet, a section re-render) sends
+   nothing instead of asking about the same dead ids again. Only an answer
+   teaches us that: a failed request marks nothing, so the next list retries. */
+const DUR_NONE=new Set(),DUR_NONE_MAX=200,DUR_ST={calls:0,skipped:0,none:0};
+const durUnknown=v=>!!v&&!!v.id&&v.dur==null&&!DUR_NONE.has(v.id);
+function durNone(id){
+  if(!id||DUR_NONE.has(id))return;
+  DUR_NONE.add(id);DUR_ST.none++;
+  if(DUR_NONE.size>DUR_NONE_MAX)DUR_NONE.delete(DUR_NONE.values().next().value);
+}
 async function loadDurations(list){
-  const ids=list.filter(v=>v.dur==null).map(v=>v.id).slice(0,50);
-  if(!ids.length)return;
+  const ids=[...new Set((list||[]).filter(durUnknown).map(v=>v.id))].slice(0,50);
+  if(!ids.length)return;                        // every item is already measured
+  DUR_ST.calls++;
   try{
     const j=await yt('videos',{part:'contentDetails',id:ids.join(',')});
-    (j.items||[]).forEach(it=>{if(V[it.id])V[it.id].dur=iso2sec(it.contentDetails&&it.contentDetails.duration)});
-  }catch(e){}
+    const got=new Set();
+    (j.items||[]).forEach(it=>{
+      const d=it.contentDetails&&it.contentDetails.duration;
+      if(d==null)return;                        // answered, but no duration to read
+      got.add(it.id);
+      if(V[it.id])V[it.id].dur=iso2sec(d);
+    });
+    ids.forEach(id=>{if(!got.has(id))durNone(id)});   // never ask about these again
+  }catch(e){}                                  // a failure teaches us nothing: keep them unknown
 }
+window.__ltDurations=()=>({calls:DUR_ST.calls,skipped:DUR_ST.skipped,none:DUR_ST.none,known:DUR_NONE.size});
 /* ---------- card + list renderers ---------- */
 const meta=v=>[v.views?num(v.views)+' views':'',v.pub?ago(v.pub):''].filter(Boolean).join(' · ');
 /* avatar for a card: the live channel object, else the avatar kept in the feed cache */
@@ -630,7 +654,11 @@ const SHORT_RE=/#shorts?\b|\/shorts\//i;
 const isShort=v=>!v||SHORT_RE.test(v.t||'')||(typeof v.dur==='number'&&v.dur>0&&v.dur<=LONG_MIN);
 async function dropShorts(list){
   list=(list||[]).filter(v=>v&&!SHORT_RE.test(v.t||'')&&!PRIVATE_RE.test(v.t||''));
-  await loadDurations(list);                 // every item is measured, not just the unknown ones
+  /* every item is measured, not just the unknown ones — but a list that already
+     holds a duration for each of its items skips the call entirely (no promise,
+     no request, no await tick on the render path). */
+  if(list.some(durUnknown))await loadDurations(list);
+  else DUR_ST.skipped++;
   return list.filter(v=>!isShort(v));
 }
 
