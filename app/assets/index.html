@@ -211,11 +211,94 @@ window.TH=function(img){
   }img.dataset.f='1';img.src='https://i.ytimg.com/vi/'+img.dataset.id+'/hqdefault.jpg';};
 const thumbImg=id=>'<img src="'+THUMB_BASE+esc(id)+'/maxresdefault.jpg" alt="" loading="lazy" data-id="'+esc(id)+'" data-q="0" onload="THOK(this)" onerror="TH(this)">';
 
+/* ---------- storage codec: LZW over the UTF-8 bytes ----------
+   Everything this app persists — the state, the last feed, the three section
+   caches — is JSON whose keys repeat 12-60 times, so one LZW pass over its
+   UTF-8 bytes takes roughly half of it away before it reaches localStorage:
+   less to stringify, less to write, less to re-read and parse on the next
+   launch, and more headroom under the ~5 MB origin quota (item 2.8).
+   It is plain synchronous JS: no CompressionStream (absent before Chrome 80,
+   and async, which a save path cannot be), no library, no request.
+   A stored value is prefixed: 'z1:' means LZW, anything else is the plain JSON
+   that every earlier build wrote — so old data still loads unchanged and
+   nothing has to be migrated. Codes are emitted as single UTF-16 units mapped
+   out of the surrogate range (code >= 0xD800 is written +0x800), so a blob is
+   always well-formed UTF-16 and survives an engine that stores localStorage as
+   UTF-8; the dictionary stops growing at Z_MAX so every code stays in that map
+   and the encoder and decoder stop adding entries at exactly the same point. */
+const Z_PREFIX='z1:',Z_MAX=0xF000,TE=new TextEncoder(),TD=new TextDecoder();
+const zMap=c=>c<0xD800?c:c+0x800;         // code -> UTF-16 unit, out of the surrogate range
+const zCode=c=>c>=0xE000?c-0x800:c;
+function lzwPack(s){
+  const b=TE.encode(s),n=b.length;
+  if(!n)return '';
+  const out=[];let dict=new Map(),next=256,pre=b[0];
+  for(let i=1;i<n;i++){
+    const c=b[i],k=pre*256+c,got=dict.get(k);
+    if(got!==undefined){pre=got;continue}
+    out.push(pre);
+    if(next<Z_MAX)dict.set(k,next++);          // full: keep coding with what we have
+    pre=c;
+  }
+  out.push(pre);
+  let str='';
+  for(let i=0;i<out.length;i+=4096){
+    const part=out.slice(i,i+4096);
+    for(let j=0;j<part.length;j++)part[j]=zMap(part[j]);
+    str+=String.fromCharCode.apply(null,part);
+  }
+  return str;
+}
+function lzwUnpack(str){
+  const n=str.length;
+  if(!n)return '';
+  /* entries are kept as one-byte-per-char strings: appending is cheap on a rope
+     and each new entry is just the previous one plus a char, where an array of
+     bytes would copy its whole tail on every step. One pass to bytes at the end. */
+  const dict=new Array(256);
+  for(let i=0;i<256;i++)dict[i]=String.fromCharCode(i);
+  let next=256,prev='',out='';
+  for(let i=0;i<n;i++){
+    const code=zCode(str.charCodeAt(i));
+    let entry;
+    if(code<next&&dict[code]!==undefined)entry=dict[code];
+    else if(code===next&&prev)entry=prev+prev[0];
+    else throw new Error('bad code');
+    out+=entry;
+    if(prev&&next<Z_MAX)dict[next++]=prev+entry[0];
+    prev=entry;
+  }
+  const b=new Uint8Array(out.length);
+  for(let i=0;i<out.length;i++)b[i]=out.charCodeAt(i);
+  return TD.decode(b);
+}
+/* storeJSON: the string to hand to setItem. Compressed only when it is really
+   smaller, so a tiny or incompressible value is stored exactly as before. */
+function storeJSON(o){
+  const plain=JSON.stringify(o);
+  try{
+    const z=lzwPack(plain);
+    if(z.length<plain.length)return Z_PREFIX+z;
+  }catch(e){}
+  return plain;
+}
+/* loadJSON: the parsed value, or `fallback` for empty, corrupt or half-written
+   data. Accepts both the compressed form and the plain JSON of earlier builds. */
+function loadJSON(raw,fallback){
+  if(raw==null||raw==='')return fallback;
+  try{
+    const z=raw.slice(0,3)===Z_PREFIX;
+    const v=JSON.parse(z?lzwUnpack(raw.slice(3)):raw);
+    return v==null?fallback:v;
+  }catch(e){return fallback}
+}
+window.__ltStore=()=>({codec:Z_PREFIX,keys:['lt','lt_feed','lt_anime','lt_cartoon','lt_movies']});
+
 /* ---------- persisted state ---------- */
 const SKEY='lt';
 let S={liked:[],subs:[],later:[],hist:[],vd:{},pl:{},cats:{},opt:{cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,parallax:1,pdepth:65,glass:45,layout:'phone'}};
-try{const p=JSON.parse(localStorage.getItem(SKEY)||'{}');Object.assign(S,p);S.opt=Object.assign({cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,parallax:1,pdepth:65,glass:45,layout:'phone'},p.opt||{})}catch(e){}
-const save=()=>{try{localStorage.setItem(SKEY,JSON.stringify(S))}catch(e){}};
+try{const r=loadJSON(localStorage.getItem(SKEY),{});const p=r&&typeof r==='object'&&!Array.isArray(r)?r:{};Object.assign(S,p);S.opt=Object.assign({cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,parallax:1,pdepth:65,glass:45,layout:'phone'},p.opt||{})}catch(e){}
+const save=()=>{try{localStorage.setItem(SKEY,storeJSON(S))}catch(e){}};
 S.vd=S.vd||{};try{localStorage.removeItem('lt_shorts')}catch(e){}
 document.addEventListener('touchstart',()=>{},{passive:true});
 document.addEventListener('load',e=>{const t=e.target;if(t&&(t.tagName==='IMG'||t.tagName==='IFRAME'))t.classList.add('ld')},true);
@@ -596,7 +679,7 @@ const feed=()=>FEED.trending||FEED.cached||[];
 function readFeedCache(){
   try{
     const raw=localStorage.getItem(FKEY);if(!raw)return null;
-    const c=JSON.parse(raw);
+    const c=loadJSON(raw,null);
     if(!c||c.v!==FVER||!Array.isArray(c.items))return null;
     const items=c.items.filter(o=>o&&typeof o.id==='string'&&o.id);   // shape check
     return items.length?{at:+c.at||0,items,chav:c.chav||{}}:null;
@@ -607,7 +690,7 @@ function saveFeedCache(items){
     const chav={};
     (items||[]).forEach(v=>{const av=v&&v.ch&&CH[v.ch]&&CH[v.ch].av;if(av)chav[v.ch]=av});
     const at=Date.now();
-    localStorage.setItem(FKEY,JSON.stringify({v:FVER,at,chav,items:(items||[]).map(v=>({id:v.id,t:v.t,c:v.c,ch:v.ch,views:v.views,pub:v.pub,cat:v.cat,dur:v.dur}))}));
+    localStorage.setItem(FKEY,storeJSON({v:FVER,at,chav,items:(items||[]).map(v=>({id:v.id,t:v.t,c:v.c,ch:v.ch,views:v.views,pub:v.pub,cat:v.cat,dur:v.dur}))}));
     FEED.at=at;
   }catch(e){}                                   // quota or private mode: no cache, no failure
 }
@@ -821,7 +904,7 @@ async function loadSection(name){
   if(SEC[name])return SEC[name];
   const cfg=SECTIONS[name];
   try{
-    const c=JSON.parse(localStorage.getItem(cfg.key)||'null');
+    const c=loadJSON(localStorage.getItem(cfg.key),null);
     if(c&&c.at&&Date.now()-c.at<12*36e5&&Array.isArray(c.items)&&c.items.length){
       c.items.forEach(it=>vObj(it.id,it));
       SEC[name]=c.items.map(it=>V[it.id]).filter(Boolean);
@@ -862,7 +945,7 @@ async function loadSection(name){
   clean.sort((a,b)=>hi(b)-hi(a));      // Hindi titles first, then the rest
   await loadChannels(clean.map(v=>v.ch));
   SEC[name]=clean;
-  try{localStorage.setItem(cfg.key,JSON.stringify({at:Date.now(),
+  try{localStorage.setItem(cfg.key,storeJSON({at:Date.now(),
     items:clean.map(v=>({id:v.id,t:v.t,c:v.c,ch:v.ch,pub:v.pub,cat:v.cat}))}))}catch(e){}
   return clean;
 }

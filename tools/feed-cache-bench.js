@@ -156,8 +156,10 @@ const r = x => Math.round(x);
     if (!cache) cache = await page.evaluate(() => {
       const raw = localStorage.getItem('lt_feed');
       if (!raw) return null;
-      const c = JSON.parse(raw);
-      return { bytes: raw.length, version: c.v, items: (c.items || []).length, avatars: Object.keys(c.chav || {}).length };
+      // the value is compressed (item 2.8), so it is decoded by the app's own reader
+      const c = loadJSON(raw, null) || {};
+      return { bytes: raw.length, encoding: raw.slice(0, 3) === 'z1:' ? 'lzw' : 'json',
+               version: c.v, items: (c.items || []).length, avatars: Object.keys(c.chav || {}).length };
     });
 
     // warm run: same origin and profile, fresh navigation — the "reopen" case
