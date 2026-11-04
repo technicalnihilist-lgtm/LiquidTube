@@ -292,7 +292,7 @@ function loadJSON(raw,fallback){
     return v==null?fallback:v;
   }catch(e){return fallback}
 }
-window.__ltStore=()=>({codec:Z_PREFIX,keys:['lt','lt_feed','lt_anime','lt_cartoon','lt_movies']});
+window.__ltStore=()=>({codec:Z_PREFIX,keys:['lt','lt_feed','lt_anime','lt_cartoon','lt_movies','lt_quota']});
 
 /* ---------- persisted state ---------- */
 const SKEY='lt';
@@ -416,6 +416,110 @@ function rqPut(k,j,ttl,now){
   RQ.set(k,{at:now,ttl,j});
 }
 window.__ltReqCache=()=>({size:RQ.size,max:RQ_MAX,hit:RQ_ST.hit,miss:RQ_ST.miss,evict:RQ_ST.evict,join:RQ_ST.join,retry:RQ_ST.retry,retryOk:RQ_ST.retryOk,retryFail:RQ_ST.retryFail,hdr:RQ_ST.hdr,keep:RQ_ST.keep,abort:RQ_ST.abort,fly:RQI.size});
+
+/* ---------- quota meter (item 2.9) ----------
+   The project's key has Q_LIMIT units a day and a search costs a hundred of
+   them, so a hundred searches is the whole day gone and everything else comes
+   back refused until the quota resets. That ceiling is the API's, not the
+   app's, and the app cannot lift it — but it can say where it stands, which is
+   what was missing: how many units this build spent today, on which endpoint,
+   over how many requests, and how many refusals it took.
+
+   Nothing here is on screen. The meter is read through window.__ltQuota(), one
+   object with the same shape every time, and written out as a single `lt-quota`
+   console line, which MainActivity forwards to logcat; no node, class, style or
+   layout is touched, so the UI is exactly what it was before.
+
+   Only a request that actually leaves is counted. A cache hit, a joined
+   in-flight call, and a call refused before it was sent (its page is not on
+   screen) cost nothing and add nothing. A retry is a second request on the wire
+   and counts as one. A request aborted after it left still counts, and so does
+   a fetch that never reached the server: both are the conservative side, and
+   over-counting only makes a warning early where under-counting loses a day.
+
+   The day is the local calendar day, and a stored meter from an earlier day is
+   filed into a short history (Q_DAYS entries, oldest dropped) rather than added
+   to today's — a restart never carries yesterday's units into today's total, and
+   the history cannot grow with the number of launches. It persists through the
+   same codec as everything else (item 2.8) under its own key, written on a
+   coalesced timer instead of per request — a save is a synchronous encode plus a
+   localStorage write and should not ride on every call — and flushed at once
+   when the page is hidden or goes away, so a close loses at most Q_SAVE_MS of
+   accounting. */
+const QKEY='lt_quota',Q_LIMIT=1e4,Q_DAYS=7,Q_SAVE_MS=1e3,Q_EP_MAX=12;
+/* the API's published cost per call, in units; every other endpoint this app
+   uses is a 1-unit read, which is the default in qCost() */
+const Q_COST={search:100,videos:1,channels:1,playlistItems:1,playlists:1,videoCategories:1,commentThreads:1,comments:1,captions:1};
+const Q={day:'',units:0,req:0,refused:0,warn:0,ep:{},hist:[]};
+let qTimer=0,qDirty=0;
+const qPad=n=>(n<10?'0':'')+n;
+const qDayOf=t=>{const d=new Date(t);return d.getFullYear()+'-'+qPad(d.getMonth()+1)+'-'+qPad(d.getDate())};
+const qCost=p=>{const c=Q_COST[p];return typeof c==='number'?c:1};
+const qLog=s=>{try{console.log('lt-quota '+s)}catch(e){}};
+function qFile(){                                 /* keep the finished day, bounded */
+  if(!Q.day)return;
+  Q.hist.push({d:Q.day,u:Q.units,r:Q.req});
+  if(Q.hist.length>Q_DAYS)Q.hist.splice(0,Q.hist.length-Q_DAYS);
+}
+function qRoll(t){                                /* a new local day starts the meter over */
+  const d=qDayOf(t);
+  if(Q.day===d)return;
+  qFile();
+  Q.day=d;Q.units=0;Q.req=0;Q.refused=0;Q.warn=0;Q.ep={};
+}
+function qFlush(){
+  if(qTimer){clearTimeout(qTimer);qTimer=0}
+  if(!qDirty)return;
+  qDirty=0;
+  try{localStorage.setItem(QKEY,storeJSON(Q))}catch(e){}
+}
+function qSaveSoon(){qDirty=1;if(!qTimer)qTimer=setTimeout(qFlush,Q_SAVE_MS)}
+function qSpend(path,t){                          /* one request leaving for `path` */
+  qRoll(t);
+  const c=qCost(path),e=Q.ep[path]||(Q.ep[path]={u:0,r:0});
+  Q.units+=c;Q.req++;e.u+=c;e.r++;
+  if(c>1)qLog(path+' '+c+'u, today '+Q.units+'/'+Q_LIMIT);   /* the expensive calls are worth a line */
+  if(Q.warn<1&&Q.units>=Q_LIMIT*0.8){Q.warn=1;qLog('80% of the day used, '+Q.units+'/'+Q_LIMIT)}
+  if(Q.warn<2&&Q.units>=Q_LIMIT){Q.warn=2;qLog('day exhausted, '+Q.units+'/'+Q_LIMIT)}
+  qSaveSoon();
+}
+function qRefuse(){                               /* the API said no for want of quota */
+  qRoll(Date.now());
+  Q.refused++;
+  qLog('refused, key out of quota for '+Q.day+', '+Q.units+'/'+Q_LIMIT+' spent by this app');
+  qSaveSoon();
+}
+/* a stored meter, sanitised: numbers only, never negative or NaN, and no more
+   endpoints than the API has, so a corrupt or hand-edited value can neither
+   grow the object nor poison a total */
+function qLoad(){
+  let r=null;
+  try{r=loadJSON(localStorage.getItem(QKEY),null)}catch(e){r=null}
+  if(!r||typeof r!=='object'||Array.isArray(r))return;
+  const n=v=>{v=+v;return isFinite(v)&&v>0?Math.round(v):0};
+  Q.day=typeof r.day==='string'&&/^\d{4}-\d\d-\d\d$/.test(r.day)?r.day:'';
+  Q.units=n(r.units);Q.req=n(r.req);Q.refused=n(r.refused);Q.warn=Math.min(2,n(r.warn));
+  const ep=r.ep&&typeof r.ep==='object'&&!Array.isArray(r.ep)?r.ep:{};
+  Object.keys(ep).slice(0,Q_EP_MAX).forEach(k=>{
+    const v=ep[k];
+    if(!v||typeof v!=='object')return;
+    const u=n(v.u),c=n(v.r);
+    if(u||c)Q.ep[k]={u:u,r:c};
+  });
+  if(Array.isArray(r.hist))Q.hist=r.hist.filter(h=>h&&typeof h==='object'&&typeof h.d==='string')
+    .slice(-Q_DAYS).map(h=>({d:h.d,u:n(h.u),r:n(h.r)}));
+}
+qLoad();qRoll(Date.now());        /* a meter from an earlier day is filed away, not added to */
+window.__ltQuota=t=>{             /* the whole meter: tools/ reads it, nothing on screen does */
+  qRoll(t===undefined?Date.now():t);
+  const ep={};
+  Object.keys(Q.ep).forEach(k=>{ep[k]={units:Q.ep[k].u,requests:Q.ep[k].r}});
+  return {day:Q.day,units:Q.units,requests:Q.req,refused:Q.refused,limit:Q_LIMIT,
+    left:Math.max(0,Q_LIMIT-Q.units),pct:Math.round(Q.units/Q_LIMIT*1e3)/10,
+    endpoints:ep,history:Q.hist.map(h=>({day:h.d,units:h.u,requests:h.r})),saved:!qDirty};
+};
+try{window.addEventListener('pagehide',qFlush)}catch(e){}
+try{document.addEventListener('visibilitychange',()=>{if(document.hidden)qFlush()})}catch(e){}
 /* ---------- abandoning the work of a page the user has left ---------- */
 const RQ_ABORT=typeof AbortController==='function';
 /* The pages whose content the app is filling right now. At boot that is Home and
@@ -517,10 +621,11 @@ function rqHdrFresh(h,now){
    success hands back the parsed body and the response's Headers, which the
    caller reads for freshness. */
 async function rqOnce(path,q,sig){
+  qSpend(path,Date.now());   /* the request is leaving: this attempt is what costs a unit (item 2.9) */
   const r=await fetch(API_BASE+path+'?'+q,sig?{signal:sig}:undefined);   /* aborted here if the page was left */
   let j=null,parsed=true;
   try{j=await r.json()}catch(e){parsed=false}
-  if(j&&j.error)throw rqErr(j.error.message||'YouTube API error',r.status);
+  if(j&&j.error){if(QUOTA_RE.test(String(j.error.message||'')))qRefuse();throw rqErr(j.error.message||'YouTube API error',r.status)}
   if(!r.ok)throw rqErr('HTTP '+r.status,r.status);
   if(!parsed||!j)throw rqErr('Malformed response',r.status);
   return {j:j,h:r.headers};
