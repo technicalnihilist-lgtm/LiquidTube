@@ -557,6 +557,64 @@ function rqWorthRetry(e){
   if(!s)return true;                          /* no response at all: the network failed */
   return s===429||(s>=500&&s<=599);
 }
+/* ---------- slow requests (item 2.10) ----------
+   A request that takes longer than RQ_SLOW_MS is worth a line in the log, because
+   a slow round trip is the one failure the user feels but nothing in the app
+   could name: a feed that hangs, a channel sheet that never opens, a search that
+   sits there. Every attempt is timed in rqFetch, around the await of rqOnce — so
+   the number covers the round trip and the body read, and excludes the backoff
+   sleep between attempts — and an attempt over the threshold writes one line:
+
+     lt-slow ep=videos.chart ms=1234 attempt=0 status=200 n=1
+
+   `ep` is the endpoint, told apart where one path serves two very different
+   calls (videos.chart is the feed, videos.dur a duration lookup). The request's
+   parameters are deliberately NOT in the line: a search carries what the user
+   typed, and the log goes to logcat — the endpoint is what the item asks for and
+   what a regression shows up in. A failure is logged with the status it got and
+   `err=net` when it never got one at all, `err=abort` when the page that owned
+   it was left (item 2.7), so a cancelled request is not mistaken for a slow one
+   that answered.
+
+   Nothing here is on screen and nothing here is stored. The line goes to
+   console.log under the `lt-` prefix MainActivity already forwards to logcat,
+   the counters live in memory for the session, and both are bounded: at most
+   RQ_SLOW_LINES lines (a long offline session cannot flood logcat — past that
+   the counter keeps counting and `dropped` records what was not printed) and at
+   most RQ_SLOW_EP_MAX endpoints in the per-endpoint table. window.__ltSlow()
+   returns the whole picture, worst offender included, which is what
+   tools/slow-request-check.js reads and what item 18.2 and 18.9 will build on.
+
+   The cost is two clock reads per attempt and one comparison — no timer, no
+   listener, no allocation unless the threshold was actually crossed. */
+const RQ_SLOW_MS=800,RQ_SLOW_LINES=40,RQ_SLOW_EP_MAX=12;
+const RQ_SLOW={n:0,lines:0,dropped:0,worst:0,worstEp:'',ep:{}};
+const rqNow=()=>{try{return performance.now()}catch(e){return Date.now()}};
+function rqEp(path,params){                       /* the endpoint, with the two `videos` calls told apart */
+  if(path==='videos')return (params&&params.chart)?'videos.chart':'videos.dur';
+  return String(path||'?');
+}
+function rqSlow(ep,ms,attempt,status,why){
+  if(!(ms>RQ_SLOW_MS))return;                     /* fast enough: nothing to say, nothing allocated */
+  RQ_SLOW.n++;
+  let s=RQ_SLOW.ep[ep];
+  if(!s&&Object.keys(RQ_SLOW.ep).length<RQ_SLOW_EP_MAX)s=RQ_SLOW.ep[ep]={n:0,ms:0,worst:0};
+  if(s){s.n++;s.ms+=ms;if(ms>s.worst)s.worst=ms}
+  if(ms>RQ_SLOW.worst){RQ_SLOW.worst=ms;RQ_SLOW.worstEp=ep}
+  if(RQ_SLOW.lines>=RQ_SLOW_LINES){RQ_SLOW.dropped++;return}   /* bounded: the count keeps counting */
+  RQ_SLOW.lines++;
+  try{console.log('lt-slow ep='+ep+' ms='+Math.round(ms)+' attempt='+attempt+' status='+(status|0)
+    +(why?' err='+why:'')+' n='+RQ_SLOW.n)}catch(x){}
+}
+window.__ltSlow=()=>{
+  const ep={};
+  Object.keys(RQ_SLOW.ep).forEach(k=>{
+    const v=RQ_SLOW.ep[k];
+    ep[k]={n:v.n,ms:Math.round(v.ms),worst:Math.round(v.worst)};
+  });
+  return {threshold:RQ_SLOW_MS,count:RQ_SLOW.n,lines:RQ_SLOW.lines,dropped:RQ_SLOW.dropped,
+    worst:Math.round(RQ_SLOW.worst),worstEp:RQ_SLOW.worstEp,endpoints:ep};
+};
 /* ---------- what the response says about its own freshness ---------- */
 /* The server is the authority on how long its answer stays good, so a caching
    header on a response is honoured ahead of the endpoint table in rqTtl().
@@ -628,15 +686,18 @@ async function rqOnce(path,q,sig){
   if(j&&j.error){if(QUOTA_RE.test(String(j.error.message||'')))qRefuse();throw rqErr(j.error.message||'YouTube API error',r.status)}
   if(!r.ok)throw rqErr('HTTP '+r.status,r.status);
   if(!parsed||!j)throw rqErr('Malformed response',r.status);
-  return {j:j,h:r.headers};
+  return {j:j,h:r.headers,s:r.status};   /* `s` is only for the slow log: what the answer came back as */
 }
 /* the round trip, with its retry; kept separate so the in-flight slot can be
    registered before the first await — an async function never throws
    synchronously, so the slot is always set before anything can clear it */
 async function rqFetch(ck,path,params,q,now,sig){
+  const ep=rqEp(path,params);                  /* computed once per request, not per attempt */
   for(let attempt=0;;attempt++){
+    const t0=rqNow();                          /* item 2.10: this attempt, from send to answer */
     try{
       const r=await rqOnce(path,q,sig);
+      rqSlow(ep,rqNow()-t0,attempt,r.s,'');    /* no-op unless it crossed RQ_SLOW_MS */
       const base=rqTtl(path,params),hd=rqHdrFresh(r.h,now);
       const ttl=hd&&hd.ttl<base?hd.ttl:base; /* the table is the ceiling: a header only shortens */
       if(ttl>0){
@@ -646,6 +707,8 @@ async function rqFetch(ck,path,params,q,now,sig){
       if(attempt)RQ_ST.retryOk++;
       return r.j;
     }catch(e){
+      const st=e.status|0;
+      rqSlow(ep,rqNow()-t0,attempt,st,e.name==='AbortError'?'abort':(st?'':'net'));
       if(attempt>=RQ_RETRY_MAX||!rqWorthRetry(e)){if(attempt)RQ_ST.retryFail++;throw e}
       RQ_ST.retry++;
       await rqSleep(rqBackoff(attempt));
