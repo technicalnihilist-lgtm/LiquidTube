@@ -1593,6 +1593,25 @@ function frameKick(force){
   if(document.hidden){hiddenOwed=true;return}
   if(!frameRaf)frameRaf=requestAnimationFrame(frameRun);
 }
+/* One frame, in three phases that never interleave: collect, read, write.
+
+   The two passes used to run one after the other, each measuring and then
+   writing, and that cost the frame two style flushes instead of one: the depth
+   pass re-measured every card the parallax pass had just given a transform to,
+   and a getBoundingClientRect on an element whose style is dirty cannot answer
+   without a recalc. The card itself was measured twice for the same reason —
+   once by the parallax pass to decide whether its thumbnail was on screen, once
+   by the depth pass for its own transform — so a scroll frame paid up to three
+   rects per card, the second flush among them.
+
+   Now the frame collects the element list and both signatures (a DOM walk, no
+   layout), measures one rect per card and one per thumbnail whose card is on
+   screen into buffers that are reused from frame to frame, and only then writes.
+   A card is measured once however many passes want it, and no pass reads layout
+   after the first transform of the frame has been written — the write loops hold
+   nothing but `style.transform` and `style.opacity`, which cannot invalidate
+   layout. */
+const F_CARD=[],F_CTOP=[],F_CH=[],F_IMG=[],F_REL=[];
 function frameRun(){
   frameRaf=0;
   /* Hidden between the request and this callback: the work is owed, not lost. */
@@ -1601,88 +1620,84 @@ function frameRun(){
   framesRun++;
   const on=PARALLAX(),dep=DEPTH();
   if(!on&&!dep)return;
-  /* Read once for both passes: the active page and its offset are what every
+  /* Read once for the whole frame: the active page and its offset are what every
      layer in the frame is keyed off. */
   const pg=document.querySelector('.page:not([inert])');
   const st=pg?pg.scrollTop:0;
   const vh=innerHeight;
-  if(on)parallaxScroll(pg,st,vh,force);
-  if(dep)depthScroll(pg,st,vh,force);
-}
-const relBuf=[];
-function parallaxScroll(pg,st,vh,force){
   const k=K();
-  const imgs=frameEls('.thumb img',force);
-  const sig=st+'|'+gyroX+'|'+gyroY+'|'+vh+'|'+imgs.length+'|'+k+'|'+layoutEpoch;
-  if(!force&&sig===sigP)return;
-  sigP=sig;
-  const top=document.querySelector('.page:not([inert]) .top');
-  const dock=document.querySelector('.dock');
-  const chips=document.querySelector('.page:not([inert]) .chips');
+  /* The list is taken even for a pass that may be skipped after its signature
+     check, because the number of cards is part of that signature: it is the only
+     cheap way to notice the page gained one. A querySelectorAll sweep is a DOM
+     walk, not a layout read. */
+  const cards=frameEls('.card',force);
+  const n=cards.length;
+  const sigPv=st+'|'+gyroX+'|'+gyroY+'|'+vh+'|'+n+'|'+k+'|'+layoutEpoch;
+  const sigDv=st+'|'+vh+'|'+n+'|'+k+'|'+layoutEpoch;
+  const doP=on&&(force||sigPv!==sigP);
+  const doD=dep&&(force||sigDv!==sigD);
+  if(!doP&&!doD)return;
+  if(doP)sigP=sigPv;
+  if(doD)sigD=sigDv;
 
-  /* ---- read pass ---- */
-  relBuf.length=0;
-  for(let i=0;i<imgs.length;i++){
-    const th=imgs[i].parentElement,card=th&&th.parentElement;
+  /* ---- read pass: one rect per card, plus one per thumbnail on screen ---- */
+  F_CARD.length=0;F_CTOP.length=0;F_CH.length=0;F_IMG.length=0;F_REL.length=0;
+  for(let i=0;i<n;i++){
+    const c=cards[i];
+    const r=c.getBoundingClientRect();
+    if(doD){F_CARD.push(c);F_CTOP.push(r.top);F_CH.push(r.height)}
+    if(!doP)continue;
+    /* The thumbnail is the card's own first child (`<div class="thumb">` with the
+       image in it), so it is reached without a selector run; the query is there
+       only for a card built some other way. */
+    const th=c.firstElementChild;
+    const img=th&&th.classList&&th.classList.contains('thumb')?th.firstElementChild:c.querySelector('.thumb img');
+    if(!img||img.tagName!=='IMG')continue;
+    F_IMG.push(img);
     /* A card that is off screen may be skipped by content-visibility, and
        measuring a box *inside* a skipped subtree makes the browser render that
        subtree again — exactly the work the skip exists to avoid. The card's own
-       box exists either way (it is the containment root), so it is measured
-       first and an off-screen card never touches its thumbnail. */
-    if(card&&card.classList&&card.classList.contains('card')){
-      const rc=card.getBoundingClientRect();
-      if(rc.bottom<-80||rc.top>vh+80){relBuf.push(null);continue}
-    }
-    const r=th.getBoundingClientRect();
-    relBuf.push(r.bottom<-80||r.top>vh+80?null:(r.top+r.height/2-vh/2)/(vh/2));   // -1 .. 1, null = off screen
+       box exists either way (it is the containment root), so the gate is on the
+       card and an off-screen card never touches its thumbnail. */
+    if(r.bottom<-80||r.top>vh+80){F_REL.push(null);continue}
+    const tr=img.parentElement.getBoundingClientRect();
+    F_REL.push(tr.bottom<-80||tr.top>vh+80?null:(tr.top+tr.height/2-vh/2)/(vh/2));   // -1 .. 1, null = off screen
   }
 
-  /* ---- write pass ---- */
+  /* ---- write pass: transforms only ---- */
+  if(doP)parallaxWrite(pg,st,vh,k);
+  if(doD)depthWrite(vh,k);
+}
+function parallaxWrite(pg,st,vh,k){
+  const top=pg?pg.querySelector('.top'):null;
+  const chips=pg?pg.querySelector('.chips'):null;
+  const dock=document.querySelector('.dock');
+
   if(pg)pg.style.backgroundPositionY=(-st*0.22*k).toFixed(1)+'px';
 
   /* the whole shell drifts: header, dock and chip row all move a little */
-  if(top&&pg)top.style.transform=`translate3d(${(gyroX*3*k).toFixed(2)}px,${(-Math.min(st,120)*0.06*k).toFixed(2)}px,0)`;
+  if(top)top.style.transform=`translate3d(${(gyroX*3*k).toFixed(2)}px,${(-Math.min(st,120)*0.06*k).toFixed(2)}px,0)`;
   if(dock)dock.style.transform=`translate3d(${(gyroX*5*k).toFixed(2)}px,${(gyroY*2.5*k).toFixed(2)}px,0)`;
   if(chips)chips.style.transform=`translate3d(${(gyroX*-2.5*k).toFixed(2)}px,0,0)`;
   const x=gyroX*2.5*k;
-  for(let i=0;i<imgs.length;i++){
-    const rel=relBuf[i];
+  for(let i=0;i<F_IMG.length;i++){
+    const rel=F_REL[i];
     if(rel===null)continue;
     const y=(-rel*7*k)+gyroY*2.5*k;
-    imgs[i].style.transform=`translate3d(${x.toFixed(2)}%,${y.toFixed(2)}%,0) scale(1.14)`;
+    F_IMG[i].style.transform=`translate3d(${x.toFixed(2)}%,${y.toFixed(2)}%,0) scale(1.14)`;
   }
 }
-
-/* cards recede slightly as they move away from the centre of the screen.
-   Same split as the parallax pass, and it matters more here: this is the loop the
-   first depth frame after boot and every scroll frame runs, over every card on
-   every page. All the rects are measured before the first transform is written,
-   so the frame lays out once instead of once per card. The buffer keeps the two
-   reasons to skip a card apart — off screen (transform cleared, as before) and
-   under the finger (left exactly as the tilt wrote it). */
-const rectBuf=[],SKIP_CARD=-1;
-function depthScroll(pg,st,vh,force){
-  const k=K();
-  const cards=frameEls('.card',force);
-  const sig=st+'|'+vh+'|'+cards.length+'|'+k+'|'+layoutEpoch;
-  if(!force&&sig===sigD)return;
-  sigD=sig;
-
-  /* ---- read pass ---- */
-  rectBuf.length=0;
-  for(let i=0;i<cards.length;i++){
-    const c=cards[i];
-    if(c.classList.contains('tilt')){rectBuf.push(SKIP_CARD);continue}
-    const r=c.getBoundingClientRect();
-    rectBuf.push(r.bottom<-80||r.top>vh+80?null:[r.top,r.height]);
-  }
-
-  /* ---- write pass ---- */
-  for(let i=0;i<cards.length;i++){
-    const m=rectBuf[i],c=cards[i];
-    if(m===SKIP_CARD)continue;
-    if(m===null){c.style.transform='';continue}
-    const d=Math.min(1,Math.abs((m[0]+m[1]/2)-vh/2)/(vh*0.62));
+/* cards recede slightly as they move away from the centre of the screen. The
+   measurements are the ones the frame's read pass already took, so the loop is
+   arithmetic and transforms and nothing else. A card under the finger is left
+   exactly as the tilt wrote it. */
+function depthWrite(vh,k){
+  for(let i=0;i<F_CARD.length;i++){
+    const c=F_CARD[i];
+    if(c.classList.contains('tilt'))continue;
+    const top=F_CTOP[i],h=F_CH[i];
+    if(top+h<-80||top>vh+80){c.style.transform='';continue}
+    const d=Math.min(1,Math.abs((top+h/2)-vh/2)/(vh*0.62));
     c.style.transform=`translateZ(${(-d*30*k).toFixed(1)}px) scale(${(1-d*0.05*k).toFixed(3)})`;
     c.style.opacity=(1-d*0.18*k).toFixed(3);
   }
