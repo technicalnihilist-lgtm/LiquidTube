@@ -1623,7 +1623,17 @@ function parallaxScroll(pg,st,vh,force){
   /* ---- read pass ---- */
   relBuf.length=0;
   for(let i=0;i<imgs.length;i++){
-    const r=imgs[i].parentElement.getBoundingClientRect();
+    const th=imgs[i].parentElement,card=th&&th.parentElement;
+    /* A card that is off screen may be skipped by content-visibility, and
+       measuring a box *inside* a skipped subtree makes the browser render that
+       subtree again — exactly the work the skip exists to avoid. The card's own
+       box exists either way (it is the containment root), so it is measured
+       first and an off-screen card never touches its thumbnail. */
+    if(card&&card.classList&&card.classList.contains('card')){
+      const rc=card.getBoundingClientRect();
+      if(rc.bottom<-80||rc.top>vh+80){relBuf.push(null);continue}
+    }
+    const r=th.getBoundingClientRect();
     relBuf.push(r.bottom<-80||r.top>vh+80?null:(r.top+r.height/2-vh/2)/(vh/2));   // -1 .. 1, null = off screen
   }
 
@@ -1811,10 +1821,23 @@ render(true);
 #feed,#subfeed,#chlist,#animefeed,#cartoonfeed,#moviesfeed,#results,#ex{perspective:1500px;perspective-origin:50% 40%}
 .thumb img{will-change:transform;transform:scale(1.14);transition:transform .12s linear}
 html[data-parallax=off] .thumb img{transform:none!important;transition:none}
+/* Cards are tall and a feed holds dozens of them, so only the handful near the
+   viewport are worth laying out and painting. `content-visibility:auto` lets the
+   browser skip the rest: an off-screen card keeps its box and is measured (the
+   depth pass reads its rect, and it is cleared to no transform) but its thumb,
+   title, avatar and the blur behind them are never styled or painted until it
+   comes near the screen. `contain-intrinsic-size: auto 287px` is the measured
+   height of a card at this width, so the skipped box reserves the right space
+   from the very first frame and the remembered size takes over once a card has
+   been rendered once — no jump when it scrolls back. Skipping is a paint/layout
+   decision only: the element, its text and its button stay in the accessibility
+   tree and in the tab order, and the browser renders a card on demand if it is
+   focused or found by find-in-page. */
 .card{margin:6px 14px 18px;text-align:left;display:block;width:calc(100% - 28px);
   transform-style:preserve-3d;transform:translateZ(0);
   transition:transform .55s var(--bounce),box-shadow .35s ease;
-  will-change:transform}
+  will-change:transform;
+  content-visibility:auto;contain-intrinsic-size:auto 287px}
 .card.tilt{transition:transform .08s linear,box-shadow .2s ease}
 .card .thumb{transform:translateZ(0)}
 .card .meta{transform:translateZ(18px)}
