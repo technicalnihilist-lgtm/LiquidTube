@@ -1465,21 +1465,49 @@ const DEPTH=()=>S.opt.depth!==0;
 const K=()=>Math.max(0,Math.min(100,+S.opt.pdepth||0))/100;   // 0 = flat, 1 = full depth
 /* What the scroll passes last rendered against — see frameRun(). Declared here
    because applyDepth/applyParallax, which run at parse time, invalidate it. */
-let layoutEpoch=0,sigP='',sigD='';
+let layoutEpoch=0,geomEpoch=0,sigP='',sigD='';
+/* The dock's current parallax offset, written and kept by parallaxWrite() and
+   read by tabsBox(): the tab strip is inside the dock, so this is the one thing
+   that moves it without a resize. */
+let dockDX=0,dockDY=0;
 function applyDepth(){document.documentElement.dataset.depth=DEPTH()?'on':'off';bumpLayout()}
 applyDepth();
 
-let tiltEl=null;
+/* The card under the finger is measured once per tilt, not once per sample.
+   `tiltMove` ran a getBoundingClientRect on every pointermove of the drag — a
+   forced style flush per sample, on the main thread, exactly while the finger
+   is asking for a frame — and because the card it measured is the card it had
+   just given a transform to, the rect it got back was the *transformed* one: the
+   tilt fed its own output back into its input, so the card crept and jittered
+   under the thumb instead of following it. The box is now taken once, when the
+   tilt starts, and reused for every sample of that gesture; it is re-measured
+   only when something that can actually move the card has happened since — its
+   page scrolled, the window resized, or anything that bumps `layoutEpoch` ran
+   (a render, a settings change, the resume after a hidden page). Same gesture,
+   same box, arithmetic only. The box is also the layout box the rotation should
+   have been measured against all along, so the angles are stable: the mapping
+   from finger to degrees no longer shifts by the 1.5 % the card scales under
+   itself. */
+let tiltEl=null,tiltBox=null;
+function tiltRect(card){
+  const pg=card.closest('.page');
+  const st=pg?pg.scrollTop:0;
+  if(!tiltBox||tiltBox.el!==card||tiltBox.epoch!==layoutEpoch||tiltBox.st!==st){
+    const r=card.getBoundingClientRect();
+    tiltBox={el:card,epoch:layoutEpoch,st,left:r.left,top:r.top,width:r.width,height:r.height};
+  }
+  return tiltBox;
+}
 function tiltStart(e){
   if(!DEPTH())return;
   const card=e.target.closest('.card');
   if(!card||e.pointerType==='mouse')return;
-  tiltEl=card;card.classList.add('tilt');
+  tiltEl=card;tiltBox=null;card.classList.add('tilt');
 }
 function tiltMove(e){
   if(!tiltEl||!DEPTH())return;
   if(!tiltEl.classList.contains('tilt'))tiltEl.classList.add('tilt');
-  const r=tiltEl.getBoundingClientRect();
+  const r=tiltRect(tiltEl);
   const px=(e.clientX-r.left)/r.width-.5;      // -0.5 .. 0.5
   const py=(e.clientY-r.top)/r.height-.5;
   const k=K();
@@ -1488,7 +1516,7 @@ function tiltMove(e){
 }
 function tiltEnd(){
   if(!tiltEl)return;
-  const c=tiltEl;tiltEl=null;
+  const c=tiltEl;tiltEl=null;tiltBox=null;          /* the box goes with the gesture: no card is held */
   c.style.transform='';
   setTimeout(()=>c.classList.remove('tilt'),260);
 }
@@ -1677,7 +1705,11 @@ function parallaxWrite(pg,st,vh,k){
 
   /* the whole shell drifts: header, dock and chip row all move a little */
   if(top)top.style.transform=`translate3d(${(gyroX*3*k).toFixed(2)}px,${(-Math.min(st,120)*0.06*k).toFixed(2)}px,0)`;
-  if(dock)dock.style.transform=`translate3d(${(gyroX*5*k).toFixed(2)}px,${(gyroY*2.5*k).toFixed(2)}px,0)`;
+  /* The offset is kept as well as written: `tabsBox()` keys its cached strip
+     rect on it, so the drag that picks a tab re-measures the strip only when the
+     dock has actually moved (see tabsBox). */
+  dockDX=gyroX*5*k;dockDY=gyroY*2.5*k;
+  if(dock)dock.style.transform=`translate3d(${dockDX.toFixed(2)}px,${dockDY.toFixed(2)}px,0)`;
   if(chips)chips.style.transform=`translate3d(${(gyroX*-2.5*k).toFixed(2)}px,0,0)`;
   const x=gyroX*2.5*k;
   for(let i=0;i<F_IMG.length;i++){
@@ -1815,7 +1847,23 @@ function pageSwitch(from,to){
   if(to===1)exploreResume();
   else if(to===0)homeResume();
 }
-const at=e=>{const r=tabs.getBoundingClientRect();return clamp((e.clientX-r.left-5)/((r.width-10)/N)-.5)};
+/* The tab strip's box, for the drag that picks a tab. `at()` measured it on
+   every pointermove, so a drag across the dock paid a forced layout read per
+   frame on top of the render it was already doing. The strip is a fixed part of
+   the shell: only a resize can move it, and the one thing that moves it without
+   a resize is the dock's parallax offset, which `parallaxWrite` now leaves in
+   `dockDX`. Both are in the key, so the box is re-taken at most once per frame
+   the dock actually moved, and not at all while it is still — which is what the
+   gesture looks like whenever the phone is not being tilted. */
+let tabsBoxC=null;
+function tabsBox(){
+  if(!tabsBoxC||tabsBoxC.geom!==geomEpoch||tabsBoxC.dx!==dockDX){
+    const r=tabs.getBoundingClientRect();
+    tabsBoxC={geom:geomEpoch,dx:dockDX,left:r.left,width:r.width};
+  }
+  return tabsBoxC;
+}
+const at=e=>{const r=tabsBox();return clamp((e.clientX-r.left-5)/((r.width-10)/N)-.5)};
 tabs.addEventListener('pointerdown',e=>{press=true;moved=false;sx=e.clientX;try{tabs.setPointerCapture(e.pointerId)}catch(_){}const n=Math.round(at(e));if(n===Math.round(pos))P[n].scrollTo({top:0,behavior:'smooth'});pos=n;render(true)});
 tabs.addEventListener('pointermove',e=>{if(!press)return;if(Math.abs(e.clientX-sx)>5)moved=true;if(moved){pos=at(e);render(false)}});
 const rel=()=>{if(!press)return;press=false;pos=Math.round(pos);render(true)};
@@ -1823,7 +1871,7 @@ tabs.addEventListener('pointerup',rel);tabs.addEventListener('pointercancel',rel
 tabs.addEventListener('click',e=>{const t=e.target.closest('.tab');if(t){const n=+t.dataset.i;if(n!==Math.round(pos)){pos=n;render(true)}}});
 tabs.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){pos=+e.target.dataset.i;render(true)}});
 function go(n){pos=n;render(true)}
-addEventListener('resize',()=>render(true));
+addEventListener('resize',()=>{geomEpoch++;render(true)});
 render(true);
 </script><script type="text/css" id="lt-css-deferred">
 /* Deferred sheet: everything that cannot be on screen before the first frame
