@@ -1463,7 +1463,10 @@ loadTrending().catch(e=>{if(!FEED.error)FEED.error=(e&&e.message)||'offline'})
 /* ---------- 3D depth: cards tilt under the finger ---------- */
 const DEPTH=()=>S.opt.depth!==0;
 const K=()=>Math.max(0,Math.min(100,+S.opt.pdepth||0))/100;   // 0 = flat, 1 = full depth
-function applyDepth(){document.documentElement.dataset.depth=DEPTH()?'on':'off'}
+/* What the scroll passes last rendered against — see frameRun(). Declared here
+   because applyDepth/applyParallax, which run at parse time, invalidate it. */
+let layoutEpoch=0,sigP='',sigD='';
+function applyDepth(){document.documentElement.dataset.depth=DEPTH()?'on':'off';bumpLayout()}
 applyDepth();
 
 let tiltEl=null;
@@ -1495,6 +1498,7 @@ let gyroX=0,gyroY=0;
 function applyParallax(){
   const on=PARALLAX();
   document.documentElement.dataset.parallax=on?'on':'off';
+  bumpLayout();
   if(!on){
     document.querySelectorAll('.page').forEach(p=>p.style.backgroundPositionY='');
     document.querySelectorAll('.thumb img').forEach(i=>i.style.transform='');
@@ -1505,31 +1509,77 @@ applyParallax();
    attached after the first frame (see bindInput), so it must be referable. */
 function onOrient(e){
   if(!PARALLAX())return;
-  gyroX=Math.max(-1,Math.min(1,(e.gamma||0)/35));
-  gyroY=Math.max(-1,Math.min(1,((e.beta||0)-45)/40));
+  /* A phone lying on a table still emits samples, and most of them repeat the
+     last one. Clamp first, then compare: if neither axis moved, the layers would
+     be written with the values they already hold, so no frame is scheduled. */
+  const x=Math.max(-1,Math.min(1,(e.gamma||0)/35));
+  const y=Math.max(-1,Math.min(1,((e.beta||0)-45)/40));
+  if(x===gyroX&&y===gyroY)return;
+  gyroX=x;gyroY=y;
   parallaxKick();
 }
 
-/* Read pass, then write pass. This used to interleave the two: the page's own
-   writes (background offset, header, dock and chip drift) dirtied the style tree
-   before the first rect was measured, so that first thumbnail read paid for a
-   full recalc, and every card after it forced the next one. Nothing written here
-   changes layout — transform and background-position only — so measuring the
-   whole frame first and writing afterwards yields exactly the same values, with
-   one layout flush per frame instead of one per element. */
-const relBuf=[];
-function parallaxScroll(){
-  if(!PARALLAX())return;
-  const k=K();
-  const vh=innerHeight;
+/* One frame for all scroll work, and nothing done in a frame that cannot see a
+   difference. Two things were wasted here before.
+
+   The first was the queue: scroll and gyro each drove their own rAF, and every
+   event cancelled and re-requested both — a burst of twelve scroll events in one
+   frame meant twenty-four cancel/request pairs to run the same two callbacks,
+   and the two callbacks each measured the whole page, so the frame flushed
+   layout twice. There is now a single callback, it is never cancelled (it reads
+   whatever the newest state is when it runs), and both read passes finish before
+   either write pass starts — one flush per frame instead of two.
+
+   The second was the work itself. A scroll event fires for any scroller on the
+   page — a sheet, a carousel, the page that is not on screen — and a device
+   lying still still delivers orientation samples. Every one of those ran the
+   full pass over every card and every thumbnail and wrote back the values it had
+   just written. Each pass now begins with a signature of everything it reads:
+   the active page's scroll offset, the tilt sample, the viewport height, the
+   depth strength, how many cards/thumbnails there are, and `layoutEpoch` — which
+   is bumped by anything that can move geometry without scrolling (a render, a
+   resize, a settings change). Same signature means the pass would write exactly
+   what is already there, so it returns before touching the DOM. The skip can
+   never outlive the layout it was computed against, because the epoch is part of
+   the signature.
+
+   An explicit kick (`depthKick`/`parallaxKick`) still forces a pass: those come
+   from the settings slider and from the boot sync, where the state that changed
+   is not one of the things in the signature. Only the scroll listener takes the
+   cheap path. */
+let frameRaf=0,forceFrame=false;
+/* Geometry can have moved without a scroll: drop both signatures so the next
+   frame re-measures instead of trusting the last one. */
+function bumpLayout(){layoutEpoch++;sigP='';sigD=''}
+function frameKick(force){
+  if(force)forceFrame=true;
+  if(!frameRaf)frameRaf=requestAnimationFrame(frameRun);
+}
+function frameRun(){
+  frameRaf=0;
+  const force=forceFrame;forceFrame=false;
+  const on=PARALLAX(),dep=DEPTH();
+  if(!on&&!dep)return;
+  /* Read once for both passes: the active page and its offset are what every
+     layer in the frame is keyed off. */
   const pg=document.querySelector('.page:not([inert])');
+  const st=pg?pg.scrollTop:0;
+  const vh=innerHeight;
+  if(on)parallaxScroll(pg,st,vh,force);
+  if(dep)depthScroll(pg,st,vh,force);
+}
+const relBuf=[];
+function parallaxScroll(pg,st,vh,force){
+  const k=K();
+  const imgs=document.querySelectorAll('.page .thumb img');
+  const sig=st+'|'+gyroX+'|'+gyroY+'|'+vh+'|'+imgs.length+'|'+k+'|'+layoutEpoch;
+  if(!force&&sig===sigP)return;
+  sigP=sig;
   const top=document.querySelector('.page:not([inert]) .top');
   const dock=document.querySelector('.dock');
   const chips=document.querySelector('.page:not([inert]) .chips');
-  const imgs=document.querySelectorAll('.page .thumb img');
 
   /* ---- read pass ---- */
-  const st=pg?pg.scrollTop:0;
   relBuf.length=0;
   for(let i=0;i<imgs.length;i++){
     const r=imgs[i].parentElement.getBoundingClientRect();
@@ -1559,13 +1609,13 @@ function parallaxScroll(){
    so the frame lays out once instead of once per card. The buffer keeps the two
    reasons to skip a card apart — off screen (transform cleared, as before) and
    under the finger (left exactly as the tilt wrote it). */
-let depthRaf=0;
 const rectBuf=[],SKIP_CARD=-1;
-function depthScroll(){
-  if(!DEPTH())return;
-  const vh=innerHeight;
+function depthScroll(pg,st,vh,force){
   const k=K();
   const cards=document.querySelectorAll('.page .card');
+  const sig=st+'|'+vh+'|'+cards.length+'|'+k+'|'+layoutEpoch;
+  if(!force&&sig===sigD)return;
+  sigD=sig;
 
   /* ---- read pass ---- */
   rectBuf.length=0;
@@ -1586,9 +1636,13 @@ function depthScroll(){
     c.style.opacity=(1-d*0.18*k).toFixed(3);
   }
 }
-let parallaxRaf=0;
-function parallaxKick(){if(!PARALLAX())return;cancelAnimationFrame(parallaxRaf);parallaxRaf=requestAnimationFrame(parallaxScroll)}
-function depthKick(){parallaxKick();if(!DEPTH())return;cancelAnimationFrame(depthRaf);depthRaf=requestAnimationFrame(depthScroll)}
+/* Settings changed the depth strength or the parallax switch: both change what a
+   pass would write, and neither is visible in the scroll offset. */
+function parallaxKick(){if(!PARALLAX())return;frameKick(true)}
+function depthKick(){if(!PARALLAX()&&!DEPTH())return;frameKick(true)}
+/* The scroll listener's path: coalesce into the frame that is already queued and
+   let the signature decide whether there is anything to do. */
+function scrollKick(){if(!PARALLAX()&&!DEPTH())return;frameKick(false)}
 /* Non-critical input listeners — the gyro subscription, the scroll/resize that
    drive the parallax and depth passes, and the four document-level pointer
    listeners behind the card tilt — are attached only once the shell's first
@@ -1604,7 +1658,7 @@ let inputBound=false;
 function bindInput(){
   if(inputBound)return;inputBound=true;
   addEventListener('deviceorientation',onOrient,{passive:true});
-  document.addEventListener('scroll',depthKick,{capture:true,passive:true});
+  document.addEventListener('scroll',scrollKick,{capture:true,passive:true});
   addEventListener('resize',depthKick);
   document.addEventListener('pointerdown',tiltStart,{passive:true});
   document.addEventListener('pointermove',tiltMove,{passive:true});
@@ -1665,6 +1719,9 @@ function render(anim){
   $('lens').style.transform=`translateX(${pos*100}%) scale(${press?1.18:1})`;
   tabEls.forEach((t,i)=>t.classList.toggle('on',i===idx));
   if(change){replay(P[idx]);if(idx!==was)pageSwitch(was,idx)}
+  /* The shell just moved: the transforms the next pass would write are keyed off
+     a layout that has changed, so the skip has to be dropped. */
+  bumpLayout();
 }
 /* The active tab changed. Any request on the wire that belongs to a page which is
    not the one now on screen is abandoned, and the page being entered re-drives
