@@ -1547,17 +1547,58 @@ function onOrient(e){
    from the settings slider and from the boot sync, where the state that changed
    is not one of the things in the signature. Only the scroll listener takes the
    cheap path. */
-let frameRaf=0,forceFrame=false;
+/* Nothing is written for a page nobody can see, and nothing at all is written
+   while the document is hidden.
+
+   Two things were still being paid for on every frame after the skip above.
+
+   The first was the other pages. All three tab pages sit side by side, each
+   translated a whole width off screen, and every element query was scoped to
+   `.page` — every page. So a scroll frame on Home measured the rect of every
+   thumbnail and every card on Explore and on Subscriptions too, and wrote back
+   the transforms they already held: same offset, same viewport, same values,
+   three times the reads and three times the writes, all of it off screen.
+   `render()` already marks a page `inert` the moment it is more than 45% away,
+   so the collection below simply leaves those pages out. A page that comes back
+   on screen is picked up by the kick `render()` fires when the visible set
+   changes, and the frame after it writes exactly the transforms it always had.
+
+   The second was the hidden document. The Activity pauses the WebView, but a
+   queued frame still ran, and the orientation sensor — which the app never
+   unsubscribes, and cannot, since the listener has to survive a resume — kept
+   arriving, each sample marking a frame owed. While `document.hidden` no frame
+   is scheduled at all: a kick only records that a pass is owed, and the one
+   forced pass when the page becomes visible again brings every layer back to
+   the current orientation in a single frame. */
+let frameRaf=0,forceFrame=false,framesRun=0,hiddenOwed=false;
 /* Geometry can have moved without a scroll: drop both signatures so the next
    frame re-measures instead of trusting the last one. */
 function bumpLayout(){layoutEpoch++;sigP='';sigD=''}
+/* Every element the passes look at, taken only from the pages on screen. A
+   forced pass (a settings change, a resize, the resume after a page was hidden)
+   takes every page, because it is the pass that has to leave the pages it cannot
+   see consistent for the moment they come back. */
+function frameEls(sel,force){
+  const out=[],ps=document.querySelectorAll('.page');
+  for(let i=0;i<ps.length;i++){
+    const p=ps[i];
+    if(!force&&p.inert)continue;
+    const n=p.querySelectorAll(sel);
+    for(let j=0;j<n.length;j++)out.push(n[j]);
+  }
+  return out;
+}
 function frameKick(force){
   if(force)forceFrame=true;
+  if(document.hidden){hiddenOwed=true;return}
   if(!frameRaf)frameRaf=requestAnimationFrame(frameRun);
 }
 function frameRun(){
   frameRaf=0;
+  /* Hidden between the request and this callback: the work is owed, not lost. */
+  if(document.hidden){hiddenOwed=true;return}
   const force=forceFrame;forceFrame=false;
+  framesRun++;
   const on=PARALLAX(),dep=DEPTH();
   if(!on&&!dep)return;
   /* Read once for both passes: the active page and its offset are what every
@@ -1571,7 +1612,7 @@ function frameRun(){
 const relBuf=[];
 function parallaxScroll(pg,st,vh,force){
   const k=K();
-  const imgs=document.querySelectorAll('.page .thumb img');
+  const imgs=frameEls('.thumb img',force);
   const sig=st+'|'+gyroX+'|'+gyroY+'|'+vh+'|'+imgs.length+'|'+k+'|'+layoutEpoch;
   if(!force&&sig===sigP)return;
   sigP=sig;
@@ -1612,7 +1653,7 @@ function parallaxScroll(pg,st,vh,force){
 const rectBuf=[],SKIP_CARD=-1;
 function depthScroll(pg,st,vh,force){
   const k=K();
-  const cards=document.querySelectorAll('.page .card');
+  const cards=frameEls('.card',force);
   const sig=st+'|'+vh+'|'+cards.length+'|'+k+'|'+layoutEpoch;
   if(!force&&sig===sigD)return;
   sigD=sig;
@@ -1658,6 +1699,16 @@ let inputBound=false;
 function bindInput(){
   if(inputBound)return;inputBound=true;
   addEventListener('deviceorientation',onOrient,{passive:true});
+  /* The document going away and coming back: the frame loop stops scheduling
+     while hidden and pays one forced pass when it returns (see frameKick). */
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden){
+      hiddenOwed=true;
+      if(frameRaf){cancelAnimationFrame(frameRaf);frameRaf=0}
+      return;
+    }
+    if(hiddenOwed){hiddenOwed=false;forceFrame=true;frameKick(false)}
+  });
   document.addEventListener('scroll',scrollKick,{capture:true,passive:true});
   addEventListener('resize',depthKick);
   document.addEventListener('pointerdown',tiltStart,{passive:true});
@@ -1700,7 +1751,7 @@ function replay(p){
   l.classList.add('jelly');
   for(let i=0;i<els.length;i++){const e=els[i];e.style.animation='';e.style.animationDelay=(i*55)+'ms'}
 }
-let pos=0,press=false,moved=false,sx=0,lastIdx=0;
+let pos=0,press=false,moved=false,sx=0,lastIdx=0,visSig='';
 const clamp=v=>Math.max(0,Math.min(N-1,v));
 function render(anim){
   /* Read pass: the only thing the writes below need from layout is which tab is
@@ -1718,6 +1769,13 @@ function render(anim){
   P.forEach((p,i)=>{const d=i-pos,a=Math.min(1,Math.abs(d));p.style.transform=`translateX(${d*100}%) scale(${1-a*.05})`;p.style.opacity=1-a*.4;p.inert=Math.abs(d)>.45;p.style.pointerEvents=Math.abs(d)>.45?'none':''});
   $('lens').style.transform=`translateX(${pos*100}%) scale(${press?1.18:1})`;
   tabEls.forEach((t,i)=>t.classList.toggle('on',i===idx));
+  /* The set of pages on screen just changed, and the pass skips the ones that
+     are not on screen: the page being entered has to be brought up to date in
+     one forced pass. Not before the first pass has ever run, though — with
+     nothing scrolled and nothing tilted there is no at-rest frame to restore,
+     and forcing one at boot would draw depth the app has never drawn at rest. */
+  const vis=P.map(p=>p.inert?0:1).join('');
+  if(vis!==visSig){visSig=vis;if(framesRun)depthKick()}
   if(change){replay(P[idx]);if(idx!==was)pageSwitch(was,idx)}
   /* The shell just moved: the transforms the next pass would write are keyed off
      a layout that has changed, so the skip has to be dropped. */
