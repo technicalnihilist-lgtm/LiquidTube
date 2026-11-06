@@ -1465,7 +1465,7 @@ const DEPTH=()=>S.opt.depth!==0;
 const K=()=>Math.max(0,Math.min(100,+S.opt.pdepth||0))/100;   // 0 = flat, 1 = full depth
 /* What the scroll passes last rendered against — see frameRun(). Declared here
    because applyDepth/applyParallax, which run at parse time, invalidate it. */
-let layoutEpoch=0,geomEpoch=0,sigP='',sigD='';
+let layoutEpoch=0,geomEpoch=0,sigP='',sigD='',sigT='';
 /* The dock's current parallax offset, written and kept by parallaxQueue() and
    read by tabsBox(): the tab strip is inside the dock, so this is the one thing
    that moves it without a resize. */
@@ -1599,9 +1599,84 @@ function onOrient(e){
    forced pass when the page becomes visible again brings every layer back to
    the current orientation in a single frame. */
 let frameRaf=0,forceFrame=false,framesRun=0,hiddenOwed=false;
+/* ---------- the fling gate: the per-card parallax layer is off while a fling
+   is in progress ----------
+
+   A fling is momentum: the finger is up and the page is still travelling, so
+   every frame is a scroll frame the user did not ask for one at a time, and the
+   parallax pass is the only work in it that is decoration. Its per-element part
+   — one rect per thumbnail on screen, then one transform per thumbnail — is the
+   part that grows with the feed, and at fling speed it is invisible anyway: the
+   image inside a card is drifting by a few percent of its own height while the
+   card crosses the viewport in a fifth of a second.
+
+   So while a fling is in progress the thumbnail layer is not run at all. Three
+   things keep that from being a visible change:
+
+   1. It is gated by velocity *and* by the finger. A drag is not a fling: while
+      a touch is down the layer runs every frame exactly as before, because that
+      is the gesture the effect is for. The gate opens only when the last frame
+      moved the page faster than FLING_IN px/s with no touch on screen, and it
+      closes as soon as the page drops below FLING_OUT px/s, a touch lands, or
+      anything forces a pass (a render, a resize, the resume after a hidden
+      page), which runs the layer regardless.
+   2. The thumbnail offset is a function of where the card is *in the viewport*,
+      not of how far the page has scrolled, so skipping it cannot accumulate:
+      the error is bounded by the layer's own range (±7 % of a thumbnail, inside
+      a 14 % scale, so no edge can ever show). The shell layers are deliberately
+      NOT gated for the opposite reason — the page's background-position is keyed
+      off the absolute scroll offset, so freezing it for a 2000 px fling would
+      leave the backdrop 440 px behind and snap it at the end.
+   3. It is re-synced every FLING_SKIP_FRAMES frames of flight (and at least
+      every FLING_RESYNC_MS), so the error never grows past a few frames of
+      travel — a few percent of a thumbnail at fling speed, corrected while the
+      page is still moving and therefore masked by it — and the fling's own end
+      closes the gate, so the last correction lands while the page is still
+      drifting or a fraction of a pixel after it has stopped. The idle timer
+      below closes a gate whose fling ended without a slow frame (a fling
+      stopped by a tap, or one that ran into the end of the feed), so the layer
+      can never be left stale at rest. */
+const FLING_IN=900,FLING_OUT=220,FLING_SKIP_FRAMES=5,FLING_RESYNC_MS=100,FLING_IDLE_MS=140;
+let flingGated=false,flingTimer=0,lastSt=0,lastTs=0,lastPg=null;
+let lastThumbTs=0,flingFrames=0,fingers=0,pointerSeen=false;
+/* A touch landing during a fling stops it, so the layer comes straight back:
+   the next frame is the exact one. Mouse/stylus pointers are counted too, so a
+   scrollbar drag or a wheel is never mistaken for momentum. */
+function flingTouch(e){
+  pointerSeen=true;fingers=e.touches?e.touches.length:1;
+  if(fingers>0&&flingGated){flingGated=false;frameKick(false)}
+}
+function flingPtrDown(e){
+  pointerSeen=true;
+  if(e.pointerType!=='touch')fingers=1;
+  if(flingGated){flingGated=false;frameKick(false)}
+}
+function flingPtrUp(e){pointerSeen=true;if(e.pointerType!=='touch')fingers=0}
+/* Self-rescheduling and one at a time: it re-arms itself while frames are still
+   arriving (so a long fling is not cut short) and stops for good once the gate
+   is closed or the page has been still for FLING_IDLE_MS. */
+function flingIdle(){
+  flingTimer=0;
+  if(!flingGated)return;
+  if(performance.now()-lastTs<FLING_IDLE_MS){flingTimer=setTimeout(flingIdle,FLING_IDLE_MS);return}
+  flingGated=false;frameKick(false);
+}
+/* Velocity is per millisecond, not per frame: a dropped frame during a fling is
+   normal, and a frame-rate-dependent threshold would open the gate on exactly
+   the janky flings it exists for. */
+function flingTrack(pg,st,ts){
+  const dt=ts-lastTs;
+  let spd=0;
+  if(pg===lastPg&&dt>0&&dt<600)spd=Math.abs(st-lastSt)/dt*1000;
+  lastPg=pg;lastSt=st;lastTs=ts;
+  if(!pointerSeen||fingers>0||spd<FLING_OUT)flingGated=false;
+  else if(spd>FLING_IN)flingGated=true;
+  if(flingGated){if(!flingTimer)flingTimer=setTimeout(flingIdle,FLING_IDLE_MS)}
+  else {flingFrames=0;if(flingTimer){clearTimeout(flingTimer);flingTimer=0}}
+}
 /* Geometry can have moved without a scroll: drop both signatures so the next
    frame re-measures instead of trusting the last one. */
-function bumpLayout(){layoutEpoch++;sigP='';sigD=''}
+function bumpLayout(){layoutEpoch++;sigP='';sigD='';sigT=''}
 /* Every element the passes look at, taken only from the pages on screen. A
    forced pass (a settings change, a resize, the resume after a page was hidden)
    takes every page, because it is the pass that has to leave the pages it cannot
@@ -1662,11 +1737,22 @@ function frameRun(){
   const n=cards.length;
   const sigPv=st+'|'+gyroX+'|'+gyroY+'|'+vh+'|'+n+'|'+k+'|'+layoutEpoch;
   const sigDv=st+'|'+vh+'|'+n+'|'+k+'|'+layoutEpoch;
+  const ts=performance.now();
+  /* The gate is decided before the passes are: it is the only thing that can
+     turn the thumbnail layer off, and it is off on the frames of a fling (see
+     the block above `frameRaf`). */
+  flingTrack(pg,st,ts);
   const doP=on&&(force||sigPv!==sigP);
   const doD=dep&&(force||sigDv!==sigD);
-  if(!doP&&!doD)return;
+  /* The thumbnail layer keeps its own signature, so a frame that skipped it
+     leaves it owed: the first frame after the gate opens runs it whether or not
+     the scroll has moved since, and the shell's signature cannot mask it. */
+  const doT=on&&(force||(flingGated?(flingFrames>=FLING_SKIP_FRAMES||ts-lastThumbTs>=FLING_RESYNC_MS):sigPv!==sigT));
+  if(!doP&&!doD&&!doT)return;
   if(doP)sigP=sigPv;
   if(doD)sigD=sigDv;
+  if(doT){sigT=sigPv;lastThumbTs=ts;flingFrames=0}
+  else if(flingGated)flingFrames++;
 
   /* ---- read pass: one rect per card, plus one per thumbnail on screen ---- */
   F_CARD.length=0;F_CTOP.length=0;F_CH.length=0;F_IMG.length=0;F_REL.length=0;
@@ -1674,7 +1760,9 @@ function frameRun(){
     const c=cards[i];
     const r=c.getBoundingClientRect();
     if(doD){F_CARD.push(c);F_CTOP.push(r.top);F_CH.push(r.height)}
-    if(!doP)continue;
+    /* No thumbnail is measured on a frame that will not write one: the rect is
+       the expensive half of the layer and it is the half a fling drops. */
+    if(!doT)continue;
     /* The thumbnail is the card's own first child (`<div class="thumb">` with the
        image in it), so it is reached without a selector run; the query is there
        only for a card built some other way. */
@@ -1693,7 +1781,8 @@ function frameRun(){
   }
 
   /* ---- write pass: every value is queued, then applied in one flush ---- */
-  if(doP)parallaxQueue(pg,st,vh,k);
+  if(doP)shellQueue(pg,st,vh,k);
+  if(doT)thumbQueue(k);
   if(doD)depthQueue(vh,k);
   flushWrites();
 }
@@ -1734,7 +1823,10 @@ function flushWrites(){
   }
   W_N=0;
 }
-function parallaxQueue(pg,st,vh,k){
+/* The shell layers: four elements, four writes, whatever the feed holds, so
+   this pass is never gated — the page's background is keyed off the absolute
+   scroll offset and freezing it would be a visible jump, not a saved frame. */
+function shellQueue(pg,st,vh,k){
   const top=pg?pg.querySelector('.top'):null;
   const chips=pg?pg.querySelector('.chips'):null;
   const dock=document.querySelector('.dock');
@@ -1749,6 +1841,10 @@ function parallaxQueue(pg,st,vh,k){
   dockDX=gyroX*5*k;dockDY=gyroY*2.5*k;
   if(dock)wPush(dock,`translate3d(${dockDX.toFixed(2)}px,${dockDY.toFixed(2)}px,0)`,null,null);
   if(chips)wPush(chips,`translate3d(${(gyroX*-2.5*k).toFixed(2)}px,0,0)`,null,null);
+}
+/* The per-card layer: one transform per thumbnail on screen, from the rel the
+   frame's read pass measured. This is the pass the fling gate turns off. */
+function thumbQueue(k){
   const x=gyroX*2.5*k;
   for(let i=0;i<F_IMG.length;i++){
     const rel=F_REL[i];
@@ -1808,6 +1904,16 @@ function bindInput(){
   });
   document.addEventListener('scroll',scrollKick,{capture:true,passive:true});
   addEventListener('resize',depthKick);
+  /* Fling detection: touch count from touch events (a touch-scroll cancels its
+     pointer, so pointer events alone cannot say whether a finger is still on
+     the glass) and the mouse/stylus from pointer events. */
+  document.addEventListener('touchstart',flingTouch,{passive:true});
+  document.addEventListener('touchmove',flingTouch,{passive:true});
+  document.addEventListener('touchend',flingTouch,{passive:true});
+  document.addEventListener('touchcancel',flingTouch,{passive:true});
+  document.addEventListener('pointerdown',flingPtrDown,{passive:true});
+  document.addEventListener('pointerup',flingPtrUp,{passive:true});
+  document.addEventListener('pointercancel',flingPtrUp,{passive:true});
   document.addEventListener('pointerdown',tiltStart,{passive:true});
   document.addEventListener('pointermove',tiltMove,{passive:true});
   document.addEventListener('pointerup',tiltEnd,{passive:true});
