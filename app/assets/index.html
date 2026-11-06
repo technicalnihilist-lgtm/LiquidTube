@@ -31,7 +31,11 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .glass{position:relative;background:linear-gradient(135deg,var(--g1),var(--g2));backdrop-filter:blur(var(--glassBlur,16px)) saturate(190%) brightness(1.06);-webkit-backdrop-filter:blur(var(--glassBlur,16px)) saturate(190%) brightness(1.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.28),inset 0 1.5px 1px var(--rim),inset 0 -1.5px 1px rgba(255,255,255,.22),0 10px 30px var(--shade)}
 .glass::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(118deg,rgba(255,255,255,.6),rgba(255,255,255,0) 32%,rgba(255,255,255,0) 68%,rgba(255,255,255,.3));opacity:.5}
 /* pages */
-.page{position:absolute;inset:0;z-index:0;overflow-y:auto;overflow-x:hidden;padding-bottom:150px;scrollbar-width:none;background:radial-gradient(70% 22% at 100% 6%,rgba(255,70,110,.22),transparent),radial-gradient(70% 20% at 0% 48%,rgba(70,120,255,.2),transparent),radial-gradient(70% 20% at 100% 85%,rgba(160,80,255,.18),transparent),var(--bg);transition:transform .95s var(--bounce-soft),opacity .45s ease;will-change:transform,opacity}
+.page{position:absolute;inset:0;z-index:0;overflow-y:auto;overflow-x:hidden;padding-bottom:150px;scrollbar-width:none;background:radial-gradient(70% 22% at 100% 6%,rgba(255,70,110,.22),transparent),radial-gradient(70% 20% at 0% 48%,rgba(70,120,255,.2),transparent),radial-gradient(70% 20% at 100% 85%,rgba(160,80,255,.18),transparent),var(--bg);transition:transform .95s var(--bounce-soft),opacity .45s ease}
+/* A page only moves while a tab change is sliding it, so the layer hint is a
+   class the dock puts on for the length of that slide (see `pageHint`) instead
+   of a permanent promise on all three pages. */
+.page.anim{will-change:transform,opacity}
 .page::-webkit-scrollbar{display:none}.drag .page{transition:none}
 .top{position:sticky;top:0;z-index:5;padding:calc(env(safe-area-inset-top,0px) + 10px) 14px 8px;background:linear-gradient(var(--bg) 84%,color-mix(in srgb,var(--bg) 70%,transparent) 100%);-webkit-backdrop-filter:blur(18px) saturate(180%);backdrop-filter:blur(18px) saturate(180%);transition:transform .18s linear}
 .row{display:flex;align-items:center;justify-content:space-between}
@@ -1171,7 +1175,7 @@ function play(id){
   $('pmeta').textContent=v.c+(v.views?' · '+num(v.views)+' views':'')+(v.pub?' · '+ago(v.pub):'');
   $('ppp').textContent=S.liked.includes(id)?'Liked':'Like';
   $('plk').textContent='Channel';
-  $('pl').classList.add('on');$('scrim').classList.add('on');
+  $('pl').classList.add('on');$('scrim').classList.add('on');slideHint();
   if(v.ch)loadChannels([v.ch]).then(()=>{if(cur&&cur.id===id)$('pmeta').textContent=v.c+(v.views?' · '+num(v.views)+' views':'')+(v.pub?' · '+ago(v.pub):'')});
 }
 $('ppp').onclick=()=>{if(!cur)return;toggle(S.liked,cur.id);$('ppp').textContent=S.liked.includes(cur.id)?'Liked':'Like'};
@@ -1260,9 +1264,22 @@ $('sheet').addEventListener('click',e=>{
 /* ---------- sheets ---------- */
 function sheet(t,h,inp){
   $('sht').textContent=t;$('shb').innerHTML=h;$('shi').classList.toggle('on',!!inp);
-  $('sheet').classList.add('on');$('scrim').classList.add('on');
+  $('sheet').classList.add('on');$('scrim').classList.add('on');slideHint();
 }
-function closeAll(){['sheet','pl'].forEach(i=>$(i).classList.remove('on'));$('scrim').classList.remove('on');const a=$('pl').querySelector('.art');if(a)a.innerHTML=''}
+/* The overlays are the largest surfaces that animate: the player and the sheet
+   are full-width blurred panels that slide .9 s, the search panel .85 s, and the
+   scrim fades .35 s. `slideHint` covers the longest of those and takes the hint
+   off again, so an overlay that is sitting open costs nothing.
+   Every place that flips `.on` on one of them calls it; `closeAll` is the one
+   path all the closes go through. */
+const SLIDE_IDS=['search','pl','sheet','scrim'],SLIDE_HINT_MS=1000;
+let slideT=0;
+function slideHint(){
+  const els=SLIDE_IDS.map($);
+  for(let i=0;i<els.length;i++)els[i].classList.add('slide');
+  clearTimeout(slideT);slideT=setTimeout(()=>{for(let i=0;i<els.length;i++)els[i].classList.remove('slide')},SLIDE_HINT_MS);
+}
+function closeAll(){['sheet','pl'].forEach(i=>$(i).classList.remove('on'));$('scrim').classList.remove('on');const a=$('pl').querySelector('.art');if(a)a.innerHTML='';slideHint()}
 $('scrim').onclick=closeAll;
 $('shb').addEventListener('click',e=>{
   const s=e.target.closest('[data-chsub]');
@@ -1285,9 +1302,9 @@ $('shpost').onclick=()=>toast('Comments open on YouTube');
 
 /* ---------- search ---------- */
 const qi=$('q');
-function openS(){$('search').classList.add('on');setTimeout(()=>qi.focus(),250)}
+function openS(){$('search').classList.add('on');slideHint();setTimeout(()=>qi.focus(),250)}
 $('sopen').onclick=openS;
-$('cancel').onclick=()=>{$('search').classList.remove('on');qi.blur()};
+$('cancel').onclick=()=>{$('search').classList.remove('on');qi.blur();slideHint()};
 $('sug').innerHTML=['lofi','AI music','calm piano','telugu songs','apple event'].map(s=>'<button class="glass">'+s+'</button>').join('');
 $('sug').onclick=e=>{const b=e.target.closest('button');if(b){qi.value=b.textContent;find()}};
 let seq=0;
@@ -1677,6 +1694,36 @@ function flingTrack(pg,st,ts){
 /* Geometry can have moved without a scroll: drop both signatures so the next
    frame re-measures instead of trusting the last one. */
 function bumpLayout(){layoutEpoch++;sigP='';sigD='';sigT=''}
+/* ---------- will-change: only while something is actually moving ----------
+   `will-change` asks the compositor to hold a layer for the element ready, and it
+   holds it whether or not anything is animating: a feed card and its thumbnail
+   are each a full-size texture, so a feed of two dozen cards kept ~50 of them for
+   the whole session. At rest none of that is moving — the feed is still, the
+   pages are still — so the hint now lives exactly as long as the motion it is a
+   hint for, and nothing else changes: the same values are written to the same
+   elements at the same times.
+
+   `data-anim` is the frame's promise: set on the frame that writes a transform
+   and dropped ANIM_IDLE_MS after the last frame that wrote one. 250 ms is longer
+   than any gap between frames of a scroll, a fling or a tilt sample, so a burst
+   keeps its layers for its whole length and a page that has come to rest gives
+   them back; the timer is re-armed per frame, so there is no frame on which the
+   hint is dropped while something is still moving. It is set after the frame's
+   read pass and before its writes: an attribute write invalidates style for the
+   elements it matches, and doing it before the rects were measured would buy a
+   second flush per frame — the exact cost the batching in `flushWrites` exists
+   to remove. */
+const ANIM_IDLE_MS=250,PAGE_HINT_MS=1000;
+let animHeld=false,animT=0,pageT=0;
+function animHint(){
+  if(!animHeld){animHeld=true;document.documentElement.dataset.anim='on'}
+  clearTimeout(animT);animT=setTimeout(animHintOff,ANIM_IDLE_MS);
+}
+function animHintOff(){
+  if(!animHeld)return;
+  animHeld=false;clearTimeout(animT);animT=0;
+  document.documentElement.removeAttribute('data-anim');
+}
 /* Every element the passes look at, taken only from the pages on screen. A
    forced pass (a settings change, a resize, the resume after a page was hidden)
    takes every page, because it is the pass that has to leave the pages it cannot
@@ -1781,6 +1828,8 @@ function frameRun(){
   }
 
   /* ---- write pass: every value is queued, then applied in one flush ---- */
+  /* The read pass is over: from here on the frame only writes. */
+  animHint();
   if(doP)shellQueue(pg,st,vh,k);
   if(doT)thumbQueue(k);
   if(doD)depthQueue(vh,k);
@@ -1954,7 +2003,22 @@ function replay(p){
   l.classList.add('jelly');
   for(let i=0;i<els.length;i++){const e=els[i];e.style.animation='';e.style.animationDelay=(i*55)+'ms'}
 }
-let pos=0,press=false,moved=false,sx=0,lastIdx=0,visSig='';
+/* The three pages slide for .95 s after a tab change and are still the rest of
+   the time, so the layer hint goes on when the dock starts moving them and comes
+   off PAGE_HINT_MS later, which is the length of the longest of the two
+   transitions they carry (transform .95 s; opacity .45 s). During a drag
+   `render` runs per pointermove and re-arms the timer, so a finger sliding across
+   the dock keeps its pages promoted for the whole drag and the snap after it.
+   Nothing else reads this class. */
+function pageHint(){
+  for(let i=0;i<N;i++)P[i].classList.add('anim');
+  clearTimeout(pageT);pageT=setTimeout(pageHintOff,PAGE_HINT_MS);
+}
+function pageHintOff(){
+  pageT=0;
+  for(let i=0;i<N;i++)P[i].classList.remove('anim');
+}
+let pos=0,press=false,moved=false,sx=0,lastIdx=0,visSig='',hintPos=0;
 const clamp=v=>Math.max(0,Math.min(N-1,v));
 function render(anim){
   /* Read pass: the only thing the writes below need from layout is which tab is
@@ -1969,6 +2033,9 @@ function render(anim){
   lastIdx=idx;
   /* Write pass */
   $('app').classList.toggle('drag',!anim);
+  /* The pages are about to be given a new transform, so they are about to
+     animate: the hint goes on before the write, not after it. */
+  if(pos!==hintPos){hintPos=pos;pageHint()}
   P.forEach((p,i)=>{const d=i-pos,a=Math.min(1,Math.abs(d));p.style.transform=`translateX(${d*100}%) scale(${1-a*.05})`;p.style.opacity=1-a*.4;p.inert=Math.abs(d)>.45;p.style.pointerEvents=Math.abs(d)>.45?'none':''});
   $('lens').style.transform=`translateX(${pos*100}%) scale(${press?1.18:1})`;
   tabEls.forEach((t,i)=>t.classList.toggle('on',i===idx));
@@ -2028,8 +2095,19 @@ render(true);
    frame callback never runs. */
 
 #feed,#subfeed,#chlist,#animefeed,#cartoonfeed,#moviesfeed,#results,#ex{perspective:1500px;perspective-origin:50% 40%}
-.thumb img{will-change:transform;transform:scale(1.14);transition:transform .12s linear}
+.thumb img{transform:scale(1.14);transition:transform .12s linear}
 html[data-parallax=off] .thumb img{transform:none!important;transition:none}
+/* will-change is a promise about the near future, and a promise kept costs a
+   compositor layer for as long as it is kept: a feed card and its thumbnail are
+   each a full-size texture (412x287 at 2x), so a feed of two dozen held ~50 of
+   them from boot to exit, animating or not. The depth/parallax frame is the only
+   thing that moves a card or a thumbnail, so the promise now lives exactly as
+   long as that frame does: `html[data-anim=on]` is set by the frame on the frame
+   it writes transforms and dropped ANIM_IDLE_MS after the last one (see
+   `animHint`). At rest the app holds no such layers at all; while a scroll, a
+   fling or a phone being tilted is writing transforms they are promoted exactly
+   as before. */
+html[data-anim=on] .card,html[data-anim=on] .thumb img{will-change:transform}
 /* Cards are tall and a feed holds dozens of them, so only the handful near the
    viewport are worth laying out and painting. `content-visibility:auto` lets the
    browser skip the rest: an off-screen card keeps its box and is measured (the
@@ -2045,9 +2123,10 @@ html[data-parallax=off] .thumb img{transform:none!important;transition:none}
 .card{margin:6px 14px 18px;text-align:left;display:block;width:calc(100% - 28px);
   transform-style:preserve-3d;transform:translateZ(0);
   transition:transform .55s var(--bounce),box-shadow .35s ease;
-  will-change:transform;
   content-visibility:auto;contain-intrinsic-size:auto 287px}
-.card.tilt{transition:transform .08s linear,box-shadow .2s ease}
+/* The tilt is the only gesture that moves a card under its own transition, so it
+   is the only state that carries the hint. */
+.card.tilt{transition:transform .08s linear,box-shadow .2s ease;will-change:transform}
 .card .thumb{transform:translateZ(0)}
 .card .meta{transform:translateZ(18px)}
 .card.tilt .thumb{box-shadow:0 26px 46px -18px rgba(10,12,26,.45)}
@@ -2083,6 +2162,13 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 .empty{padding:40px 10px;text-align:center;color:var(--mute);font-size:14px}
 #scrim{position:absolute;inset:0;z-index:38;background:#0006;opacity:0;pointer-events:none;transition:opacity .35s}#scrim.on{opacity:1;pointer-events:auto}
 #pl,#sheet{position:absolute;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);z-index:40;padding:16px;border-radius:34px;display:flex;flex-direction:column;gap:8px;text-align:left;transform:translateY(125%);transition:transform .9s var(--bounce)}
+/* The overlays slide for .85-.9 s when their `.on` class changes, and at no other
+   time; `slideHint` adds `.slide` for the length of that slide and takes it off
+   after it. `will-change:transform` here cannot change what is drawn: while the
+   transition runs these surfaces carry a transform anyway (the same containing
+   block and stacking context), and the hint is gone once the slide has landed. */
+#search.slide,#pl.slide,#sheet.slide{will-change:transform}
+#scrim.slide{will-change:opacity}
 #pl.on,#sheet.on{transform:none}
 #pl b{font-size:16px;line-height:1.3}#pl>span,.tm{font-size:12.5px;color:var(--mute)}.tm{display:flex;justify-content:space-between}
 .prow{display:flex;gap:10px;margin-top:4px}.prow button{flex:1;height:46px;border-radius:99px;font-weight:700}
