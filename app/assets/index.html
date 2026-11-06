@@ -1727,17 +1727,74 @@ function animHintOff(){
 /* Every element the passes look at, taken only from the pages on screen. A
    forced pass (a settings change, a resize, the resume after a page was hidden)
    takes every page, because it is the pass that has to leave the pages it cannot
-   see consistent for the moment they come back. */
-function frameEls(sel,force){
-  const out=[],ps=document.querySelectorAll('.page');
-  for(let i=0;i<ps.length;i++){
-    const p=ps[i];
-    if(!force&&p.inert)continue;
-    const n=p.querySelectorAll(sel);
-    for(let j=0;j<n.length;j++)out.push(n[j]);
+   see consistent for the moment they come back.
+
+   The lists are held in a cache instead of being queried per frame (item 3.9).
+   A scroll frame used to run five selector queries — a `.page` sweep, a `.card`
+   sweep per page, then `.top`, `.chips` and `.dock` — and a `querySelectorAll`
+   walks the subtree whether or not anything matches, so the biggest feed, the
+   one that needs the frame most, paid the most for it. None of those answers can
+   change between two frames unless the DOM structure itself changed, and the
+   page/card lists are exactly what the engine already maintains for a class
+   name: `getElementsByClassName` hands back a *live* collection, current by
+   construction, so obtaining one costs no walk and there is nothing to
+   invalidate. The flat arrays the frame iterates are rebuilt from those live
+   collections only on a frame where the structure actually moved — the
+   MutationObserver below raises a generation counter after any childList change
+   anywhere in the document (a feed render, a shelf rebuilt, a card replaced) —
+   or where the set of visible pages changed (a tab switch flips `inert`, which
+   is an attribute and therefore not a structural change). Both of those are
+   cheap array writes over collections that are already there; neither touches a
+   selector, so a frame never queries and never walks the DOM. Style, class and
+   data-attribute writes — all the frame itself does — are not structure, and the
+   observer does not watch attributes, so a frame cannot invalidate its own
+   cache. */
+let F_PAGES=null,F_NPAGES=-1;
+const F_PCARDS=[],F_PTOP=[],F_PCHIP=[];
+const F_ALL=[],F_VIS=[];
+let F_DOCK=null,F_GEN=-1,F_MASK=-1,F_ACTIVE=-1,domGen=0;
+function frameCacheSync(){
+  const pages=document.getElementsByClassName('page');
+  if(!F_PAGES||pages.length!==F_NPAGES){
+    F_PAGES=pages;F_NPAGES=pages.length;
+    F_PCARDS.length=0;F_PTOP.length=0;F_PCHIP.length=0;
+    for(let i=0;i<F_NPAGES;i++){
+      const p=pages[i];
+      F_PCARDS.push(p.getElementsByClassName('card'));
+      F_PTOP.push(p.getElementsByClassName('top'));
+      F_PCHIP.push(p.getElementsByClassName('chips'));
+    }
+    F_GEN=-1;
   }
-  return out;
+  /* The visible set is the pages that are not inert, and the first page that is
+     not inert is the active one — the same element the old
+     `document.querySelector('.page:not([inert])')` returned, from property
+     reads instead of a walk. */
+  let mask=0,active=-1;
+  for(let i=0;i<F_NPAGES;i++){
+    if(F_PAGES[i].inert)mask|=1<<i;
+    else if(active<0)active=i;
+  }
+  F_ACTIVE=active;
+  if(domGen!==F_GEN||mask!==F_MASK){
+    F_GEN=domGen;F_MASK=mask;
+    F_DOCK=document.getElementsByClassName('dock');
+    F_ALL.length=0;F_VIS.length=0;
+    for(let i=0;i<F_NPAGES;i++){
+      const c=F_PCARDS[i],vis=(mask&(1<<i))===0;
+      for(let j=0;j<c.length;j++){
+        const e=c[j];
+        F_ALL.push(e);
+        if(vis)F_VIS.push(e);
+      }
+    }
+  }
 }
+/* Structure only: a class or style write is not a reason to rebuild, and the
+   frame writes nothing else. The counter is raised here and the arrays are
+   rebuilt on the next frame that needs them. */
+new MutationObserver(()=>{domGen++})
+  .observe(document.body,{childList:true,subtree:true});
 function frameKick(force){
   if(force)forceFrame=true;
   if(document.hidden){hiddenOwed=true;return}
@@ -1772,15 +1829,16 @@ function frameRun(){
   if(!on&&!dep)return;
   /* Read once for the whole frame: the active page and its offset are what every
      layer in the frame is keyed off. */
-  const pg=document.querySelector('.page:not([inert])');
+  frameCacheSync();
+  const pg=F_ACTIVE<0?null:F_PAGES[F_ACTIVE];
   const st=pg?pg.scrollTop:0;
   const vh=innerHeight;
   const k=K();
   /* The list is taken even for a pass that may be skipped after its signature
      check, because the number of cards is part of that signature: it is the only
-     cheap way to notice the page gained one. A querySelectorAll sweep is a DOM
-     walk, not a layout read. */
-  const cards=frameEls('.card',force);
+     cheap way to notice the page gained one. It comes out of the frame cache
+     (see frameCacheSync), so the frame runs no selector query at all. */
+  const cards=force?F_ALL:F_VIS;
   const n=cards.length;
   const sigPv=st+'|'+gyroX+'|'+gyroY+'|'+vh+'|'+n+'|'+k+'|'+layoutEpoch;
   const sigDv=st+'|'+vh+'|'+n+'|'+k+'|'+layoutEpoch;
@@ -1830,7 +1888,7 @@ function frameRun(){
   /* ---- write pass: every value is queued, then applied in one flush ---- */
   /* The read pass is over: from here on the frame only writes. */
   animHint();
-  if(doP)shellQueue(pg,st,vh,k);
+  if(doP)shellQueue(pg,F_ACTIVE,st,vh,k);
   if(doT)thumbQueue(k);
   if(doD)depthQueue(vh,k);
   flushWrites();
@@ -1875,10 +1933,13 @@ function flushWrites(){
 /* The shell layers: four elements, four writes, whatever the feed holds, so
    this pass is never gated — the page's background is keyed off the absolute
    scroll offset and freezing it would be a visible jump, not a saved frame. */
-function shellQueue(pg,st,vh,k){
-  const top=pg?pg.querySelector('.top'):null;
-  const chips=pg?pg.querySelector('.chips'):null;
-  const dock=document.querySelector('.dock');
+function shellQueue(pg,pi,st,vh,k){
+  /* The three shell elements come from the frame cache, not from a query: the
+     page's own collections are live, and the dock is looked up when the cache is
+     rebuilt. */
+  const top=pi<0?null:(F_PTOP[pi][0]||null);
+  const chips=pi<0?null:(F_PCHIP[pi][0]||null);
+  const dock=(F_DOCK&&F_DOCK[0])||null;
 
   if(pg)wPush(pg,null,null,(-st*0.22*k).toFixed(1)+'px');
 
