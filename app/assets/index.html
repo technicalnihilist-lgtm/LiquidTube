@@ -1466,7 +1466,7 @@ const K=()=>Math.max(0,Math.min(100,+S.opt.pdepth||0))/100;   // 0 = flat, 1 = f
 /* What the scroll passes last rendered against — see frameRun(). Declared here
    because applyDepth/applyParallax, which run at parse time, invalidate it. */
 let layoutEpoch=0,geomEpoch=0,sigP='',sigD='';
-/* The dock's current parallax offset, written and kept by parallaxWrite() and
+/* The dock's current parallax offset, written and kept by parallaxQueue() and
    read by tabsBox(): the tab strip is inside the dock, so this is the one thing
    that moves it without a resize. */
 let dockDX=0,dockDY=0;
@@ -1692,46 +1692,86 @@ function frameRun(){
     F_REL.push(tr.bottom<-80||tr.top>vh+80?null:(tr.top+tr.height/2-vh/2)/(vh/2));   // -1 .. 1, null = off screen
   }
 
-  /* ---- write pass: transforms only ---- */
-  if(doP)parallaxWrite(pg,st,vh,k);
-  if(doD)depthWrite(vh,k);
+  /* ---- write pass: every value is queued, then applied in one flush ---- */
+  if(doP)parallaxQueue(pg,st,vh,k);
+  if(doD)depthQueue(vh,k);
+  flushWrites();
 }
-function parallaxWrite(pg,st,vh,k){
+/* The frame's writes, collected first and applied in a single pass.
+
+   A pass used to assign to `style` while it was still computing, and the two
+   passes each did that: the parallax pass wrote a transform to every thumbnail
+   on screen and the depth pass then wrote a transform *and* an opacity to every
+   card, so one card cost two separate style invalidations for one box, and the
+   shell's four layers cost four more. Worse, a value that had not changed was
+   written anyway — a card that has scrolled off screen is given
+   `transform:''` on every frame it stays off screen, and a card whose depth
+   offset is identical (the same offset after a one-pixel scroll step) is given
+   the transform and the opacity it already carries. A write that changes
+   nothing still dirties the element's style and still costs a recalc at paint,
+   and the scroll path has no way of knowing that from the outside.
+
+   So no pass writes any more: each appends the values it would write to these
+   four parallel arrays, and `flushWrites` walks them once, at the end of the
+   frame, after the last read of the frame. An element appears at most once, so
+   a card's transform and opacity are applied in one visit, and each assignment
+   is guarded by a comparison with the value the element already holds, so an
+   unchanged value costs nothing. The arrays live for the lifetime of the app and
+   are reused, with `null` meaning "this pass has nothing to say about that
+   property" — a frame allocates no objects and no closures. */
+const W_EL=[],W_TF=[],W_OP=[],W_BG=[];
+let W_N=0;
+function wPush(el,tf,op,bg){
+  W_EL[W_N]=el;W_TF[W_N]=tf;W_OP[W_N]=op;W_BG[W_N]=bg;W_N++;
+}
+function flushWrites(){
+  for(let i=0;i<W_N;i++){
+    const s=W_EL[i].style;
+    const tf=W_TF[i];if(tf!==null&&s.transform!==tf)s.transform=tf;
+    const op=W_OP[i];if(op!==null&&s.opacity!==op)s.opacity=op;
+    const bg=W_BG[i];if(bg!==null&&s.backgroundPositionY!==bg)s.backgroundPositionY=bg;
+    W_EL[i]=null;                      /* the buffer holds no element between frames */
+  }
+  W_N=0;
+}
+function parallaxQueue(pg,st,vh,k){
   const top=pg?pg.querySelector('.top'):null;
   const chips=pg?pg.querySelector('.chips'):null;
   const dock=document.querySelector('.dock');
 
-  if(pg)pg.style.backgroundPositionY=(-st*0.22*k).toFixed(1)+'px';
+  if(pg)wPush(pg,null,null,(-st*0.22*k).toFixed(1)+'px');
 
   /* the whole shell drifts: header, dock and chip row all move a little */
-  if(top)top.style.transform=`translate3d(${(gyroX*3*k).toFixed(2)}px,${(-Math.min(st,120)*0.06*k).toFixed(2)}px,0)`;
+  if(top)wPush(top,`translate3d(${(gyroX*3*k).toFixed(2)}px,${(-Math.min(st,120)*0.06*k).toFixed(2)}px,0)`,null,null);
   /* The offset is kept as well as written: `tabsBox()` keys its cached strip
      rect on it, so the drag that picks a tab re-measures the strip only when the
      dock has actually moved (see tabsBox). */
   dockDX=gyroX*5*k;dockDY=gyroY*2.5*k;
-  if(dock)dock.style.transform=`translate3d(${dockDX.toFixed(2)}px,${dockDY.toFixed(2)}px,0)`;
-  if(chips)chips.style.transform=`translate3d(${(gyroX*-2.5*k).toFixed(2)}px,0,0)`;
+  if(dock)wPush(dock,`translate3d(${dockDX.toFixed(2)}px,${dockDY.toFixed(2)}px,0)`,null,null);
+  if(chips)wPush(chips,`translate3d(${(gyroX*-2.5*k).toFixed(2)}px,0,0)`,null,null);
   const x=gyroX*2.5*k;
   for(let i=0;i<F_IMG.length;i++){
     const rel=F_REL[i];
     if(rel===null)continue;
     const y=(-rel*7*k)+gyroY*2.5*k;
-    F_IMG[i].style.transform=`translate3d(${x.toFixed(2)}%,${y.toFixed(2)}%,0) scale(1.14)`;
+    wPush(F_IMG[i],`translate3d(${x.toFixed(2)}%,${y.toFixed(2)}%,0) scale(1.14)`,null,null);
   }
 }
 /* cards recede slightly as they move away from the centre of the screen. The
    measurements are the ones the frame's read pass already took, so the loop is
    arithmetic and transforms and nothing else. A card under the finger is left
    exactly as the tilt wrote it. */
-function depthWrite(vh,k){
+function depthQueue(vh,k){
   for(let i=0;i<F_CARD.length;i++){
     const c=F_CARD[i];
     if(c.classList.contains('tilt'))continue;
     const top=F_CTOP[i],h=F_CH[i];
-    if(top+h<-80||top>vh+80){c.style.transform='';continue}
+    /* Off screen: the card holds no transform, and the flush drops the write
+       when it already holds none. */
+    if(top+h<-80||top>vh+80){wPush(c,'',null,null);continue}
     const d=Math.min(1,Math.abs((top+h/2)-vh/2)/(vh*0.62));
-    c.style.transform=`translateZ(${(-d*30*k).toFixed(1)}px) scale(${(1-d*0.05*k).toFixed(3)})`;
-    c.style.opacity=(1-d*0.18*k).toFixed(3);
+    /* One entry for the card, so its transform and its opacity are one visit. */
+    wPush(c,`translateZ(${(-d*30*k).toFixed(1)}px) scale(${(1-d*0.05*k).toFixed(3)})`,(1-d*0.18*k).toFixed(3),null);
   }
 }
 /* Settings changed the depth strength or the parallax switch: both change what a
@@ -1851,7 +1891,7 @@ function pageSwitch(from,to){
    every pointermove, so a drag across the dock paid a forced layout read per
    frame on top of the render it was already doing. The strip is a fixed part of
    the shell: only a resize can move it, and the one thing that moves it without
-   a resize is the dock's parallax offset, which `parallaxWrite` now leaves in
+   a resize is the dock's parallax offset, which `parallaxQueue` now leaves in
    `dockDX`. Both are in the key, so the box is re-taken at most once per frame
    the dock actually moved, and not at all while it is still — which is what the
    gesture looks like whenever the phone is not being tilted. */
