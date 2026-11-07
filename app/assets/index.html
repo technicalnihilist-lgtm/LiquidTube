@@ -1274,6 +1274,22 @@ $('sg').addEventListener('click',e=>{const b=e.target.closest('[data-ch]');if(b)
 
 /* ---------- player ---------- */
 let cur=null;
+/* Taking a frame down is two steps, not one. Emptying `.art` detaches the embed,
+   and a detached frame is not a stopped one: the <video> inside it keeps its
+   decoder, its audio route and its playing state until the renderer collects
+   the frame, which on a WebView can be well after the panel has slid away —
+   long enough to hear a video that is no longer on screen. So the frame is
+   navigated off the embed first (`about:blank`), which unloads the player
+   document and drops its media element, and only then is the box emptied. One
+   helper because there are two ways a frame goes: `mount()` replaces it on the
+   next play or on a loop wrap, `closeAll()` closes the player (item 4.4). */
+function dropFrame(){
+  const a=$('pl').querySelector('.art');
+  const f=a&&a.querySelector('iframe');
+  if(f){try{f.src='about:blank'}catch(e){}}
+  if(a)a.innerHTML='';
+  return a;
+}
 /* The player's two listeners belong to the player and are taken off with it:
    `ltOff('pl')` runs at the top of every mount (so a play, a replay or a loop
    wrap leaves the previous iframe's handler behind with the iframe) and in
@@ -1282,7 +1298,8 @@ let cur=null;
    document for the whole session for a user who never opens a video. */
 function mount(id,title){
   ltOff('pl');
-  const a=$('pl').querySelector('.art');
+  const a=dropFrame();
+  if(!a)return;
   a.innerHTML=LDRABS+'<iframe src="'+EMBED_BASE+esc(id)+'?autoplay=1&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&enablejsapi=1'+(S.opt.cc?'&cc_load_policy=1':'')+'" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="'+esc(title||'')+'"></iframe>';
   const f=a.querySelector('iframe');
   ltOn('pl',f,'load',()=>{try{f.contentWindow.postMessage(JSON.stringify({event:'listening'}),'*')}catch(e){}});
@@ -1306,7 +1323,9 @@ function play(id){
   if(v.ch)loadChannels([v.ch]).then(()=>{if(cur&&cur.id===id)$('pmeta').textContent=v.c+(v.views?' · '+num(v.views)+' views':'')+(v.pub?' · '+ago(v.pub):'')});
 }
 $('ppp').onclick=()=>{if(!cur)return;toggle(S.liked,cur.id);$('ppp').textContent=S.liked.includes(cur.id)?'Liked':'Like'};
-$('plk').onclick=()=>{if(cur&&cur.ch){closeAll();openChannel(cur.ch)}};
+/* The channel id is read before the close: `closeAll()` drops `cur`, so reading
+   `cur.ch` after it would be reading a player that no longer exists. */
+$('plk').onclick=()=>{if(!cur||!cur.ch)return;const ch=cur.ch;closeAll();openChannel(ch)};
 $('psave').onclick=()=>{if(!cur)return;const on2=toggle(S.later,cur.id);toast(on2?'Saved to Watch later':'Removed from Watch later')};
 $('pcm').onclick=()=>{if(!cur)return;closeAll();sheet('Comments','<div class="empty">Comments open on YouTube for this video.</div>',0)};
 $('pclose').onclick=closeAll;
@@ -1422,7 +1441,11 @@ function slideHint(){
   for(let i=0;i<els.length;i++)els[i].classList.add('slide');
   clearTimeout(slideT);slideT=setTimeout(()=>{for(let i=0;i<els.length;i++)els[i].classList.remove('slide')},SLIDE_HINT_MS);
 }
-function closeAll(){ltOff('pl');shGen++;['sheet','pl'].forEach(i=>$(i).classList.remove('on'));$('scrim').classList.remove('on');const a=$('pl').querySelector('.art');if(a)a.innerHTML='';slideHint()}
+/* Closing takes the frame down through `dropFrame()` (so the media pipeline is
+   released, not just detached) and drops `cur` with it: the Like, Save, Channel
+   and Comments buttons all guard on `cur`, so a closed player can no longer be
+   acted on, and nothing in the app still holds the video it was showing. */
+function closeAll(){ltOff('pl');shGen++;['sheet','pl'].forEach(i=>$(i).classList.remove('on'));$('scrim').classList.remove('on');dropFrame();cur=null;slideHint()}
 $('scrim').onclick=closeAll;
 $('shb').addEventListener('click',e=>{
   const s=e.target.closest('[data-chsub]');
