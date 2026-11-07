@@ -825,13 +825,62 @@ async function ensureChannel(id){
   throw new Error('Channel not found');
 }
 window.__ltChanQueue=()=>({batch:CH_ST.batch,ids:CH_ST.ids,join:CH_ST.join,err:CH_ST.err,queued:CH_Q.size,sent:CH_SENT.size});
+/* ---------- the video registry (V) ----------
+   V is the id → video map every list and the player read by id. It used to be
+   open: a search, a shelf, a section and a channel sheet each added entries and
+   nothing ever took one out, so a session kept every video it had ever shown —
+   a 40-search session held 800+ of them, almost none still on screen, and the
+   whole set survived until the WebView was destroyed. It is now bounded.
+   VQ holds the same ids in recency order (vObj touches an id, so a re-read of a
+   video moves it to the young end). Once V grows past V_HI, vTrim() drops the
+   least-recently-used entries until it is back at V_MAX.
+   An id something live still points at is never dropped: the cards on screen
+   (read from the DOM, so whatever drew the list — feed, section, shelf, search
+   results, channel sheet — pins it), the feed and its cache, the three home
+   sections, the explore shelves and the saved library (history/liked/later,
+   which play() and the library sheet resolve back through V). All of those are
+   themselves bounded lists, so the registry is bounded with them. Dropping an
+   entry only releases the map's claim on the object; an object a live list still
+   holds stays exactly as it was, so nothing on screen changes. */
+const V_MAX=600,V_HI=680;
+const VQ=new Set();                            /* ids in recency order, oldest first */
+const V_ST={trims:0,evicted:0};
+const vTouch=id=>{VQ.delete(id);VQ.add(id)};
+function vPins(){
+  const P=new Set();
+  const add=l=>{if(!l)return;for(let i=0;i<l.length;i++){const v=l[i];const id=typeof v==='string'?v:(v&&v.id);if(id)P.add(id)}};
+  add(FEED.trending);add(FEED.cached);
+  for(const k in SEC)add(SEC[k]);
+  for(const k in SHELF)add(SHELF[k]);
+  add(S.hist);add(S.liked);add(S.later);
+  const cards=document.querySelectorAll('[data-v]');
+  for(let i=0;i<cards.length;i++){const id=cards[i].dataset.v;if(id)P.add(id)}
+  return P;
+}
+function vTrim(){
+  const over=VQ.size-V_MAX;
+  if(over<=0)return 0;
+  const P=vPins();
+  let gone=0;
+  for(const id of VQ){                          /* oldest first */
+    if(gone>=over)break;
+    if(P.has(id))continue;
+    VQ.delete(id);delete V[id];gone++;
+  }
+  V_ST.trims++;V_ST.evicted+=gone;
+  return gone;
+}
+window.__ltVmap=ids=>({size:VQ.size,max:V_MAX,hi:V_HI,trims:V_ST.trims,evicted:V_ST.evicted,pins:vPins().size,
+  has:Array.isArray(ids)?ids.map(id=>!!V[id]):[]});   /* tools/ asks which live ids still resolve */
 function vObj(id,d){
   d=d||{};id=id||'';
   const v=Object.assign({id,t:'',c:'',ch:'',views:'',pub:'',cat:'All',g:G[hash(id)%8]},V[id]||{});
   if(d.t)v.t=d.t;if(d.c)v.c=d.c;if(d.ch)v.ch=d.ch;
   if(d.views!=null)v.views=d.views;if(d.pub)v.pub=d.pub;if(d.cat)v.cat=d.cat;
   if(d.dur!=null)v.dur=d.dur;                  // kept by the feed cache, so a cached card is complete
-  V[id]=v;return v;
+  V[id]=v;vTouch(id);
+  if(VQ.size>V_HI)vTrim();                     /* only past the high-water mark, so a batch build never trims */
+  return v;
 }
 async function loadTrending(){
   if(FEED.trending)return FEED.trending;
