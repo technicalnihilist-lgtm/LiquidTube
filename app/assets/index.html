@@ -905,11 +905,25 @@ const chAv=id=>((CH[id]&&CH[id].av)||CAV[id]||'');
 const cardOf=(v,i)=>'<button class="card" style="--i:'+Math.min(i||0,8)+'" data-v="'+esc(v.id)+'"><div class="thumb">'+thumbImg(v.id)+(v.views?'<u>'+num(v.views)+' views</u>':'')+'</div>'+
   '<div class="meta">'+(v.ch&&chAv(v.ch)?'<img class="av" src="'+esc(chAv(v.ch))+'" alt="" onerror="this.style.visibility=\'hidden\'">':'<div class="av" style="background:'+g(hash(v.id))+'"></div>')+
   '<div><b>'+esc(v.t)+'</b><span>'+esc(v.c)+(v.views?' · '+num(v.views)+' views':'')+(v.pub?' · '+ago(v.pub):'')+'</span></div></div></button>';
-const list=(arr,el)=>{el.innerHTML=arr&&arr.length?arr.map(cardOf).join(''):'<div class="empty">Nothing here yet.</div>';setTimeout(depthKick,60)};
+/* A render can move geometry without scrolling, so it owes the depth/parallax
+   pass one forced frame, 60 ms later, once the new cards have been laid out. It
+   used to queue a fresh anonymous timer per render and keep no handle on it, so a
+   run of renders — a tab switch, a chip, the three lists a boot paints — left one
+   pending timer each: five renders meant five timers and five forced passes, and
+   nothing could cancel the four whose layout was already stale. One handle now,
+   re-armed by the newest render, so the pass runs once, after the last render
+   (item 4.1). */
+let listT=0;
+function listKick(){
+  if(listT)clearTimeout(listT);
+  listT=setTimeout(()=>{listT=0;depthKick()},60);
+}
+const list=(arr,el)=>{el.innerHTML=arr&&arr.length?arr.map(cardOf).join(''):'<div class="empty">Nothing here yet.</div>';listKick()};
 
 /* ---------- chips ---------- */
 let cat='All';
 let secPending=null;   /* a chip section whose load was abandoned by a page switch */
+let chipT=0;           /* the 140 ms chip swap below, cleared by the next swap */
 function homeResume(){  /* entering Home again: re-run it, on the skeletons already on screen */
   const n=secPending;
   if(!n||cat!==n)return;
@@ -958,7 +972,14 @@ function chip(n){
     return;
   }
   f.style.opacity=0;
-  setTimeout(()=>{
+  /* The swap is deferred 140 ms so the fade-out is seen; a second tap inside
+     those 140 ms used to leave the first timer pending, so a quick run along the
+     chip row wrote the feed once per tap — five taps, five full renders of two
+     dozen cards, four of them for a category the user had already left. The
+     newest tap re-arms the one timer (item 4.1). */
+  if(chipT)clearTimeout(chipT);
+  chipT=setTimeout(()=>{
+    chipT=0;
     const items=cat==='All'?feed():feed().filter(v=>v.cat===cat);
     list(items,f);
     if(!items.length)f.innerHTML='<div class="empty">Nothing in '+esc(cat)+' right now.</div>';
@@ -1301,9 +1322,20 @@ $('shpost').onclick=()=>toast('Comments open on YouTube');
 
 /* ---------- search ---------- */
 const qi=$('q');
-function openS(){$('search').classList.add('on');slideHint();setTimeout(()=>qi.focus(),250)}
+/* The panel slides for .85 s, so the caret is placed after it has arrived — but
+   that timer belongs to the panel and used to outlive it: cancel the search
+   inside those 250 ms and the caret was still put into a field that was no
+   longer on screen, raising the keyboard over the feed. One handle, and every
+   close clears it (item 4.1). */
+let focusT=0;
+function openS(){
+  $('search').classList.add('on');slideHint();
+  if(focusT)clearTimeout(focusT);
+  focusT=setTimeout(()=>{focusT=0;if($('search').classList.contains('on'))qi.focus()},250);
+}
 $('sopen').onclick=openS;
-$('cancel').onclick=()=>{$('search').classList.remove('on');qi.blur();slideHint()};
+function closeS(){if(focusT){clearTimeout(focusT);focusT=0}$('search').classList.remove('on');qi.blur();slideHint()}
+$('cancel').onclick=closeS;
 $('sug').innerHTML=['lofi','AI music','calm piano','telugu songs','apple event'].map(s=>'<button class="glass">'+s+'</button>').join('');
 $('sug').onclick=e=>{const b=e.target.closest('button');if(b){qi.value=b.textContent;find()}};
 let seq=0;
@@ -1401,16 +1433,19 @@ function tlFlush(partial){
   }catch(e){}
 }
 tlTimer=setTimeout(()=>tlFlush(1),12000);   /* last resort: never leave a boot unlogged */
-let revealed=false;
+let revealed=false,revealT=0;
 const reveal=()=>{
   if(revealed)return;revealed=true;
+  if(revealT){clearTimeout(revealT);revealT=0}   /* the hard stop is no longer owed */
   if(window.__ltRestNow)window.__ltRestNow();
   const sp=$('splash');
   if(sp&&!sp.classList.contains('out')){sp.classList.add('out');$('app').classList.add('ready')}
   mark('reveal');
 };
-/* Hard stop: nothing below may hold the splash up for more than 7 s. */
-setTimeout(reveal,7000);
+/* Hard stop: nothing below may hold the splash up for more than 7 s. `reveal`
+   clears it, so a boot that revealed in 300 ms is not left holding the closure
+   (item 4.1). */
+revealT=setTimeout(reveal,7000);
 
 /* First-frame-ready signal: resolves once the frame that carries the shell has
    actually been painted. Two rAFs land us after that frame; the timer and the
@@ -1421,11 +1456,11 @@ let frameReady=null;
 function firstFrame(){
   if(frameReady)return frameReady;
   return frameReady=new Promise(res=>{
-    let done=false;
-    const fin=()=>{if(done)return;done=true;mark('paint');res()};
+    let done=false,ft=0;
+    const fin=()=>{if(done)return;done=true;if(ft){clearTimeout(ft);ft=0}mark('paint');res()};
     if(document.visibilityState==='hidden')return fin();
     requestAnimationFrame(()=>requestAnimationFrame(fin));
-    setTimeout(fin,400);
+    ft=setTimeout(fin,400);                 /* the rAF path clears it when it wins */
   });
 }
 window.__ltFirstFrame=firstFrame;
@@ -1504,7 +1539,7 @@ applyDepth();
    have been measured against all along, so the angles are stable: the mapping
    from finger to degrees no longer shifts by the 1.5 % the card scales under
    itself. */
-let tiltEl=null,tiltBox=null;
+let tiltEl=null,tiltBox=null,tiltT=0,tiltOut=null;
 function tiltRect(card){
   const pg=card.closest('.page');
   const st=pg?pg.scrollTop:0;
@@ -1518,6 +1553,13 @@ function tiltStart(e){
   if(!DEPTH())return;
   const card=e.target.closest('.card');
   if(!card||e.pointerType==='mouse')return;
+  /* A card released less than 260 ms ago still has its drop timer pending, and
+     that timer used to fire into the *next* gesture: touch the card again quickly
+     and `.tilt` — the transition and the layer hint the card is being dragged
+     with — was taken off mid-drag, so the rest of that tilt ran without either.
+     The timer belongs to the card it was armed for, so a new gesture on that card
+     clears it (item 4.1). */
+  if(tiltT&&tiltOut===card){clearTimeout(tiltT);tiltT=0;tiltOut=null}
   tiltEl=card;tiltBox=null;card.classList.add('tilt');
 }
 function tiltMove(e){
@@ -1534,7 +1576,8 @@ function tiltEnd(){
   if(!tiltEl)return;
   const c=tiltEl;tiltEl=null;tiltBox=null;          /* the box goes with the gesture: no card is held */
   c.style.transform='';
-  setTimeout(()=>c.classList.remove('tilt'),260);
+  if(tiltT)clearTimeout(tiltT);
+  tiltOut=c;tiltT=setTimeout(()=>{tiltT=0;tiltOut=null;c.classList.remove('tilt')},260);
 }
 /* ---------- parallax: layers drift at different speeds (scroll + phone tilt) ---------- */
 const PARALLAX=()=>S.opt.parallax!==0;
@@ -2034,6 +2077,14 @@ function bindInput(){
     if(document.hidden){
       hiddenOwed=true;
       if(frameRaf){cancelAnimationFrame(frameRaf);frameRaf=0}
+      /* The app's one self-rescheduling timer, and the only work in it that can
+         keep running in a backgrounded WebView: the fling gate's idle check
+         re-arms itself every 140 ms for as long as the gate is open, and a
+         hidden page produces no frame that would close it. It is stopped here
+         instead; the gate closes with it, and the forced pass on the way back
+         runs the layer regardless of the gate, so nothing is left stale. */
+      if(flingTimer){clearTimeout(flingTimer);flingTimer=0}
+      flingGated=false;flingFrames=0;
       return;
     }
     if(hiddenOwed){hiddenOwed=false;forceFrame=true;frameKick(false)}
@@ -2075,6 +2126,35 @@ function scheduleInput(){
 if(window.__ltFirstFrame)window.__ltFirstFrame().then(scheduleInput);
 else scheduleInput();
 
+/* ---------- timers: every one of them, and who clears it ----------
+   Item 4.1's audit. There is **no `setInterval` in this build at all** — grep for
+   it — so what has to stay true is narrower and harder: no pending or repeating
+   timer outlives the work it was armed for. Every timer the app schedules, and
+   its clear site:
+
+     qTimer      quota flush, Q_SAVE_MS      cleared in qFlush, before re-arm
+     tlTimer     12 s boot-log last resort   cleared in tlFlush
+     revealT     7 s splash hard stop        cleared in reveal
+     ft          400 ms first-frame fallback cleared in fin (when the rAF wins)
+     slideT      1 s overlay layer hint      cleared before re-arm in slideHint
+     pageT       1 s dock layer hint         cleared before re-arm in pageHint
+     animT       250 ms frame layer hint     cleared in animHint / animHintOff
+     listT       60 ms render → depth pass   cleared before re-arm in listKick
+     chipT       140 ms chip swap render     cleared before re-arm in chip
+     focusT      250 ms search caret         cleared in closeS
+     tiltT       260 ms card release         cleared before re-arm in tiltStart/tiltEnd
+     flingTimer  fling gate idle (repeats)   cleared in flingTrack and on hidden
+     tt          toast dismiss               cleared before re-arm in toast
+
+   The fling gate is the only timer that re-arms itself — the only interval this
+   app has — and it now stops on the frame that closes the gate, on a touch, and
+   on the document going hidden. Every other timer fires exactly once, and each is
+   cleared by its owner rather than left to run into the next state.
+
+   Three timers are deliberately left to run and need no handle: `rqSleep`'s
+   backoff wait (a request that is still in flight is waiting on it), and the two
+   one-shot boot timers for the deferred sheet and the idle `bindInput` fallback,
+   both idempotent. */
 /* ---------- toast ---------- */
 let tt;function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>e.classList.remove('on'),2200)}
 
