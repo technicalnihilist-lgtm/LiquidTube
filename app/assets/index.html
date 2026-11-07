@@ -215,6 +215,56 @@ window.TH=function(img){
   }img.dataset.f='1';img.src='https://i.ytimg.com/vi/'+img.dataset.id+'/hqdefault.jpg';};
 const thumbImg=id=>'<img src="'+THUMB_BASE+esc(id)+'/maxresdefault.jpg" alt="" loading="lazy" data-id="'+esc(id)+'" data-q="0" onload="THOK(this)" onerror="TH(this)">';
 
+/* ---------- surfaces, and the listeners that belong to them (item 4.3) ----------
+   The app is one document with three tab pages that are never rebuilt and four
+   overlays that are opened and closed all session (the player, the sheet, the
+   search panel, the scrim), so a listener is only a leak if the surface it serves
+   can go away while the listener stays. A census of the build says most of them
+   cannot: the tab strip, the chip row, `#sg`, `#sheet`, `#shb` and the player's
+   own buttons are static nodes that live as long as the document, and everything
+   the app does with a card or a shelf is delegated from `document` or from one of
+   those containers. Those are registered once at boot and correctly stay.
+
+   The exception is the player, which is the one surface that builds fresh DOM per
+   use: `mount()` creates an iframe and attached a `load` listener to it, and it
+   runs again on every play (a second video while the player is open) and again on
+   every loop wrap — so a session of N plays left N handlers on N detached
+   iframes, each of which would still post into a media pipeline that had been
+   thrown away if its load landed late. Beside it, the window `message` bridge —
+   the channel that implements Loop — was registered at parse time and ran its
+   origin test and JSON parse for every message any frame ever posted, including
+   before a player had ever been opened.
+
+   So a listener that belongs to a surface is registered through `ltOn(owner,…)`
+   and taken off in one call, `ltOff(owner)`, when that surface is torn down. The
+   registry keeps the exact argument list (target, type, fn, the same options
+   object) so `removeEventListener` matches, and it holds no reference to any
+   element the app does not already hold. `window.__ltSurfaces()` returns the
+   census — registered, removed, live, and live per owner — which is what
+   tools/page-teardown-check.js reads. */
+const LT_OWN=new Map();                 /* owner -> flat [target,type,fn,opts,...] */
+const LT_ST={on:0,off:0};
+function ltOn(owner,target,type,fn,opts){
+  target.addEventListener(type,fn,opts);
+  const a=LT_OWN.get(owner);
+  if(a)a.push(target,type,fn,opts);else LT_OWN.set(owner,[target,type,fn,opts]);
+  LT_ST.on++;
+}
+function ltOff(owner){
+  const a=LT_OWN.get(owner);
+  if(!a)return 0;
+  LT_OWN.delete(owner);
+  for(let i=0;i<a.length;i+=4){try{a[i].removeEventListener(a[i+1],a[i+2],a[i+3])}catch(e){}}
+  const n=a.length/4;
+  LT_ST.off+=n;
+  return n;
+}
+window.__ltSurfaces=()=>{                /* the census: nothing on screen reads it */
+  const owners={};
+  LT_OWN.forEach((a,k)=>{owners[k]=a.length/4});
+  return {on:LT_ST.on,off:LT_ST.off,live:LT_ST.on-LT_ST.off,owners:owners};
+};
+
 /* ---------- storage codec: LZW over the UTF-8 bytes ----------
    Everything this app persists — the state, the last feed, the three section
    caches — is JSON whose keys repeat 12-60 times, so one LZW pass over its
@@ -1224,11 +1274,19 @@ $('sg').addEventListener('click',e=>{const b=e.target.closest('[data-ch]');if(b)
 
 /* ---------- player ---------- */
 let cur=null;
+/* The player's two listeners belong to the player and are taken off with it:
+   `ltOff('pl')` runs at the top of every mount (so a play, a replay or a loop
+   wrap leaves the previous iframe's handler behind with the iframe) and in
+   `closeAll` (so a closed player holds nothing). The bridge is registered with
+   the player rather than at parse time, which is also one fewer listener on the
+   document for the whole session for a user who never opens a video. */
 function mount(id,title){
+  ltOff('pl');
   const a=$('pl').querySelector('.art');
   a.innerHTML=LDRABS+'<iframe src="'+EMBED_BASE+esc(id)+'?autoplay=1&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&enablejsapi=1'+(S.opt.cc?'&cc_load_policy=1':'')+'" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="'+esc(title||'')+'"></iframe>';
   const f=a.querySelector('iframe');
-  f.addEventListener('load',()=>{try{f.contentWindow.postMessage(JSON.stringify({event:'listening'}),'*')}catch(e){}});
+  ltOn('pl',f,'load',()=>{try{f.contentWindow.postMessage(JSON.stringify({event:'listening'}),'*')}catch(e){}});
+  ltOn('pl',window,'message',onYtMsg);
 }
 function play(id){
   const v=V[id];if(!v)return;
@@ -1253,19 +1311,24 @@ $('psave').onclick=()=>{if(!cur)return;const on2=toggle(S.later,cur.id);toast(on
 $('pcm').onclick=()=>{if(!cur)return;closeAll();sheet('Comments','<div class="empty">Comments open on YouTube for this video.</div>',0)};
 $('pclose').onclick=closeAll;
 
-/* loop, driven by the player's own message channel (no playlist param) */
-addEventListener('message',e=>{
+/* loop, driven by the player's own message channel (no playlist param). Named
+   rather than anonymous because it is registered and removed with the player
+   (item 4.3): while no video is open there is no bridge and no frame that could
+   post to it. */
+function onYtMsg(e){
   const o=String(e.origin||'');
   if(!YT_ORIGIN_RE.test(o))return;
   let d=e.data;if(typeof d==='string'){try{d=JSON.parse(d)}catch(x){return}}
   if(!d||d.event!=='onStateChange')return;
   if(+d.info===0&&S.opt.loop&&cur)mount(cur.id,cur.t);
-});
+}
 
 /* ---------- channel sheet ---------- */
 function openChannel(id){
   sheet('Channel',LDR+'<div class="skl" style="height:120px"></div>',0);
+  const g=shGen;                          /* this sheet's generation: writes below must still own it */
   ensureChannel(id).then(c=>{
+    if(g!==shGen)return;                  /* the sheet was closed or replaced: its answer is not ours to paint */
     const st=[c.vids?num(c.vids)+' videos':'',c.subs?num(c.subs)+' subscribers':'',c.views?num(c.views)+' views':''].filter(Boolean).join(' · ');
     const jd=c.joined?dfmt(new Date(c.joined)):'';
     const subbed=S.subs.includes(c.id);
@@ -1280,11 +1343,12 @@ function openChannel(id){
       '<div id="chlist">'+LDR+'<div class="skl"></div><div class="skl"></div></div>';
     if(!c.up){$('chlist').innerHTML='<div class="empty">This channel hides its uploads.</div>';return}
     yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:50}).then(j=>{
+      if(g!==shGen)return;
       const items=(j.items||[]).map(it=>vObj(it.snippet.resourceId.videoId,{t:dec(it.snippet.title),c:c.title,ch:c.id,
         pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,cat:'Channel'}));
-      return dropShorts(items).then(clean=>{$('chlist').innerHTML=clean.map(cardOf).join('')||'<div class="empty">No videos.</div>'});
-    }).catch(()=>{$('chlist').innerHTML='<div class="empty">Could not load videos.</div>'});
-  }).catch(e=>{$('sht').textContent='Channel';$('shb').innerHTML='<div class="empty">'+esc(e.message||'Could not load')+'</div>'});
+      return dropShorts(items).then(clean=>{if(g!==shGen)return;$('chlist').innerHTML=clean.map(cardOf).join('')||'<div class="empty">No videos.</div>'});
+    }).catch(()=>{if(g!==shGen)return;$('chlist').innerHTML='<div class="empty">Could not load videos.</div>'});
+  }).catch(e=>{if(g!==shGen)return;$('sht').textContent='Channel';$('shb').innerHTML='<div class="empty">'+esc(e.message||'Could not load')+'</div>'});
 }
 
 /* ---------- library sheet (avatar button) ---------- */
@@ -1331,7 +1395,17 @@ $('sheet').addEventListener('click',e=>{
 });
 
 /* ---------- sheets ---------- */
+/* Every write of a sheet takes a generation, so a surface that is gone cannot be
+   written into by an answer that is still on the wire. `sheet()` is the one place
+   a sheet's content is replaced, and `closeAll()` is the one place it is taken
+   away, so both raise `shGen`; the channel loader (the only sheet content that
+   arrives asynchronously) reads it once and drops its writes if it moved. Without
+   that, opening a channel and then closing it — or tapping Settings — inside the
+   request window let the channel's answer paint itself into whatever sheet was on
+   screen by then (item 4.3: the page's teardown reaches its in-flight work too). */
+let shGen=0;
 function sheet(t,h,inp){
+  shGen++;
   $('sht').textContent=t;$('shb').innerHTML=h;$('shi').classList.toggle('on',!!inp);
   $('sheet').classList.add('on');$('scrim').classList.add('on');slideHint();
 }
@@ -1348,7 +1422,7 @@ function slideHint(){
   for(let i=0;i<els.length;i++)els[i].classList.add('slide');
   clearTimeout(slideT);slideT=setTimeout(()=>{for(let i=0;i<els.length;i++)els[i].classList.remove('slide')},SLIDE_HINT_MS);
 }
-function closeAll(){['sheet','pl'].forEach(i=>$(i).classList.remove('on'));$('scrim').classList.remove('on');const a=$('pl').querySelector('.art');if(a)a.innerHTML='';slideHint()}
+function closeAll(){ltOff('pl');shGen++;['sheet','pl'].forEach(i=>$(i).classList.remove('on'));$('scrim').classList.remove('on');const a=$('pl').querySelector('.art');if(a)a.innerHTML='';slideHint()}
 $('scrim').onclick=closeAll;
 $('shb').addEventListener('click',e=>{
   const s=e.target.closest('[data-chsub]');
