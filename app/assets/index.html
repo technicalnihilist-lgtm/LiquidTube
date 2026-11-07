@@ -304,7 +304,6 @@ let S={liked:[],subs:[],later:[],hist:[],vd:{},pl:{},cats:{},opt:{cc:0,loop:0,au
 try{const r=loadJSON(localStorage.getItem(SKEY),{});const p=r&&typeof r==='object'&&!Array.isArray(r)?r:{};Object.assign(S,p);S.opt=Object.assign({cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,parallax:1,pdepth:65,glass:45,layout:'phone'},p.opt||{})}catch(e){}
 const save=()=>{try{localStorage.setItem(SKEY,storeJSON(S))}catch(e){}};
 S.vd=S.vd||{};try{localStorage.removeItem('lt_shorts')}catch(e){}
-document.addEventListener('touchstart',()=>{},{passive:true});
 document.addEventListener('load',e=>{const t=e.target;if(t&&(t.tagName==='IMG'||t.tagName==='IFRAME'))t.classList.add('ld')},true);
 document.addEventListener('error',e=>{const t=e.target;if(t&&t.tagName==='IMG'&&!t.hasAttribute('onerror'))t.classList.add('ld')},true);
 const LDR='<div class="ldr"><i></i><i></i><i></i></div>';
@@ -1669,6 +1668,11 @@ function flingPtrDown(e){
   if(flingGated){flingGated=false;frameKick(false)}
 }
 function flingPtrUp(e){pointerSeen=true;if(e.pointerType!=='touch')fingers=0}
+/* The document's pointer listeners: the fling gate and the tilt are readers of
+   the same events, so one listener calls both, in the order the two separate
+   registrations used to run in. */
+function onPointerDown(e){flingPtrDown(e);tiltStart(e)}
+function onPointerUp(e){flingPtrUp(e);tiltEnd()}
 /* Self-rescheduling and one at a time: it re-arms itself while frames are still
    arriving (so a long fling is not cut short) and stops for good once the gate
    is closed or the page has been still for FLING_IDLE_MS. */
@@ -1767,9 +1771,10 @@ function frameCacheSync(){
     F_GEN=-1;
   }
   /* The visible set is the pages that are not inert, and the first page that is
-     not inert is the active one — the same element the old
-     `document.querySelector('.page:not([inert])')` returned, from property
-     reads instead of a walk. */
+     not inert is the active one — the element the
+     `document.querySelector('.page:not([inert])')` used to return, from property
+     reads instead of a walk. Nothing queries for it any more: the boot sync in
+     `bindInput` takes it from here too. */
   let mask=0,active=-1;
   for(let i=0;i<F_NPAGES;i++){
     if(F_PAGES[i].inert)mask|=1<<i;
@@ -1869,10 +1874,15 @@ function frameRun(){
        the expensive half of the layer and it is the half a fling drops. */
     if(!doT)continue;
     /* The thumbnail is the card's own first child (`<div class="thumb">` with the
-       image in it), so it is reached without a selector run; the query is there
-       only for a card built some other way. */
+       image in it) and every card in the app comes from `cardOf`, so it is
+       reached without a selector run: the old `c.querySelector('.thumb img')`
+       fallback could never be taken — a card without a `.thumb` first child does
+       not exist — and it sat in the read pass as a per-card walk of the card it
+       had just been handed. A card that has no thumbnail simply has nothing for
+       this layer to write. */
     const th=c.firstElementChild;
-    const img=th&&th.classList&&th.classList.contains('thumb')?th.firstElementChild:c.querySelector('.thumb img');
+    if(!th||!th.classList||!th.classList.contains('thumb'))continue;
+    const img=th.firstElementChild;
     if(!img||img.tagName!=='IMG')continue;
     F_IMG.push(img);
     /* A card that is off screen may be skipped by content-visibility, and
@@ -1985,12 +1995,28 @@ function depthQueue(vh,k){
 function parallaxKick(){if(!PARALLAX())return;frameKick(true)}
 function depthKick(){if(!PARALLAX()&&!DEPTH())return;frameKick(true)}
 /* The scroll listener's path: coalesce into the frame that is already queued and
-   let the signature decide whether there is anything to do. */
-function scrollKick(){if(!PARALLAX()&&!DEPTH())return;frameKick(false)}
-/* Non-critical input listeners — the gyro subscription, the scroll/resize that
-   drive the parallax and depth passes, and the four document-level pointer
-   listeners behind the card tilt — are attached only once the shell's first
-   frame has actually been painted, in the next idle slot. None of them can
+   let the signature decide whether there is anything to do.
+
+   The listener is on the document in the capture phase, so it hears the scroll
+   of every scroller in the app — the chip row, a carousel, the channel strip, the
+   sheet, the player — and none of them can move anything a pass writes: the
+   frame is keyed off the active page's own `scrollTop`, the tilt sample and the
+   viewport, so a frame scheduled by a horizontal swipe along the chips could only
+   ever be skipped after it had been requested, run and compared. Those handlers
+   are dead for the scroll path, so they are no longer given a frame: only the
+   page scroller, the one element whose offset the passes read, reaches
+   `frameKick`. Everything else returns on the first property read, with no rAF
+   requested and no `frameRun` at all. */
+function scrollKick(e){
+  const t=e.target;
+  if(!t||!t.classList||!t.classList.contains('page'))return;
+  if(!PARALLAX()&&!DEPTH())return;
+  frameKick(false);
+}
+/* Non-critical input listeners — the gyro subscription, the scroll that drives
+   the parallax and depth passes, and the document-level touch/pointer listeners
+   behind the fling gate and the card tilt — are attached only once the shell's
+   first frame has actually been painted, in the next idle slot. None of them can
    affect anything the user sees before that frame: at that point nothing has
    been scrolled, nothing has been tilted and no orientation sample has arrived.
    Attaching them at parse time instead meant the sensor pipeline could start,
@@ -2013,26 +2039,32 @@ function bindInput(){
     if(hiddenOwed){hiddenOwed=false;forceFrame=true;frameKick(false)}
   });
   document.addEventListener('scroll',scrollKick,{capture:true,passive:true});
-  addEventListener('resize',depthKick);
   /* Fling detection: touch count from touch events (a touch-scroll cancels its
      pointer, so pointer events alone cannot say whether a finger is still on
-     the glass) and the mouse/stylus from pointer events. */
+     the glass) and the mouse/stylus from pointer events.
+     The fling gate and the card tilt are two readers of the same three pointer
+     events, and they used to be two listeners each — six registrations on the
+     document, so every tap and every drag was dispatched twice. They are one
+     listener per event now, in the same order the two registrations ran in
+     (fling first, then tilt), which is the only order that matters: the gate has
+     to close before the tilt starts writing transforms. */
   document.addEventListener('touchstart',flingTouch,{passive:true});
   document.addEventListener('touchmove',flingTouch,{passive:true});
   document.addEventListener('touchend',flingTouch,{passive:true});
   document.addEventListener('touchcancel',flingTouch,{passive:true});
-  document.addEventListener('pointerdown',flingPtrDown,{passive:true});
-  document.addEventListener('pointerup',flingPtrUp,{passive:true});
-  document.addEventListener('pointercancel',flingPtrUp,{passive:true});
-  document.addEventListener('pointerdown',tiltStart,{passive:true});
+  document.addEventListener('pointerdown',onPointerDown,{passive:true});
   document.addEventListener('pointermove',tiltMove,{passive:true});
-  document.addEventListener('pointerup',tiltEnd,{passive:true});
-  document.addEventListener('pointercancel',tiltEnd,{passive:true});
+  document.addEventListener('pointerup',onPointerUp,{passive:true});
+  document.addEventListener('pointercancel',onPointerUp,{passive:true});
   /* If the page had already been scrolled in the window before these landed,
      sync the depth/parallax state once. Guarded on a non-zero offset so the
      at-rest frame is exactly what it was: with nothing scrolled, no scroll
-     event would have fired before either, so no pass may run. */
-  const pg=document.querySelector('.page:not([inert])');
+     event would have fired before either, so no pass may run. The page is taken
+     from the frame cache — the same bitmask the frames read — instead of the
+     `document.querySelector('.page:not([inert])')` that was left behind here
+     when the cache replaced it. */
+  frameCacheSync();
+  const pg=F_ACTIVE<0?null:F_PAGES[F_ACTIVE];
   if(pg&&pg.scrollTop>0)depthKick();
   mark('input');
 }
@@ -2145,7 +2177,11 @@ tabs.addEventListener('pointerup',rel);tabs.addEventListener('pointercancel',rel
 tabs.addEventListener('click',e=>{const t=e.target.closest('.tab');if(t){const n=+t.dataset.i;if(n!==Math.round(pos)){pos=n;render(true)}}});
 tabs.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){pos=+e.target.dataset.i;render(true)}});
 function go(n){pos=n;render(true)}
-addEventListener('resize',()=>{geomEpoch++;render(true)});
+/* One resize listener, not two: this one already re-renders the shell on every
+   resize and `render()` bumps `layoutEpoch`, which is what the signatures are
+   keyed on — so the second listener bindInput used to attach, `depthKick`,
+   only ever added the frame request. It does that here now. */
+addEventListener('resize',()=>{geomEpoch++;render(true);depthKick()});
 render(true);
 </script><script type="text/css" id="lt-css-deferred">
 /* Deferred sheet: everything that cannot be on screen before the first frame
