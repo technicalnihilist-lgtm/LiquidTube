@@ -352,6 +352,35 @@ window.__ltStore=()=>({codec:Z_PREFIX,keys:['lt','lt_feed','lt_anime','lt_cartoo
 const SKEY='lt';
 let S={liked:[],subs:[],later:[],hist:[],vd:{},pl:{},cats:{},opt:{cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,parallax:1,pdepth:65,glass:45,layout:'phone'}};
 try{const r=loadJSON(localStorage.getItem(SKEY),{});const p=r&&typeof r==='object'&&!Array.isArray(r)?r:{};Object.assign(S,p);S.opt=Object.assign({cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,parallax:1,pdepth:65,glass:45,layout:'phone'},p.opt||{})}catch(e){}
+/* ---------- the saved library, bounded (item 4.5) ----------
+   `hist`, `liked` and `later` are the three lists the Library sheet draws and
+   the player resolves back through V. History was already trimmed to 100 in
+   `play()`, but the trim lived at that one call site and nothing did it for
+   liked or later: every heart and every save appended an id and nothing ever
+   took one out. They are the only lists here that a user can grow without
+   bound — a year of use is thousands of ids — and they are written to
+   localStorage on every change, so the growth showed up three times over: in
+   the heap, in the saved blob, and in the work `save()` does.
+   All three now have a ceiling, applied in one place (`capOne`) so no call site
+   can forget it, and applied again once at boot so a blob written by an older
+   build is trimmed as it loads. The newest entries are the ones kept: history
+   is newest-first (unshift), liked and later are newest-last (push), so a cap
+   drops from the old end of each. Nothing on screen changes — the sheet draws
+   the same list, just without the ids too old to have been reachable anyway. */
+const HIST_MAX=100,LIKED_MAX=500,LATER_MAX=500;
+/* keep the first `max` (newest-first lists) / the last `max` (newest-last lists),
+   and turn anything that is not an array back into an empty one, so a corrupt
+   blob cannot leave a list that throws on the next `indexOf`. */
+const capHead=a=>{if(!Array.isArray(a))return [];if(a.length>HIST_MAX)a.splice(HIST_MAX);return a};
+const capTail=(a,max)=>{if(!Array.isArray(a))return [];if(a.length>max)a.splice(0,a.length-max);return a};
+const capOne=a=>{if(a===S.hist)return capHead(a);if(a===S.liked)return capTail(a,LIKED_MAX);if(a===S.later)return capTail(a,LATER_MAX);return a};
+S.hist=capHead(S.hist);S.liked=capTail(S.liked,LIKED_MAX);S.later=capTail(S.later,LATER_MAX);
+/* tools/library-cap-check.js reads the three lengths, the caps and the ends of
+   each list: the ends are what say which entries a cap kept. */
+window.__ltLibrary=()=>({hist:S.hist.length,liked:S.liked.length,later:S.later.length,max:{hist:HIST_MAX,liked:LIKED_MAX,later:LATER_MAX},
+  first:{hist:S.hist[0]||null,liked:S.liked[0]||null,later:S.later[0]||null},
+  last:{hist:S.hist[S.hist.length-1]||null,liked:S.liked[S.liked.length-1]||null,later:S.later[S.later.length-1]||null},
+  bytes:(()=>{try{return localStorage.getItem(SKEY).length}catch(e){return -1}})()});
 const save=()=>{try{localStorage.setItem(SKEY,storeJSON(S))}catch(e){}};
 S.vd=S.vd||{};try{localStorage.removeItem('lt_shorts')}catch(e){}
 document.addEventListener('load',e=>{const t=e.target;if(t&&(t.tagName==='IMG'||t.tagName==='IFRAME'))t.classList.add('ld')},true);
@@ -359,7 +388,9 @@ document.addEventListener('error',e=>{const t=e.target;if(t&&t.tagName==='IMG'&&
 const LDR='<div class="ldr"><i></i><i></i><i></i></div>';
 const LDRABS=LDR.replace('class="ldr"','class="ldr abs"');
 const on=(a,x)=>a.includes(x);
-const toggle=(a,x)=>{const i=a.indexOf(x);if(i<0)a.push(x);else a.splice(i,1);save();return i<0};
+/* the cap is applied here as well as in `play()`: this is the one writer for
+   liked and later, and a list capped at its only writer cannot outgrow itself */
+const toggle=(a,x)=>{const i=a.indexOf(x);if(i<0){a.push(x);capOne(a)}else a.splice(i,1);save();return i<0};
 
 /* ---------- glass transparency + layout ---------- */
 function applyGlass(){
@@ -1310,7 +1341,7 @@ function play(id){
   if(isShort(v)){toast('Shorts are turned off');return}
   cur=v;
   $('sheet').classList.remove('on');
-  S.hist=S.hist.filter(x=>x!==id);S.hist.unshift(id);S.hist=S.hist.slice(0,100);
+  S.hist=S.hist.filter(x=>x!==id);S.hist.unshift(id);capHead(S.hist);
   S.vd[id]={id,t:v.t,c:v.c,ch:v.ch,pub:v.pub,views:v.views};
   {const keep=new Set([...S.hist,...S.liked,...S.later]);Object.keys(S.vd).forEach(x=>{if(!keep.has(x))delete S.vd[x]})}
   save();
