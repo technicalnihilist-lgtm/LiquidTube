@@ -175,6 +175,16 @@ const V={},CH={},FEED={trending:null,error:'',cached:null,at:0};
    just the channel avatars the cached cards need, so the partial cache never
    stands in for a full CH entry (loadChannels/ensureChannel keep fetching). */
 const FKEY='lt_feed',FVER=1,CAV={};
+/* CAV is the avatar-only fallback: one URL per channel id, filled from the feed
+   cache and from channels the bounded CH map has dropped. Bounded too, oldest
+   id out first, so a long session cannot grow it without limit either. */
+const CAV_MAX=800,CAVQ=new Set();
+function cavSet(id,av){
+  if(!id||!av)return;
+  if(!CAVQ.has(id)){CAVQ.add(id);
+    if(CAVQ.size>CAV_MAX){const o=CAVQ.values().next().value;CAVQ.delete(o);delete CAV[o]}}
+  CAV[id]=av;
+}
 const ESCMAP={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'};
 const ESC_RE=/[&<>"]/g;
 const escMap=c=>ESCMAP[c];
@@ -849,8 +859,62 @@ const CH_PAR=4;                    /* groups on the wire at once */
 const CH_PART='snippet,statistics,contentDetails,brandingSettings';
 const CH_Q=new Map();              /* id -> the waiters still owed that channel */
 const CH_SENT=new Set();           /* ids a group already carries: never sent twice */
-const CH_ST={batch:0,ids:0,join:0,err:0};
+const CH_ST={batch:0,ids:0,join:0,err:0,trims:0,evicted:0};
 let chTick=0;                      /* 1 while a flush is queued */
+/* CH is bounded, the same way V is. Every channel a session ever resolved used
+   to stay in CH — a full cObj (title, handle, counts, description, banner,
+   trailer, uploads playlist) kept until the WebView died, so browsing a few
+   hundred channels held several hundred objects nothing on screen pointed at.
+   CHQ holds the same ids in recency order (a fresh response touches its id, so
+   the youngest entries are the ones just asked for) and chTrim() drops the
+   least-recently-used entries past CH_HI back to CH_MAX.
+   An id something live still points at is never dropped: the channels behind
+   the feed and its cache, the three home sections, the explore shelves, the
+   saved library and the cards on screen (read from the DOM through V, so
+   whatever drew the list pins its channels), the channel the subs row has
+   selected, and every id still owed a waiter in CH_Q. All of those are bounded
+   lists, so the map is bounded with them.
+   The newest CH_GUARD entries are never touched: a group of 50 lands in one
+   response and the caller reads it in the next task, so a trim can only take
+   channels that have been idle for a while.
+   Dropping an entry keeps its avatar in CAV, which is a single URL per id, so a
+   card or a player row that only wanted a face still gets one; anything that
+   needs the full object asks chWant again and is served from the network. */
+const CH_MAX=180,CH_HI=220,CH_GUARD=60;
+const CHQ=new Set();               /* ids in recency order, oldest first */
+const chTouch=id=>{CHQ.delete(id);CHQ.add(id)};
+function chPins(){
+  const P=new Set();
+  const chOf=v=>!v?'':(typeof v==='string'?((V[v]&&V[v].ch)||''):(v.ch||''));
+  const add=l=>{if(!l)return;for(let i=0;i<l.length;i++){const c=chOf(l[i]);if(c)P.add(c)}};
+  add(FEED.trending);add(FEED.cached);
+  for(const k in SEC)add(SEC[k]);
+  for(const k in SHELF)add(SHELF[k]);
+  add(S.hist);add(S.liked);add(S.later);
+  const cards=document.querySelectorAll('[data-v]');
+  for(let i=0;i<cards.length;i++){const v=V[cards[i].dataset.v];if(v&&v.ch)P.add(v.ch)}
+  if(selCh)P.add(selCh);
+  CH_Q.forEach((w,id)=>{P.add(id)});
+  return P;
+}
+function chTrim(){
+  const over=CHQ.size-CH_MAX;
+  if(over<=0)return 0;
+  const P=chPins();
+  const keys=[];CHQ.forEach(id=>keys.push(id));      /* oldest first */
+  const stop=keys.length-CH_GUARD;                   /* the fresh batch is off limits */
+  let gone=0;
+  for(let i=0;i<keys.length&&gone<over;i++){
+    if(i>=stop)break;
+    const id=keys[i];
+    if(P.has(id))continue;
+    const e=CH[id];
+    if(e&&e.av)cavSet(id,e.av);                      /* the face survives the object */
+    CHQ.delete(id);delete CH[id];gone++;
+  }
+  if(gone){CH_ST.trims++;CH_ST.evicted+=gone}
+  return gone;
+}
 function chRelease(id,err){
   const w=CH_Q.get(id);if(!w)return;
   CH_Q.delete(id);CH_SENT.delete(id);
@@ -861,7 +925,8 @@ async function chGroup(ids){
   CH_ST.batch++;CH_ST.ids+=ids.length;
   try{
     const j=await yt('channels',{part:CH_PART,id:ids.join(',')});
-    (j.items||[]).forEach(c=>{CH[c.id]=cObj(c)});
+    (j.items||[]).forEach(c=>{CH[c.id]=cObj(c);chTouch(c.id)});
+    if(CHQ.size>CH_HI)chTrim();          /* past the high-water mark only: a group of 50 lands at once */
   }catch(e){err=e||new Error('Could not load');CH_ST.err++}
   for(let i=0;i<ids.length;i++)chRelease(ids[i],err);
 }
@@ -905,7 +970,10 @@ async function ensureChannel(id){
   for(let i=0;i<r.length;i++)if(r[i])throw r[i];
   throw new Error('Channel not found');
 }
-window.__ltChanQueue=()=>({batch:CH_ST.batch,ids:CH_ST.ids,join:CH_ST.join,err:CH_ST.err,queued:CH_Q.size,sent:CH_SENT.size});
+window.__ltChanQueue=()=>({batch:CH_ST.batch,ids:CH_ST.ids,join:CH_ST.join,err:CH_ST.err,queued:CH_Q.size,sent:CH_SENT.size,
+  cached:CHQ.size,max:CH_MAX,hi:CH_HI,trims:CH_ST.trims,evicted:CH_ST.evicted,pinned:Array.from(chPins()),
+  has:ids=>Array.isArray(ids)?ids.map(id=>!!CH[id]):undefined,
+  av:ids=>Array.isArray(ids)?ids.map(id=>!!(CH[id]&&CH[id].av)||!!CAV[id]):undefined});
 /* ---------- the video registry (V) ----------
    V is the id → video map every list and the player read by id. It used to be
    open: a search, a shelf, a section and a channel sheet each added entries and
@@ -1672,7 +1740,7 @@ function paintShell(){
 /* The last feed, if there is one, is on screen before the first frame: this is
    the only stage-1 work that reads storage, and it costs one JSON.parse. */
 {const fc=readFeedCache();
- if(fc){Object.assign(CAV,fc.chav);fc.items.forEach(o=>vObj(o.id,o));FEED.cached=fc.items;FEED.at=fc.at}}
+ if(fc){for(const k in fc.chav)cavSet(k,fc.chav[k]);fc.items.forEach(o=>vObj(o.id,o));FEED.cached=fc.items;FEED.at=fc.at}}
 paintSkeleton();
 mark('shell');
 reveal();
