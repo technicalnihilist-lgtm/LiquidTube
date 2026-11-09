@@ -356,7 +356,7 @@ function loadJSON(raw,fallback){
     return v==null?fallback:v;
   }catch(e){return fallback}
 }
-window.__ltStore=()=>({codec:Z_PREFIX,keys:['lt','lt_feed','lt_anime','lt_cartoon','lt_movies','lt_quota']});
+window.__ltStore=()=>({codec:Z_PREFIX,keys:['lt','lt_feed','lt_anime','lt_cartoon','lt_movies','lt_quota','lt_cver']});
 
 /* ---------- persisted state ---------- */
 const SKEY='lt';
@@ -393,6 +393,42 @@ window.__ltLibrary=()=>({hist:S.hist.length,liked:S.liked.length,later:S.later.l
   bytes:(()=>{try{return localStorage.getItem(SKEY).length}catch(e){return -1}})()});
 const save=()=>{try{localStorage.setItem(SKEY,storeJSON(S))}catch(e){}};
 S.vd=S.vd||{};try{localStorage.removeItem('lt_shorts')}catch(e){}
+/* ---------- the section caches belong to the build that wrote them (item 4.9) ----------
+   `lt_anime`, `lt_cartoon` and `lt_movies` hold the three Home sections: the
+   mapped video list, the channel of each card and the time it was written. They
+   are read back for twelve hours and were the only persisted lists with no
+   build stamp of their own — the feed cache has FVER, the state blob is merged
+   field by field, but a section written by an older build was simply taken as
+   it stood. After an update that changes what a section holds, or how a card
+   maps to `V`, the first launch of the new build could paint twelve-hour-old
+   entries in the old shape, and the request the new code needs to make was
+   skipped because the cache answered instead.
+   The stamp is one small key, `lt_cver`, written at boot with CVER. A launch
+   that finds a different value (a first install: none at all) drops the three
+   section keys before anything can read them, then writes its own. The section
+   blob also carries `v:CVER` and is rejected on read if it does not match, so a
+   storage that refuses the stamp write (quota, private mode) still cannot hand
+   an old section to new code. Nothing else is touched: the library, the last
+   feed and the quota meter are user data or already stamped, and the caches
+   rebuild themselves on the first visit to Home — one fetch, as on a cold
+   start, and the same cards on screen. CVER is bumped with versionName in
+   app/AndroidManifest.xml whenever a section's shape or mapping changes. */
+const CVER='7.45',CKEY='lt_cver',SECK=['lt_anime','lt_cartoon','lt_movies'];
+function sweepSectionCaches(){
+  let prev=null;
+  try{prev=localStorage.getItem(CKEY)}catch(e){return 0}   /* no storage at all: nothing cached to drop */
+  if(prev===CVER)return 0;
+  let n=0;
+  for(const k of SECK){try{if(localStorage.getItem(k)!=null){localStorage.removeItem(k);n++}}catch(e){}}
+  try{localStorage.setItem(CKEY,CVER)}catch(e){}
+  return n;
+}
+const SEC_PURGED=sweepSectionCaches();
+/* the census a test reads: the stamp in use, what this boot dropped, and what
+   is left in storage — nothing on screen reads it. */
+window.__ltCacheVer=()=>({ver:CVER,key:CKEY,purged:SEC_PURGED,keys:SECK.slice(),
+  stamp:(()=>{try{return localStorage.getItem(CKEY)}catch(e){return null}})(),
+  present:SECK.filter(k=>{try{return localStorage.getItem(k)!=null}catch(e){return false}})});
 document.addEventListener('load',e=>{const t=e.target;if(t&&(t.tagName==='IMG'||t.tagName==='IFRAME'))t.classList.add('ld')},true);
 document.addEventListener('error',e=>{const t=e.target;if(t&&t.tagName==='IMG'&&!t.hasAttribute('onerror'))t.classList.add('ld')},true);
 const LDR='<div class="ldr"><i></i><i></i><i></i></div>';
@@ -1295,7 +1331,7 @@ async function loadSection(name){
   const cfg=SECTIONS[name];
   try{
     const c=loadJSON(localStorage.getItem(cfg.key),null);
-    if(c&&c.at&&Date.now()-c.at<12*36e5&&Array.isArray(c.items)&&c.items.length){
+    if(c&&c.v===CVER&&c.at&&Date.now()-c.at<12*36e5&&Array.isArray(c.items)&&c.items.length){
       c.items.forEach(it=>vObj(it.id,it));
       SEC[name]=c.items.map(it=>V[it.id]).filter(Boolean);
       if(SEC[name].length)return SEC[name];
@@ -1335,7 +1371,7 @@ async function loadSection(name){
   clean.sort((a,b)=>hi(b)-hi(a));      // Hindi titles first, then the rest
   await loadChannels(clean.map(v=>v.ch));
   SEC[name]=clean;
-  try{localStorage.setItem(cfg.key,storeJSON({at:Date.now(),
+  try{localStorage.setItem(cfg.key,storeJSON({v:CVER,at:Date.now(),
     items:clean.map(v=>({id:v.id,t:v.t,c:v.c,ch:v.ch,pub:v.pub,cat:v.cat}))}))}catch(e){}
   return clean;
 }
