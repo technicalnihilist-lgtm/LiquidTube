@@ -2,6 +2,7 @@ package com.liquidtube.app;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.ComponentCallbacks2;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
@@ -310,6 +311,57 @@ public class MainActivity extends Activity {
         super.onResume();
         web.onResume();
         web.resumeTimers();
+    }
+
+    /**
+     * A long session grows memory the page cannot see and therefore cannot give
+     * back: the renderer's decoded images, its paint records, the in-memory half
+     * of the HTTP cache. None of it is JavaScript heap, so no amount of care in
+     * `index.html` releases it — and until now the app ignored every
+     * memory-pressure callback the system sends, which left the low-memory killer
+     * as the only way a long session could ever end.
+     *
+     * `freeMemory()` asks the renderer to drop what it can rebuild — Blink's
+     * caches and the decoded bitmaps behind the thumbnails — and costs a
+     * re-decode, not a request. `clearCache(false)` drops only the RAM half of
+     * the resource cache; the disk cache, and with it the next launch, is
+     * untouched. Neither touches the document, so the page keeps its state and
+     * nothing on screen changes.
+     *
+     * Only the levels that say this process is actually short of memory are
+     * answered. `TRIM_MEMORY_UI_HIDDEN` is not one of them: an app the user just
+     * backgrounded is expected to come straight back, and paying for a reload it
+     * did not need is the cost this app should not take.
+     */
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (web == null) {
+            return;
+        }
+        switch (level) {
+            case ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW:
+            case ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL:
+            case ComponentCallbacks2.TRIM_MEMORY_COMPLETE:
+                web.freeMemory();
+                web.clearCache(false);
+                Log.i(TAG, "lt-trim level=" + level);
+                break;
+            default:
+                break;
+        }
+    }
+
+    /** The system's last warning before it starts killing: drop everything cacheable. */
+    @Override
+    public void onLowMemory() {
+        super.onLowMemory();
+        if (web == null) {
+            return;
+        }
+        web.freeMemory();
+        web.clearCache(false);
+        Log.i(TAG, "lt-trim level=low");
     }
 
     @Override
