@@ -687,6 +687,69 @@ function rqWorthRetry(e){
   if(!s)return true;                          /* no response at all: the network failed */
   return s===429||(s>=500&&s<=599);
 }
+/* ---------- async safety net (item 5.1) ----------
+   Every path in this app that waits — a request, a channel lookup, a section, a
+   shelf, the boot's second stage, the work bindInput does in an idle slot —
+   ended in one of two places: a rejection handler written for it by hand, or
+   nowhere at all. The first is only as good as its own body: a handler that
+   throws (a node the render expects is gone, a shape the API did not send) threw
+   into nowhere just the same. The second was a bare `.then` whose promise nobody
+   holds. Either way the app saw an unhandled rejection — a console error, and a
+   step of the boot or of a tap that silently never happened.
+
+   Three functions close that, and nothing else in the app changed shape:
+
+     asGuard(where,fn,fallback)  run fn now; keep what it returns (a value or a
+                                 promise) and turn a throw or a rejection into
+                                 `fallback`.
+     asWatch(where,promise,fallback)  the same for a promise already on the wire.
+     asSafe(where,err)           record a failure a caller has already answered
+                                 for itself (it has its own empty state) so the
+                                 log still shows it.
+
+   A failure writes one line under the `lt-` prefix MainActivity forwards:
+
+     lt-async where=play.channel err=<message> n=<failures so far>
+
+   `where` is the site, not the data: a search carries what the user typed and
+   the log goes to logcat, so no argument, no id and no URL is ever in the line.
+   AbortError is not a failure — a page the user left is abandoned on purpose —
+   so it is neither counted nor logged, and a guarded call simply returns its
+   fallback. Both tables are bounded (AS_LINES lines, AS_MAXW sites) so a long
+   broken session cannot flood logcat; past that the counters keep counting and
+   `dropped` records what was not printed.
+
+   The cost when nothing fails is one Promise.resolve per guarded path and one
+   comparison: no timer, no listener, no allocation. window.__ltAsync() returns
+   the whole picture, which is what tools/async-guard-check.js reads and what
+   items 5.4 and 18.x will build on. */
+const AS_LINES=20,AS_MAXW=12;
+const AS_ST={guards:0,caught:0,lines:0,dropped:0,by:{}};
+function asSafe(where,e){
+  if(e&&e.name==='AbortError')return;          /* abandoned on purpose: not a failure */
+  AS_ST.caught++;
+  if(!(where in AS_ST.by)&&Object.keys(AS_ST.by).length<AS_MAXW)AS_ST.by[where]=0;
+  if(where in AS_ST.by)AS_ST.by[where]++;
+  if(AS_ST.lines>=AS_LINES){AS_ST.dropped++;return}   /* bounded: the count keeps counting */
+  AS_ST.lines++;
+  try{console.log('lt-async where='+where+' err='+String((e&&e.message)||e||'unknown').slice(0,120)
+    +' n='+AS_ST.caught)}catch(x){}
+}
+function asGuard(where,fn,fallback){
+  AS_ST.guards++;
+  let p;
+  try{p=fn()}catch(e){asSafe(where,e);return Promise.resolve(fallback)}
+  return Promise.resolve(p).catch(e=>{asSafe(where,e);return fallback});
+}
+function asWatch(where,p,fallback){
+  AS_ST.guards++;
+  return Promise.resolve(p).catch(e=>{asSafe(where,e);return fallback});
+}
+window.__ltAsync=()=>{
+  const by={};
+  Object.keys(AS_ST.by).forEach(k=>{by[k]=AS_ST.by[k]});
+  return {guards:AS_ST.guards,caught:AS_ST.caught,lines:AS_ST.lines,dropped:AS_ST.dropped,sites:by};
+};
 /* ---------- slow requests (item 2.10) ----------
    A request that takes longer than RQ_SLOW_MS is worth a line in the log, because
    a slow round trip is the one failure the user feels but nothing in the app
@@ -979,7 +1042,7 @@ function chFlush(){
   };
   const run=[];
   for(let k=0;k<CH_PAR&&k*CH_BATCH<ids.length;k++)run.push(step());
-  Promise.all(run).then(()=>{},()=>{});
+  asWatch('channels.flush',Promise.all(run));   /* never rejects: chGroup answers its own waiters */
 }
 /* queue these ids and resolve once each of them is settled (loaded or failed).
    Resolves with the errors, in no particular order; never rejects. */
@@ -1286,6 +1349,7 @@ function paintShelf(sh){
     .catch(e=>{
       SHELF_BUSY.delete(sh.id);
       if(e&&e.name==='AbortError')return;    /* the page was left: exploreResume picks it up again */
+      asSafe('shelf.'+sh.id,e);              /* counted and logged; the carousel is emptied below */
       const el=document.getElementById('car-'+sh.id);if(el)el.innerHTML='';
     });
 }
@@ -1383,7 +1447,18 @@ async function renderSection(name){
   box.innerHTML='<div class="skl"></div><div class="skl"></div><div class="skl"></div>';
   let list2;
   try{list2=await loadSection(name)}
-  catch(e){if(e&&e.name==='AbortError')return;throw e}   /* left the page: leave it undone, retry later */
+  catch(e){
+    if(e&&e.name==='AbortError')return;   /* left the page: leave it undone, retry later */
+    /* A section that failed to load is not an error the user should ever see
+       twice: the box gets the same sentence the empty branch below writes, and
+       `dataset.done` is deliberately not set, so the next visit re-runs the
+       section instead of showing a dead box for the rest of the session. This
+       used to re-throw — and renderSection is a promise nobody holds, so the
+       rejection went nowhere and the skeletons stayed on screen for good. */
+    asSafe('section.render.'+name,e);
+    box.innerHTML='<div class="empty">Could not load '+name+' videos right now.<br>Try again in a minute.</div>';
+    return;
+  }
   box.dataset.done='1';
   if(!list2.length){
     box.innerHTML='<div class="empty">Could not load '+name+' videos right now.<br>Try again in a minute.</div>';
@@ -1455,7 +1530,16 @@ function play(id){
   $('ppp').textContent=S.liked.includes(id)?'Liked':'Like';
   $('plk').textContent='Channel';
   $('pl').classList.add('on');$('scrim').classList.add('on');slideHint();
-  if(v.ch)loadChannels([v.ch]).then(()=>{if(cur&&cur.id===id)$('pmeta').textContent=v.c+(v.views?' · '+num(v.views)+' views':'')+(v.pub?' · '+ago(v.pub):'')});
+  /* The meta line is redrawn once the channel is known — it adds nothing to the
+     screen that is not already there, only the avatar-backed title. This was the
+     last `.then` in the app with no rejection handler at all: an element missing
+     from the DOM made the handler throw into nowhere, and the video still played
+     with a line that was never updated and no trace of why. Guarded, with the
+     line it already shows as the fallback, so a failure costs the redraw and
+     nothing else (item 5.1). */
+  if(v.ch)asWatch('play.channel',loadChannels([v.ch]).then(()=>{
+    if(cur&&cur.id===id)$('pmeta').textContent=v.c+(v.views?' · '+num(v.views)+' views':'')+(v.pub?' · '+ago(v.pub):'');
+  }));
 }
 $('ppp').onclick=()=>{if(!cur)return;toggle(S.liked,cur.id);$('ppp').textContent=S.liked.includes(cur.id)?'Liked':'Like'};
 /* The channel id is read before the close: `closeAll()` drops `cur`, so reading
@@ -1502,7 +1586,9 @@ function openChannel(id){
         pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,cat:'Channel'}));
       return dropShorts(items).then(clean=>{if(g!==shGen)return;$('chlist').innerHTML=clean.map(cardOf).join('')||'<div class="empty">No videos.</div>'});
     }).catch(()=>{if(g!==shGen)return;$('chlist').innerHTML='<div class="empty">Could not load videos.</div>'});
-  }).catch(e=>{if(g!==shGen)return;$('sht').textContent='Channel';$('shb').innerHTML='<div class="empty">'+esc(e.message||'Could not load')+'</div>'});
+  }).catch(e=>{
+    asSafe('channel.sheet',e);               /* the sheet answers for itself below */
+    if(g!==shGen)return;$('sht').textContent='Channel';$('shb').innerHTML='<div class="empty">'+esc(e.message||'Could not load')+'</div>'});
 }
 
 /* ---------- library sheet (avatar button) ---------- */
@@ -1636,6 +1722,7 @@ async function find(){
     if(id!==seq)return;
     $('results').innerHTML=list.length?list.map(cardOf).join(''):'<div class="empty">No videos match that.</div>';
   }catch(e){
+    asSafe('search.find',e);                 /* the panel answers for itself below */
     const q=QUOTA_RE.test(String(e.message||''));
     $('results').innerHTML='<div class="empty">'+(q?"YouTube's daily search limit is used up.":'Search failed. '+esc(e.message||''))+'</div>';
   }
@@ -1781,16 +1868,21 @@ paintSkeleton();
 mark('shell');
 reveal();
 firstFrame();                                    /* lt:paint = the skeleton frame */
-loadTrending().catch(e=>{if(!FEED.error)FEED.error=(e&&e.message)||'offline'})
+/* Stage 2 is one guarded chain. Whatever goes wrong in the swap — a node the
+   shell no longer has, a shape the feed did not send — the skeletons and the
+   splash behave exactly as they do on a successful boot (reveal() still runs),
+   the failure is counted and logged, and no rejection is left for nobody to
+   handle. `paintShell`'s own try/catch now records what it swallows (item 5.1). */
+asGuard('boot.feed',()=>loadTrending().catch(e=>{if(!FEED.error)FEED.error=(e&&e.message)||'offline'})
   .then(()=>{
     mark('data');
     if(window.__ltRestNow)window.__ltRestNow();   /* deferred sheet before the cards paint */
-    try{paintShell()}catch(e){}
+    try{paintShell()}catch(e){asSafe('boot.paint',e)}   /* the shell stays painted: nothing blanks */
     reveal();
     mark('feed');
     requestAnimationFrame(()=>requestAnimationFrame(()=>mark('feedpaint')));
     return firstFrame();
-  });
+  }));
 
 /* ---------- 3D depth: cards tilt under the finger ---------- */
 const DEPTH=()=>S.opt.depth!==0;
@@ -2415,11 +2507,17 @@ function bindInput(){
   if(pg&&pg.scrollTop>0)depthKick();
   mark('input');
 }
+/* bindInput runs in an idle slot, outside any promise: a throw there is an
+   uncaught error rather than a rejection, and every listener it had not yet
+   attached is simply never attached — the app keeps working but loses a whole
+   gesture with nothing said. It is wrapped once, here, so a failure is counted
+   and logged and the rest of the boot carries on (item 5.1). */
+function bindInputSafe(){try{bindInput()}catch(e){asSafe('input.bind',e)}}
 function scheduleInput(){
-  if(window.requestIdleCallback)requestIdleCallback(bindInput,{timeout:600});
-  else setTimeout(bindInput,0);
+  if(window.requestIdleCallback)requestIdleCallback(bindInputSafe,{timeout:600});
+  else setTimeout(bindInputSafe,0);
 }
-if(window.__ltFirstFrame)window.__ltFirstFrame().then(scheduleInput);
+if(window.__ltFirstFrame)asGuard('boot.firstframe',()=>window.__ltFirstFrame()).then(scheduleInput);
 else scheduleInput();
 
 /* ---------- timers: every one of them, and who clears it ----------
@@ -2711,8 +2809,8 @@ input[type=range]:active::-webkit-slider-thumb{scale:1.3}
    and at the latest when the shell is revealed. Nothing the user can see before
    the splash leaves depends on it. */
 (function(){var src=document.getElementById('lt-css-deferred');if(!src)return;var done=0;
-function apply(){if(done)return;done=1;var s=document.createElement('style');s.id='lt-css-rest';
-s.textContent=src.textContent;(document.head||document.documentElement).appendChild(s);}
+function apply(){if(done)return;done=1;try{var s=document.createElement('style');s.id='lt-css-rest';
+s.textContent=src.textContent;(document.head||document.documentElement).appendChild(s);}catch(e){}}
 window.__ltRestNow=apply;
 function idle(){if(window.requestIdleCallback)requestIdleCallback(apply,{timeout:800});
 else setTimeout(apply,60);}
