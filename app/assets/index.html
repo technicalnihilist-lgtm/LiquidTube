@@ -2085,8 +2085,23 @@ function frameCacheSync(){
 }
 /* Structure only: a class or style write is not a reason to rebuild, and the
    frame writes nothing else. The counter is raised here and the arrays are
-   rebuilt on the next frame that needs them. */
-new MutationObserver(()=>{domGen++})
+   rebuilt on the next frame that needs them — but they are emptied *here*, at
+   the mutation, and that half is not about the rebuild. These arrays are the
+   only place the app holds card and thumbnail elements across frames, and they
+   used to be emptied by the read pass of the next frame that ran. A frame does
+   not run when both effects are off (`frameRun` returns before the cache is
+   synced) or while the document is hidden, so with depth and parallax switched
+   off, every replaced feed stayed pinned in them for the rest of the session:
+   five chip taps on a 24-card feed left 288 detached nodes in 24 trees still
+   reachable from script, and twenty tab switches released none of them, because
+   a switch rebuilds nothing (item 4.7). Emptying them costs one length
+   assignment per array on a render, and `frameCacheSync` refills them from the
+   document on the next frame that runs, whether or not one was skipped. */
+function domDrop(){
+  F_ALL.length=0;F_VIS.length=0;
+  F_CARD.length=0;F_CTOP.length=0;F_CH.length=0;F_IMG.length=0;F_REL.length=0;
+}
+new MutationObserver(()=>{domGen++;domDrop()})
   .observe(document.body,{childList:true,subtree:true});
 function frameKick(force){
   if(force)forceFrame=true;
