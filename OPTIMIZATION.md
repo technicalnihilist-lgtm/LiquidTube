@@ -54,7 +54,7 @@ Dates: **1 Nov 2026 → 20 Nov 2026**, 10 items a day (one item per scheduled ru
 - [x] 4.7 Verify no detached DOM nodes after 20 tab switches
 - [x] 4.8 Check heap growth over a 10-minute scroll session
 - [x] 4.9 Clear the shelf/section caches on version change
-- [ ] 4.10 Document the memory budget in this file
+- [x] 4.10 Document the memory budget in this file
 
 ## Day 5 — Error handling
 - [ ] 5.1 Wrap every async path in try/catch with a user-safe fallback
@@ -333,6 +333,89 @@ so the next launch can print `prev`/`vs_prev`.
 
 ---
 
+## Memory budget — Day 4, item 4.10
+
+Items 4.1–4.9 each closed one container that could grow: the timers, the `V`
+registry, the page listeners, the player iframe, the saved library, the `CH`
+channel map, the detached trees, the shelf caches. What none of them wrote down
+is the number the whole app is allowed to occupy, so "did this change make the
+app heavier?" has had no answer that a later item could be held to. This is that
+number, and `tools/memory-budget-check.js` is the same number made executable.
+
+**What is budgeted, and what is not.** The UI is one HTML file in the WebView, so
+the part that this file can govern is what the page *retains*: the JS heap after a
+forced GC, the live DOM, the listeners, the detached trees, the app's own maps and
+the bytes it puts in `localStorage`. Native memory is outside it and is not
+pretended otherwise: the WebView process itself, the decoded bitmap of every
+thumbnail on screen (roughly 100–200 KB per card at 2x, held by Blink, not by JS)
+and the media pipeline behind the player iframe. Those are governed by items 3.9,
+6.x and 8.x, not by this budget.
+
+**How it is measured.** `tools/memory-budget-check.js` serves `index.html` from
+the app's own origin with the YouTube API mocked by fixed fixtures — realistic
+titles (40–70 characters, Devanagari and emoji included, because the title is the
+biggest string the app keeps per video), every image a 1×1 PNG — and drives the
+heaviest session a phone produces on one page, in the order a user would:
+
+1. **boot** — the feed is up and the first paint has settled.
+2. **library** — one card played, one liked, one saved, so History, Liked and
+   Later each hold an entry and the state is rewritten to storage.
+3. **searches** — 8 distinct queries, 20 results each (160 ids the registry has
+   never seen, and the request cache filled).
+4. **sections** — the Anime, Movies and Cartoon chips, so all three shelf caches
+   exist in memory *and* in storage.
+5. **pages** — Explore (all three shelves painted), Subscriptions, Home.
+
+Then it forces two collections (`JSHeapUsedSize` after the second is the number
+quoted) and reads the app's own containers by name, plus `DOM.getDetachedDomNodes`
+for the trees nothing points at any more.
+
+**The budget**, and what the same session measures against it (9 Nov 2026,
+v7.46, 360×640 at 2x, one run per line — three runs agreed to within 30 KB):
+
+| measure | measured | budget | why that ceiling |
+|---|---|---|---|
+| JS heap at boot | **1.03 MB** | 3 MB | ~3× the measurement: a card's strings and the feed's list are what a boot holds, and a change that triples it is a regression, not fixture noise |
+| JS heap after the session | **1.32 MB** (+0.29 MB) | 6 MB | ~4.5×: the session adds ~230 ids and three shelves and is still well under; a per-session leak of even 1 MB per 100 videos would fail here |
+| live DOM elements | **729** | 2000 | ~2.7×; 50 cards and their thumbnails are 729 elements, so 2000 is ~130 cards' worth |
+| JS event listeners | **189** | 600 | ~3×; every page has been built and torn down once by the end of the session, and 4.3 removed the ones that used to survive that |
+| detached DOM nodes | **0** | 0 | 4.7's result is a floor, not a target: a held tree is a bug, never a budget line |
+| `localStorage`, all `lt*` keys | **10.6 KB** | 64 KB | ~6×; the whole persisted app is the feed cache, three shelf caches, state, quota meter and the boot line, all LZW-compressed (2.8). The WebView quota is orders of magnitude larger — the budget is about not hoarding, not about the quota |
+| `V` + `CH` as JSON | **131 KB** | 512 KB | the two maps at their own ceilings (680 + 180 entries) are ~0.4 MB with real titles, so the budget is full occupancy plus payload variance |
+
+The containers that already have a ceiling of their own are checked against
+*that* ceiling, not against a second one invented here: `V` 224 / `V_HI` 680,
+`CH` 17 / 180, the request cache 45 / 48, History 1 / 100, Liked and Later 1 / 500
+each, the three shelf lists 12 / 12 / 12, the Explore shelves 52 items. A session
+that leaves one of them above its cap is a bug in that cap, not a budget
+question, and the tool reports it as a failure.
+
+**The measurement's own check.** A run that reports a small, flat heap proves
+nothing unless the tool can show it would have seen a large one, so the run
+starts by holding 8 MB of plain objects on `window`: it must read as **+7.9 MB**
+(measured +7933 KB), and must be gone after release (68 KB left, i.e. the
+collector's own noise). A build with a deliberate 20 MB retained array fails the
+run — `boot heap 21 MB over 3 MB; session heap 22 MB over 6 MB` — which is the
+other half of the same proof: the ceilings are reachable.
+
+**How to run it.**
+
+```
+npm i puppeteer-core                                   # dev only, not in the APK
+CHROME=/path/to/chrome node tools/memory-budget-check.js app/assets/index.html
+```
+
+Exit code 1 means over budget. `SEARCHES=20` lengthens the session; nothing else
+needs setting.
+
+**The rule for every later item.** Any change that pushes one of these numbers
+over its ceiling is not merged as-is: either the change gives the memory back, or
+this table is amended in the same run with the new number and the reason it is
+acceptable. The budget is a ceiling for the app, not a snapshot of it — the
+measured column is expected to move, the budget column only with an argument.
+
+---
+
 ## Log
 
 | Date | Item | Result |
@@ -377,3 +460,4 @@ so the next launch can print `prev`/`vs_prev`.
 | 9 Nov 2026 | 4.7 Verify no detached DOM nodes after 20 tab switches | **A tab switch builds nothing, so the item's own question is answered before it is asked — and it hid the leak beside it.** Twenty switches move three pages that are already in the document: `render()` writes transforms, flips `inert` and re-runs `replay()`, and the live tree is the same 389 elements, 10 cards and 3 pages before and after, with **0 detached nodes** at 10 switches and at 20 (heap 1,043 → 1,178 KB, which is what the session decoded, not held DOM). The measurement is the new `tools/detached-node-check.js` (puppeteer-core, dev-only, not shipped in the APK): it reads `DOM.getDetachedDomNodes`, the call behind DevTools' "Detached elements" panel, after a forced GC — and it proves the detector before using it, by creating four nodes, removing them, holding them (**12 detached: DIV ×4, B ×4, #text ×4**) and letting them go (0), so a zero in the report is a measurement and not a silence. What that measurement then found is the case a switch cannot reach: the frame cache. `F_ALL`/`F_VIS` and the read pass's buffers hold card and image elements across frames, and they used to be emptied by the next frame's read pass — but `frameRun` returns *before* the cache is synced when depth and parallax are both off, and while the document is hidden. So with both effects switched off in Settings, one re-rendered full feed stayed pinned: **288 detached nodes in 24 trees** (DIV ×72, #text ×72, IMG ×48, BUTTON ×24, U ×24, B ×24, SPAN ×24), and twenty tab switches, the player and the library sheet then released none of them — the old build ended the run at 288 detached nodes and 1,204 KB, the new build at 0 and 1,101 KB in the same A/B run. The arrays are now emptied in the `MutationObserver` that already counts the structural change (`domDrop()`), so the hold ends at the mutation instead of at a frame that may never run; the pass still rebuilds them from the document, and `tools/frame-cache-check.js` still passes on the new build — a tab switch moves the visible set, a removed card leaves the cache, and the cards that are left are still written. No UI change. v7.43 (versionCode 68) |
 | 9 Nov 2026 | 4.8 Check heap growth over a 10-minute scroll session | **Ten minutes of continuous scrolling is 36,000 frames, and the heap ends 16 KB below where it started.** The instrument is the new `tools/heap-scroll-check.js` (puppeteer-core, dev-only, not shipped in the APK). It drives the real UI with the API mocked: a scroll step on the page's own scroller, the frame that step asks for, a tilt sample every half second the way a hand sends one, and a forced GC followed by a sample of the heap, the DOM and every container the app owns at the end of each simulated minute. It proves the measurement before using it — 50,000 plain objects are held (**+3,905 KB**) and released (**-1 KB**) — because a typed array or a large string is external or off-heap and would report the same number either way. Then the session: **1,200 KB at minute 1 → 1,201 → 1,202 → 1,204 → 1,207 → 1,207 → 1,208 → 1,208 → 1,184 → 1,184 KB at minute 10**, which is a plateau with a −16 KB wobble at the end, not a slope; the live tree is the same **569 elements, 30 cards, 84 images, 3 pages** at all ten samples; `V` 64, `CH` 7, `RQ` 9, `CHQ` 7, `VQ` 64 and `F_ALL` 30 hold their exact size throughout; one document, zero page errors, and the app ran 38,119 frames for the 36,000 steps. What the frame path does allocate is 2.13 KB of garbage per frame — a scavenge's work, not a hold. A heap snapshot diff across the first minute says where the only growth is, and it is a step, not a leak: **native +757 KB and code +99 KB** — Blink's first-use `ComputedStyle`, `TransformPaintPropertyNode`, `GeometryMapperTransformCache` and `LayoutBlockFlow` caches, plus V8's lazily compiled `InstructionStream` — while `object`, `string`, `array`, `closure` and `object shape` together move by **+2 KB**. Those caches are built once and then reused for the rest of the session, which is why minute 2 onwards is flat. **What the check did find is the process around the page.** Nothing in JavaScript grows, and nothing in JavaScript could: the memory a long session accumulates is the renderer's decoded bitmaps, paint records and in-memory resource cache, none of which is JS heap, so no care in `index.html` can release it. `MainActivity` ignored every memory-pressure callback Android sends — no `onTrimMemory`, no `onLowMemory` — so the low-memory killer was the only way a long session could ever give memory back. It now answers `TRIM_MEMORY_RUNNING_LOW`, `TRIM_MEMORY_RUNNING_CRITICAL` and `TRIM_MEMORY_COMPLETE` with `freeMemory()` and `clearCache(false)`, and `onLowMemory` the same; `clearCache(false)` drops only the RAM half of the resource cache, so the disk cache and the next launch are untouched, `freeMemory()` costs a re-decode rather than a request, and neither touches the document, so the page keeps its state and nothing on screen changes. `TRIM_MEMORY_UI_HIDDEN` is deliberately not answered — an app the user just backgrounded is coming straight back. Each release writes one line (`lt-trim level=N`) to logcat, so the device can show the callbacks firing. The verdict the tool gates on: no more than 128 KB over the session, no minute adding more than 64 KB, the live tree never growing, every map holding its size — all pass. v7.44 (versionCode 69) |
 | 9 Nov 2026 | 4.9 Clear the shelf/section caches on version change | The three Home section caches (`lt_anime`, `lt_cartoon`, `lt_movies`) were the only persisted lists with no build stamp of their own: the feed cache has `FVER` and the state blob is merged field by field, but a section was read back for twelve hours exactly as whichever build wrote it left it. After an update that changes what a section holds or how a card maps to `V`, the first launch of the new build could paint old entries in the old shape — and skip the request the new code wanted to make, because the cache answered instead. They now carry `v:CVER` inside the blob and the read requires it, and one small stamp key (`lt_cver`) is written at boot: a launch that finds a different value (a first install: none at all) drops the three section keys before anything can read them, then writes its own, so even a storage that refuses the stamp write (quota, private mode) cannot hand an old section to new code. Nothing else is touched — the library, the last feed and the quota meter keep their keys, and the section rebuilds on the first visit to its chip with the same cards a cold start shows, so no feature is lost and nothing on screen changes. `CVER` is bumped with `versionName` whenever a section's shape or mapping changes. `tools/cache-version-check.js` (jsdom, dev-only, not shipped in the APK) drives the real Anime chip through six scenarios plus an A/B against the previous build: a cold install purges **0** and writes the stamp, the section it then writes carries `v:7.45`; a same-build relaunch purges **0**, paints **48 cards with 0 section requests** and the same titles in the same order as the fetch; an upgrade from **7.44** purges **3**, leaves none of the keys in storage and refetches with **no old title on screen**; caches with no stamp at all purge **2**; a matching stamp with a `v:7.44` blob is rejected on read and refetched (4 calls); and the purge leaves the saved library, the last feed and the quota meter intact while still clearing the retired `lt_shorts` key. **40/40 checks pass**, no console error in any scenario, and the previous build is shown keeping the stale cache it cannot recognise. The existing suites still pass unchanged (`request-cache-check` 7 boot requests, `tab-abort-check` 39/39, `quota-meter-check` 37/37); `storage-codec-check`'s one A/B line about plain-vs-compressed storage fails identically when HEAD is compared with itself, so it is that tool's own premise, not this item. v7.45 (versionCode 70) |
+| 9 Nov 2026 | 4.10 Document the memory budget in this file | **The nine items before this one each closed a container; none of them wrote down what the whole app may occupy**, so a later change could make the app heavier and nothing would say so. The budget now exists twice: as the new section **“Memory budget — Day 4, item 4.10”** above, and as `tools/memory-budget-check.js`, which is that section made executable and fails the build when any line of it is crossed. It drives the real UI on a real browser with the API mocked and runs the heaviest session a phone produces on one page — boot, then one card played / liked / saved (so History, Liked and Later all hold an entry), then **8 distinct searches** of 20 results (160 ids the registry has never seen), then the **Anime, Movies and Cartoon** chips (so all three shelf caches exist in memory *and* in storage), then **Explore, Subscriptions, Home** — and reads, after two forced collections, the JS heap, the live DOM, the listeners, `DOM.getDetachedDomNodes`, every `lt*` key and the app's own maps. **Measured on this build, 360×640 at 2x, three runs agreeing to within 30 KB:** heap **1.03 MB** at boot → **1.32 MB** after the session (+0.29 MB), **729** live elements, **189** listeners, **0** detached nodes, **10.6 KB** of storage across six keys, and `V`+`CH` at **131 KB** of JSON; the containers sit at `V` 224/`V_HI` 680, `CH` 17/180, request cache 45/48, History 1/100, Liked and Later 1/500 each, shelves 12/12/12 and 52 Explore items. **The ceilings are ~3–6× those numbers** — 3 MB boot, 6 MB session, 2000 elements, 600 listeners, 0 detached, 64 KB storage, 512 KB of maps — because the harness's images are 1×1 PNGs and its feed is fixed, so the budget has to be a ceiling a real session fits inside rather than a snapshot of a fixture. Native memory is explicitly **not** in it and the section says so: the WebView process, the decoded bitmap of every thumbnail (~100–200 KB per card at 2x, held by Blink) and the media pipeline belong to items 3.9, 6.x and 8.x. **The run proves it can see before it reports:** it first holds 8 MB of plain objects on `window`, which must read as +7.9 MB (measured **+7933 KB**) and must be gone after release (**68 KB** left), and a copy of the build with a deliberate 20 MB retained array fails with `boot heap 21 MB over 3 MB; session heap 22 MB over 6 MB` — so a PASS is a measurement, not a blind spot. The containers that already have a cap are checked against their own cap, not against a second one invented here. **No UI change and nothing removed:** the tool is dev-only (`npm i puppeteer-core`, never in the APK) and the app's code is untouched — the only file that changed besides the plan and the tool is `AndroidManifest.xml`, for the version. The rule the section now carries: a change that crosses a ceiling either gives the memory back or amends the table in the same run with the reason. v7.46 (versionCode 71). |
