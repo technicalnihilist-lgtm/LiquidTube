@@ -680,13 +680,102 @@ function rqBackoff(attempt){
   const base=Math.min(RQ_RETRY_CAP,RQ_RETRY_BASE*Math.pow(2,attempt));
   return base+Math.floor(Math.random()*base*0.5);
 }
-function rqErr(msg,status){const e=new Error(msg);e.status=status|0;return e}
+function rqErr(msg,status,reason,kind){
+  const e=new Error(msg);e.status=status|0;
+  if(reason)e.reason=String(reason);          /* the API's own `reason`, when it gave one */
+  e.kind=kind||ekKind(e);                     /* classified once, where the failure is made */
+  return e;
+}
 function rqWorthRetry(e){
   if(!e||e.name==='AbortError')return false;  /* cancelled on purpose: never repeated */
   const s=e.status|0;
   if(!s)return true;                          /* no response at all: the network failed */
   return s===429||(s>=500&&s<=599);
 }
+/* ---------- error kinds (item 5.2) ----------
+   Until now a failed request carried one number and one sentence: `status`, which
+   the retry decision read, and the API's own message, which the UI printed. The
+   app could tell a 4xx from a 5xx and nothing else, so the four failures that
+   mean completely different things arrived looking the same — a revoked key, a
+   daily quota that is spent, a device with no network, a video that no longer
+   exists — and any handler that wanted to know which one it had was left sniffing
+   the message text. The search panel did exactly that (`QUOTA_RE.test(e.message)`)
+   and got the quota case right only because the API happens to use the word.
+
+   Every request failure is now classified once, where it is created, and the
+   class travels on the error object as `kind`:
+
+     quota      the daily quota is spent: 403 with reason quotaExceeded /
+                dailyLimitExceeded / quotaExceededUnreg, or a message that says it
+     ratelimit  429, or reason rateLimitExceeded / userRateLimitExceeded — the
+                per-second ceiling, which clears on its own
+     auth       401, or 403 for any reason that is not quota (keyInvalid,
+                keyExpired, accessNotConfigured, ipRefererBlocked, forbidden) —
+                the key, not the quota, and no amount of retrying fixes it
+     notfound   404, or reason videoNotFound / channelNotFound / playlistNotFound
+                — the thing asked for is gone, private or mistyped
+     server     5xx — the API's own fault, and what the retry above is for
+     network    no response at all: offline, DNS, a reset connection, TLS
+     client     any other 4xx — a request the API will not accept as written
+     malformed  a 200 whose body would not parse
+     aborted    a request whose owning page the user left (item 2.7): counted,
+                but never logged and never a failure — it was cancelled on purpose
+     unknown    anything else, which should not happen and is worth seeing
+
+   Nothing about behaviour changed with it: what is retried is still whatever
+   rqWorthRetry says, only a success is still cached, and not one sentence on
+   screen is different. What it adds is a name for the failure, so that the
+   surfaces that answer for one can branch on `kind` instead of on a message
+   (5.3 stops printing the API's text, 5.7 retries the feed, 5.8 offers a retry
+   where the box is dead today), and so the log says which failure was hit:
+
+     lt-err kind=quota ep=search status=403 reason=quotaExceeded n=1
+
+   `ep` is the endpoint from rqEp(), so a line names where and never what: a
+   search carries what the user typed and the log goes to logcat. A failure is
+   counted once, where it is finally handed to the caller — after the retry, not
+   per attempt — so `n` is requests that failed, and `kinds` is the session's
+   picture of them. Both are bounded (EK_LINES lines; the kinds are a fixed list)
+   so a long offline session cannot flood logcat. window.__ltErr() returns the
+   whole table, which is what tools/error-kind-check.js reads.
+
+   The cost when nothing fails is nothing: the classifier runs on a throw. */
+const EK_LINES=40;
+const EK_ST={n:0,lines:0,dropped:0,last:null,k:{}};
+function ekKind(e){
+  if(!e)return 'unknown';
+  if(e.kind)return e.kind;                    /* classified when it was made */
+  if(e.name==='AbortError')return 'aborted';
+  const s=e.status|0,r=String(e.reason||''),m=String(e.message||'');
+  if(r==='quotaExceeded'||r==='dailyLimitExceeded'||r==='quotaExceededUnreg'||QUOTA_RE.test(m))return 'quota';
+  if(s===429||r==='rateLimitExceeded'||r==='userRateLimitExceeded')return 'ratelimit';
+  if(s===401||s===403||r==='keyInvalid'||r==='keyExpired'||r==='accessNotConfigured'
+    ||r==='ipRefererBlocked'||r==='forbidden'||r==='unauthorized'
+    ||/api key not valid|invalid api key|api key expired|access not configured|not authorized/i.test(m))return 'auth';   /* a 400 that is really the key's fault */
+  if(s===404||r==='videoNotFound'||r==='channelNotFound'||r==='playlistNotFound'||r==='notFound')return 'notfound';
+  if(s>=500&&s<=599)return 'server';
+  if(s>=400&&s<=499)return 'client';
+  if(!s)return (e.name==='TypeError'||/failed to fetch|networkerror|load failed|net::/i.test(m))?'network':'unknown';
+  return 'unknown';
+}
+function ekFail(e,ep){
+  const k=ekKind(e);
+  if(e&&typeof e==='object'&&!e.kind)try{e.kind=k}catch(x){}   /* the class travels with the failure */
+  EK_ST.k[k]=(EK_ST.k[k]||0)+1;
+  if(k==='aborted')return;                    /* cancelled on purpose: counted, never logged */
+  EK_ST.n++;
+  EK_ST.last={kind:k,ep:ep,status:(e&&e.status)|0};
+  if(EK_ST.lines>=EK_LINES){EK_ST.dropped++;return}   /* bounded: the count keeps counting */
+  EK_ST.lines++;
+  try{console.log('lt-err kind='+k+' ep='+ep+' status='+((e&&e.status)|0)
+    +(e&&e.reason?' reason='+String(e.reason).slice(0,32):'')+' n='+EK_ST.n)}catch(x){}
+}
+window.__ltErr=()=>{
+  const k={};
+  Object.keys(EK_ST.k).forEach(x=>{k[x]=EK_ST.k[x]});
+  return {n:EK_ST.n,lines:EK_ST.lines,dropped:EK_ST.dropped,
+    last:EK_ST.last?{kind:EK_ST.last.kind,ep:EK_ST.last.ep,status:EK_ST.last.status}:null,kinds:k};
+};
 /* ---------- async safety net (item 5.1) ----------
    Every path in this app that waits — a request, a channel lookup, a section, a
    shelf, the boot's second stage, the work bindInput does in an idle slot —
@@ -876,9 +965,15 @@ async function rqOnce(path,q,sig){
   const r=await fetch(API_BASE+path+'?'+q,sig?{signal:sig}:undefined);   /* aborted here if the page was left */
   let j=null,parsed=true;
   try{j=await r.json()}catch(e){parsed=false}
-  if(j&&j.error){if(QUOTA_RE.test(String(j.error.message||'')))qRefuse();throw rqErr(j.error.message||'YouTube API error',r.status)}
+  if(j&&j.error){
+    const em=j.error,rs=String((em.errors&&em.errors[0]&&em.errors[0].reason)||'');
+    /* the reason decides, not the wording: a refusal the API words differently
+       still counts against the meter (item 2.9) and is still classified quota */
+    if(rs==='quotaExceeded'||rs==='dailyLimitExceeded'||rs==='quotaExceededUnreg'||QUOTA_RE.test(String(em.message||'')))qRefuse();
+    throw rqErr(em.message||'YouTube API error',r.status,rs)
+  }
   if(!r.ok)throw rqErr('HTTP '+r.status,r.status);
-  if(!parsed||!j)throw rqErr('Malformed response',r.status);
+  if(!parsed||!j)throw rqErr('Malformed response',r.status,'','malformed');
   return {j:j,h:r.headers,s:r.status};   /* `s` is only for the slow log: what the answer came back as */
 }
 /* the round trip, with its retry; kept separate so the in-flight slot can be
@@ -902,7 +997,11 @@ async function rqFetch(ck,path,params,q,now,sig){
     }catch(e){
       const st=e.status|0;
       rqSlow(ep,rqNow()-t0,attempt,st,e.name==='AbortError'?'abort':(st?'':'net'));
-      if(attempt>=RQ_RETRY_MAX||!rqWorthRetry(e)){if(attempt)RQ_ST.retryFail++;throw e}
+      if(attempt>=RQ_RETRY_MAX||!rqWorthRetry(e)){
+        if(attempt)RQ_ST.retryFail++;
+        ekFail(e,ep);                        /* counted once, as it reaches the caller (item 5.2) */
+        throw e
+      }
       RQ_ST.retry++;
       await rqSleep(rqBackoff(attempt));
     }
@@ -1723,7 +1822,7 @@ async function find(){
     $('results').innerHTML=list.length?list.map(cardOf).join(''):'<div class="empty">No videos match that.</div>';
   }catch(e){
     asSafe('search.find',e);                 /* the panel answers for itself below */
-    const q=QUOTA_RE.test(String(e.message||''));
+    const q=ekKind(e)==='quota';             /* the failure's class, not its wording (item 5.2) */
     $('results').innerHTML='<div class="empty">'+(q?"YouTube's daily search limit is used up.":'Search failed. '+esc(e.message||''))+'</div>';
   }
 }
