@@ -142,9 +142,57 @@ img.ld{opacity:1;scale:1}
 </div>
 <script>
 const $=id=>document.getElementById(id);
+/* ---------- guarded selectors (item 5.5) ----------
+   `document.querySelector` answers null and `querySelectorAll` an empty list
+   the moment the markup stops matching — a renamed id, a class a later render
+   drops, a sheet that has not been painted yet. Every call site in this file
+   used the answer immediately (`$('pl').querySelector('.art')`,
+   `[...$('sg').querySelectorAll('button')]`), so one stale selector threw a
+   TypeError out of the middle of a render path and took the rest of that
+   render with it: the surface stayed half-written until the next repaint, and
+   when the throw happened inside a gesture handler the rest of the gesture
+   was lost too.
+   `qs()` and `qsa()` are now the only way a selector is resolved. `qs`
+   answers null and `qsa` an empty array — the shapes their callers already
+   guard for — and `root` takes an element or an id, so `qs('.art','pl')`
+   cannot throw on a missing root either. An empty `qsa` is not a miss (a
+   list may legitimately be empty); a missing root or a `qs` that finds
+   nothing is, and it is counted and reported once per selector under the
+   `lt-sel` prefix MainActivity already forwards to logcat, so a selector
+   that stops matching shows up in a log instead of only as a dead control.
+   `window.__ltSel()` is the census; nothing on screen reads it. */
+const SEL_MISS=new Map();let SEL_N=0;
+function selRoot(root){
+  if(!root)return document;                     /* no root given: the document */
+  if(typeof root==='string')return $(root);     /* an id: null once it is gone */
+  return root;
+}
+function selMiss(sel){
+  SEL_N++;
+  const n=(SEL_MISS.get(sel)||0)+1;
+  SEL_MISS.set(sel,n);
+  if(n===1)try{console.log('lt-sel miss sel='+String(sel).slice(0,60)+' n='+SEL_N)}catch(e){}
+}
+const qs=(sel,root)=>{
+  const p=selRoot(root);
+  if(!p){selMiss(sel);return null}
+  const r=p.querySelector(sel);
+  if(!r)selMiss(sel);
+  return r;
+};
+const qsa=(sel,root)=>{
+  const p=selRoot(root);
+  if(!p){selMiss(sel);return []}
+  return Array.prototype.slice.call(p.querySelectorAll(sel));
+};
+window.__ltSel=()=>{
+  const misses=[];
+  SEL_MISS.forEach((n,s)=>misses.push([s,n]));
+  return {n:SEL_N,misses:misses};
+};
 const I={anime:'<rect x="3.5" y="4" width="17" height="16" rx="4"/><path d="M9 9.5v5l5-2.5z"/><path d="M7 4v16M17 4v16"/>',movies:'<rect x="3" y="6" width="18" height="12" rx="3"/><path d="M7 6v12M17 6v12M3 12h18"/>',cartoon:'<circle cx="12" cy="12" r="8.5"/><circle cx="9" cy="10" r="1.3"/><circle cx="15" cy="10" r="1.3"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/>',plus:'<path d="M12 5v14M5 12h14"/>',cast:'<path d="M3 8V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5"/><path d="M3 12a8 8 0 0 1 8 8M3 16a4 4 0 0 1 4 4M3 20h.01"/>',bell:'<path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0"/>',user:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.2 18.5a7 7 0 0 1 11.6 0"/>',more:'<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',home:'<path d="M3 11 12 3l9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',explore:'<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',subs:'<rect x="3" y="7" width="18" height="13" rx="3"/><path d="M7 3h10M10 11l4 2.5-4 2.5z"/>',like:'<path d="M7 11v9H4v-9zM7 11l4-8c2 0 3 1.5 2.5 3.5L13 9h5.5a2 2 0 0 1 2 2.4l-1.3 6.5a2 2 0 0 1-2 1.6H7"/>',cmt:'<path d="M4 5h16v11H9l-5 4z"/>',share:'<path d="M4 12v7h16v-7M12 3v12M7.5 7.5 12 3l4.5 4.5"/>',remix:'<path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"/>',audio:'<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>'};
 const ic=n=>`<svg viewBox="0 0 24 24">${I[n]}</svg>`;
-document.querySelectorAll('[data-ic]').forEach(b=>b.innerHTML=ic(b.dataset.ic));
+qsa('[data-ic]').forEach(b=>b.innerHTML=ic(b.dataset.ic));
 /* ================= LiquidTube — live data on the liquid-glass shell ================= */
 const G=[['#ff5f6d','#ffc371'],['#7f00ff','#e100ff'],['#00c6ff','#0072ff'],['#f7971e','#ffd200'],['#11998e','#38ef7d'],['#fc466b','#3f5efb'],['#232526','#6a6a8a'],['#ff9a9e','#a18cd1']];
 const g=i=>`linear-gradient(135deg,${G[i%8][0]},${G[i%8][1]})`;
@@ -1293,7 +1341,7 @@ function chPins(){
   for(const k in SEC)add(SEC[k]);
   for(const k in SHELF)add(SHELF[k]);
   add(S.hist);add(S.liked);add(S.later);
-  const cards=document.querySelectorAll('[data-v]');
+  const cards=qsa('[data-v]');
   for(let i=0;i<cards.length;i++){const v=V[cards[i].dataset.v];if(v&&v.ch)P.add(v.ch)}
   if(selCh)P.add(selCh);
   CH_Q.forEach((w,id)=>{P.add(id)});
@@ -1404,7 +1452,7 @@ function vPins(){
   for(const k in SEC)add(SEC[k]);
   for(const k in SHELF)add(SHELF[k]);
   add(S.hist);add(S.liked);add(S.later);
-  const cards=document.querySelectorAll('[data-v]');
+  const cards=qsa('[data-v]');
   for(let i=0;i<cards.length;i++){const id=cards[i].dataset.v;if(id)P.add(id)}
   return P;
 }
@@ -1543,7 +1591,7 @@ function renderChips(){
 }
 function chip(n){
   cat=n;
-  [...$('chips').querySelectorAll('.chip')].forEach(b=>b.classList.toggle('on',b.textContent===n));
+  qsa('.chip','chips').forEach(b=>b.classList.toggle('on',b.textContent===n));
   const f=$('feed');
   const custom=CUSTOM.find(c=>c[0]===n);
   if(custom){                                  // Anime / Cartoon / Movies live in the top chips
@@ -1778,7 +1826,7 @@ function renderSubs(){
   subs();
 }
 function subs(){
-  [...$('sg').querySelectorAll('button')].forEach(b=>b.classList.toggle('on',b.dataset.ch===selCh));
+  qsa('button','sg').forEach(b=>b.classList.toggle('on',b.dataset.ch===selCh));
   const c=selCh?CH[selCh]:null;
   $('subh').textContent=c?c.title:'Latest';
   list(selCh?feed().filter(v=>v.ch===selCh):feed().slice(0,6),$('subfeed'));
@@ -1797,8 +1845,8 @@ let cur=null;
    helper because there are two ways a frame goes: `mount()` replaces it on the
    next play or on a loop wrap, `closeAll()` closes the player (item 4.4). */
 function dropFrame(){
-  const a=$('pl').querySelector('.art');
-  const f=a&&a.querySelector('iframe');
+  const a=qs('.art','pl');
+  const f=a&&qs('iframe',a);
   if(f){try{f.src='about:blank'}catch(e){}}
   if(a)a.innerHTML='';
   return a;
@@ -1814,7 +1862,8 @@ function mount(id,title){
   const a=dropFrame();
   if(!a)return;
   a.innerHTML=LDRABS+'<iframe src="'+EMBED_BASE+esc(id)+'?autoplay=1&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&enablejsapi=1'+(S.opt.cc?'&cc_load_policy=1':'')+'" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="'+esc(title||'')+'"></iframe>';
-  const f=a.querySelector('iframe');
+  const f=qs('iframe',a);
+  if(!f)return;                            /* nothing to wire: the panel keeps its loader */
   ltOn('pl',f,'load',()=>{try{f.contentWindow.postMessage(JSON.stringify({event:'listening'}),'*')}catch(e){}});
   ltOn('pl',window,'message',onYtMsg);
 }
@@ -1934,7 +1983,7 @@ $('sheet').addEventListener('click',e=>{
   const b=e.target.closest('[data-lay]');
   if(!b)return;
   S.opt.layout=b.dataset.lay;save();applyLayout();
-  [...$('sheet').querySelectorAll('[data-lay]')].forEach(x=>x.classList.toggle('on',x.dataset.lay===S.opt.layout));
+  qsa('[data-lay]','sheet').forEach(x=>x.classList.toggle('on',x.dataset.lay===S.opt.layout));
 });
 
 /* ---------- sheets ---------- */
@@ -2272,8 +2321,8 @@ function applyParallax(){
   document.documentElement.dataset.parallax=on?'on':'off';
   bumpLayout();
   if(!on){
-    document.querySelectorAll('.page').forEach(p=>p.style.backgroundPositionY='');
-    document.querySelectorAll('.thumb img').forEach(i=>i.style.transform='');
+    qsa('.page').forEach(p=>p.style.backgroundPositionY='');
+    qsa('.thumb img').forEach(i=>i.style.transform='');
   }
 }
 applyParallax();
@@ -2866,16 +2915,19 @@ let tt;function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on'
 
 /* ---------- dock: glass lens + sliding pages (from the reference) ---------- */
 const P=['home','explore','subs'].map(n=>$('p-'+n)),T=['home','explore','subs'],L=['Home','Explore','Subscriptions'],N=T.length;
-$('tabrow').innerHTML=T.map((t,i)=>`<button class="tab" tabindex="0" data-i="${i}">${ic(t)}${L[i]}</button>`).join('');
-const tabs=$('tabs'),tabEls=[...tabs.querySelectorAll('.tab')];
+const tabRow=$('tabrow');
+if(tabRow)tabRow.innerHTML=T.map((t,i)=>`<button class="tab" tabindex="0" data-i="${i}">${ic(t)}${L[i]}</button>`).join('');
+const tabs=$('tabs'),tabEls=qsa('.tab','tabs');
 /* Restart the lens' jelly and the page's staggered rise animations. A restart
    only takes effect once the "animation:none" state has been committed, so one
    style flush is unavoidable — but one flush for the whole batch replaces the
    nine the old per-element loop forced (one for the lens, then one per element).
    Read pass first, then the write pass. */
 function replay(p){
-  const els=[...p.querySelectorAll('.chip,.vh,.card,.big,#sg>button')].slice(0,8);
+  if(!p)return;                                          /* the page is not in the document */
   const l=$('lens');
+  if(!l)return;
+  const els=qsa('.chip,.vh,.card,.big,#sg>button',p).slice(0,8);
   l.classList.remove('jelly');
   for(let i=0;i<els.length;i++)els[i].style.animation='none';
   void p.offsetWidth;                                     /* the single forced layout */
@@ -2890,12 +2942,12 @@ function replay(p){
    the dock keeps its pages promoted for the whole drag and the snap after it.
    Nothing else reads this class. */
 function pageHint(){
-  for(let i=0;i<N;i++)P[i].classList.add('anim');
+  for(let i=0;i<N;i++){const p=P[i];if(p)p.classList.add('anim')}
   clearTimeout(pageT);pageT=setTimeout(pageHintOff,PAGE_HINT_MS);
 }
 function pageHintOff(){
   pageT=0;
-  for(let i=0;i<N;i++)P[i].classList.remove('anim');
+  for(let i=0;i<N;i++){const p=P[i];if(p)p.classList.remove('anim')}
 }
 let pos=0,press=false,moved=false,sx=0,lastIdx=0,visSig='',hintPos=0;
 const clamp=v=>Math.max(0,Math.min(N-1,v));
@@ -2915,7 +2967,7 @@ function render(anim){
   /* The pages are about to be given a new transform, so they are about to
      animate: the hint goes on before the write, not after it. */
   if(pos!==hintPos){hintPos=pos;pageHint()}
-  P.forEach((p,i)=>{const d=i-pos,a=Math.min(1,Math.abs(d));p.style.transform=`translateX(${d*100}%) scale(${1-a*.05})`;p.style.opacity=1-a*.4;p.inert=Math.abs(d)>.45;p.style.pointerEvents=Math.abs(d)>.45?'none':''});
+  P.forEach((p,i)=>{if(!p)return;const d=i-pos,a=Math.min(1,Math.abs(d));p.style.transform=`translateX(${d*100}%) scale(${1-a*.05})`;p.style.opacity=1-a*.4;p.inert=Math.abs(d)>.45;p.style.pointerEvents=Math.abs(d)>.45?'none':''});
   $('lens').style.transform=`translateX(${pos*100}%) scale(${press?1.18:1})`;
   tabEls.forEach((t,i)=>t.classList.toggle('on',i===idx));
   /* The set of pages on screen just changed, and the pass skips the ones that
@@ -2923,7 +2975,7 @@ function render(anim){
      one forced pass. Not before the first pass has ever run, though — with
      nothing scrolled and nothing tilted there is no at-rest frame to restore,
      and forcing one at boot would draw depth the app has never drawn at rest. */
-  const vis=P.map(p=>p.inert?0:1).join('');
+  const vis=P.map(p=>p&&p.inert?0:1).join('');
   if(vis!==visSig){visSig=vis;if(framesRun)depthKick()}
   if(change){replay(P[idx]);if(idx!==was)pageSwitch(was,idx)}
   /* The shell just moved: the transforms the next pass would write are keyed off
@@ -2950,18 +3002,19 @@ function pageSwitch(from,to){
 let tabsBoxC=null;
 function tabsBox(){
   if(!tabsBoxC||tabsBoxC.geom!==geomEpoch||tabsBoxC.dx!==dockDX){
+    if(!tabs)return null;                    /* the dock is not in the document */
     const r=tabs.getBoundingClientRect();
     tabsBoxC={geom:geomEpoch,dx:dockDX,left:r.left,width:r.width};
   }
   return tabsBoxC;
 }
-const at=e=>{const r=tabsBox();return clamp((e.clientX-r.left-5)/((r.width-10)/N)-.5)};
-tabs.addEventListener('pointerdown',e=>{press=true;moved=false;sx=e.clientX;try{tabs.setPointerCapture(e.pointerId)}catch(_){}const n=Math.round(at(e));if(n===Math.round(pos))P[n].scrollTo({top:0,behavior:'smooth'});pos=n;render(true)});
-tabs.addEventListener('pointermove',e=>{if(!press)return;if(Math.abs(e.clientX-sx)>5)moved=true;if(moved){pos=at(e);render(false)}});
+const at=e=>{const r=tabsBox();if(!r)return pos;return clamp((e.clientX-r.left-5)/((r.width-10)/N)-.5)};
+tabs&&tabs.addEventListener('pointerdown',e=>{press=true;moved=false;sx=e.clientX;try{tabs.setPointerCapture(e.pointerId)}catch(_){}const n=Math.round(at(e));if(n===Math.round(pos)){const pg=P[n];if(pg)pg.scrollTo({top:0,behavior:'smooth'})}pos=n;render(true)});
+tabs&&tabs.addEventListener('pointermove',e=>{if(!press)return;if(Math.abs(e.clientX-sx)>5)moved=true;if(moved){pos=at(e);render(false)}});
 const rel=()=>{if(!press)return;press=false;pos=Math.round(pos);render(true)};
-tabs.addEventListener('pointerup',rel);tabs.addEventListener('pointercancel',rel);
-tabs.addEventListener('click',e=>{const t=e.target.closest('.tab');if(t){const n=+t.dataset.i;if(n!==Math.round(pos)){pos=n;render(true)}}});
-tabs.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){pos=+e.target.dataset.i;render(true)}});
+if(tabs){tabs.addEventListener('pointerup',rel);tabs.addEventListener('pointercancel',rel)}
+tabs&&tabs.addEventListener('click',e=>{const t=e.target.closest('.tab');if(t){const n=+t.dataset.i;if(n!==Math.round(pos)){pos=n;render(true)}}});
+tabs&&tabs.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){pos=+e.target.dataset.i;render(true)}});
 function go(n){pos=n;render(true)}
 /* One resize listener, not two: this one already re-renders the shell on every
    resize and `render()` bumps `layoutEpoch`, which is what the signatures are
