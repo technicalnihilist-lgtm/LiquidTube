@@ -385,7 +385,10 @@ async function appLevel() {
   ]);
   const deadText = (dead.d.querySelector('#feed') || {}).textContent || '';
   ok('a boot whose chart always 500s shows the error surface', /Could not load videos/.test(deadText), deadText.trim());
-  ok('the error text is the API message, as before', /Backend Error/.test(deadText), deadText.trim());
+  /* item 5.3: the surface says the app's own sentence for a server failure and
+     never the API's message */
+  ok('the error text is the app’s own sentence, not the API’s',
+    /YouTube is having trouble/.test(deadText) && !/Backend Error/.test(deadText), deadText.trim());
   ok('the timeline records the error', dead.w.__ltTimeline && /err=1/.test(dead.w.__ltTimeline), dead.w.__ltTimeline);
   ok('the chart was asked exactly twice', dead.log.filter(e => isTrending(e.url)).length === 2, dead.log.filter(e => isTrending(e.url)).length);
 
@@ -398,12 +401,18 @@ async function appLevel() {
     ok('the clean boot is byte-identical to the previous build', JSON.stringify(oldSnap) === JSON.stringify(cleanSnap));
     oldClean.dom.window.close();
 
+    /* both builds get the same two refusals, so both end on the error surface
+       and the only thing compared is the wording of it */
     const oldDead = await bootWith(OLD_FILE, [
+      { status: 500, body: { error: { message: 'Backend Error' } } },
       { status: 500, body: { error: { message: 'Backend Error' } } },
     ]);
     const oldText = (oldDead.d.querySelector('#feed') || {}).textContent || '';
-    ok('the error surface is the same as the previous build’s', oldText === deadText, JSON.stringify([oldText, deadText]));
-    ok('the previous build asks the chart once', oldDead.log.filter(e => isTrending(e.url)).length === 1, oldDead.log.filter(e => isTrending(e.url)).length);
+    /* the one intended difference between the builds: the previous build printed
+       the API's message, this one prints its own sentence (item 5.3) */
+    ok('the previous build printed the API text and this one does not',
+      /Backend Error/.test(oldText) && !/Backend Error/.test(deadText), JSON.stringify([oldText, deadText]));
+    ok('the previous build asks the chart twice, as this one does', oldDead.log.filter(e => isTrending(e.url)).length === 2, oldDead.log.filter(e => isTrending(e.url)).length);
     oldDead.dom.window.close();
   }
   dead.dom.window.close();

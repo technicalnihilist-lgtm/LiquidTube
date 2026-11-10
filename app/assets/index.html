@@ -776,6 +776,56 @@ window.__ltErr=()=>{
   return {n:EK_ST.n,lines:EK_ST.lines,dropped:EK_ST.dropped,
     last:EK_ST.last?{kind:EK_ST.last.kind,ep:EK_ST.last.ep,status:EK_ST.last.status}:null,kinds:k};
 };
+/* ---------- what a failure says on screen (item 5.3) ----------
+   Item 5.2 gave every failure a class; this is the sentence each class shows.
+   Until now three surfaces printed the API's own text straight into the page —
+   `Search failed. ` + e.message, the feed's `Could not load videos.` + e.message,
+   and the channel sheet's empty state — so a user could be shown
+   "The request cannot be completed because you have exceeded your quota.",
+   "API key not valid. Please pass a valid API key." or, on a bad day, a raw
+   `HTTP 500`. That text is written for a developer reading a response body, not
+   for someone holding a phone: it names quota, keys and status codes the user
+   cannot act on, and it is the one string in the app that changes without the
+   app changing, because it comes from the server.
+
+   So the app says its own sentence, chosen by class and never by wording:
+
+     quota      the daily allowance is spent — wait, it resets
+     ratelimit  too many requests just now — retrying in a moment works
+     auth       the key is the app's problem, not the user's: update the app
+     notfound   the thing is gone, private or mistyped — nothing to retry
+     server     the API's fault — trying again is reasonable
+     network    the phone's connection — check it
+     client     the request was refused as written — retrying may work later
+     malformed  a 200 that made no sense — trying again may work
+     aborted    cancelled on purpose, so it is almost never seen
+     unknown    the catch-all, which says only that something went wrong
+
+   The sentences are constants: no number, no reason code, no API message, no
+   user input is ever interpolated into them, so nothing the server sends can
+   reach the DOM through an error path. Each surface keeps its own frame around
+   the sentence (`Could not load videos.`, `Search failed. `) so the page reads
+   as it did, and the quota line the search panel already showed is unchanged.
+
+   Nothing else moved: the classes, the retry decision, the log line and the
+   quota meter are exactly as 5.2 left them. tools/error-text-check.js drives
+   every surface to failure with a sentinel in the API's message and asserts the
+   sentinel never reaches the page. */
+const EK_TEXT={
+  quota:"YouTube's daily limit is used up. Try again tomorrow.",
+  ratelimit:'Too many requests just now. Try again in a moment.',
+  auth:'This app can no longer reach YouTube. Please update it.',
+  notfound:'That is no longer available.',
+  server:'YouTube is having trouble. Try again in a moment.',
+  network:'No connection. Check your network and try again.',
+  client:'YouTube would not accept that request. Try again.',
+  malformed:'YouTube sent an unexpected answer. Try again.',
+  aborted:'Cancelled.',
+  unknown:'Something went wrong. Try again.'
+};
+function ekText(e){const k=ekKind(e);return EK_TEXT[k]||EK_TEXT.unknown}
+window.__ltErrText=ekText;                     /* read by tools/error-text-check.js */
+
 /* ---------- async safety net (item 5.1) ----------
    Every path in this app that waits — a request, a channel lookup, a section, a
    shelf, the boot's second stage, the work bindInput does in an idle slot —
@@ -1239,7 +1289,7 @@ async function loadTrending(){
     const clean=await dropShorts(list);
     await loadChannels(clean.map(v=>v.ch));
     FEED.trending=clean;FEED.cached=null;saveFeedCache(clean);return clean;
-  }catch(e){FEED.error=e.message||'offline';FEED.trending=[];return []}
+  }catch(e){FEED.error=e||new Error('offline');FEED.trending=[];return []}   /* the failure itself, never its text: the empty state says its own sentence (item 5.3) */
 }
 const feed=()=>FEED.trending||FEED.cached||[];
 /* ---------- last-feed cache (localStorage) ---------- */
@@ -1687,7 +1737,7 @@ function openChannel(id){
     }).catch(()=>{if(g!==shGen)return;$('chlist').innerHTML='<div class="empty">Could not load videos.</div>'});
   }).catch(e=>{
     asSafe('channel.sheet',e);               /* the sheet answers for itself below */
-    if(g!==shGen)return;$('sht').textContent='Channel';$('shb').innerHTML='<div class="empty">'+esc(e.message||'Could not load')+'</div>'});
+    if(g!==shGen)return;$('sht').textContent='Channel';$('shb').innerHTML='<div class="empty">'+esc(ekText(e))+'</div>'});   /* our sentence, not the API's (item 5.3) */
 }
 
 /* ---------- library sheet (avatar button) ---------- */
@@ -1823,7 +1873,7 @@ async function find(){
   }catch(e){
     asSafe('search.find',e);                 /* the panel answers for itself below */
     const q=ekKind(e)==='quota';             /* the failure's class, not its wording (item 5.2) */
-    $('results').innerHTML='<div class="empty">'+(q?"YouTube's daily search limit is used up.":'Search failed. '+esc(e.message||''))+'</div>';
+    $('results').innerHTML='<div class="empty">'+(q?"YouTube's daily search limit is used up.":'Search failed. '+esc(ekText(e)))+'</div>';   /* our sentence, not the API's (item 5.3) */
   }
 }
 qi.oninput=find;
@@ -1951,7 +2001,7 @@ function paintSkeleton(){
 function paintShell(){
   renderChips();
   list(feed(),$('feed'));
-  if(!feed().length&&FEED.error)$('feed').innerHTML='<div class="empty">Could not load videos.<br>'+esc(FEED.error)+'</div>';
+  if(!feed().length&&FEED.error)$('feed').innerHTML='<div class="empty">Could not load videos.<br>'+esc(ekText(FEED.error))+'</div>';   /* our sentence, not the API's (item 5.3) */
   renderExplore();
   renderSubs();
 }
@@ -1972,7 +2022,7 @@ firstFrame();                                    /* lt:paint = the skeleton fram
    splash behave exactly as they do on a successful boot (reveal() still runs),
    the failure is counted and logged, and no rejection is left for nobody to
    handle. `paintShell`'s own try/catch now records what it swallows (item 5.1). */
-asGuard('boot.feed',()=>loadTrending().catch(e=>{if(!FEED.error)FEED.error=(e&&e.message)||'offline'})
+asGuard('boot.feed',()=>loadTrending().catch(e=>{if(!FEED.error)FEED.error=e||new Error('offline')})
   .then(()=>{
     mark('data');
     if(window.__ltRestNow)window.__ltRestNow();   /* deferred sheet before the cards paint */

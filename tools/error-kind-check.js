@@ -303,26 +303,31 @@ async function searchPanel(file, c) {
 }
 
 async function abHalf(file, oldFile) {
-  let friendly = '';
+  /* Item 5.3 changed what these surfaces say, on purpose: the previous build
+     printed the API's own sentence, this one prints its own. So the A/B is no
+     longer "byte-identical" — it is the proof of that change, class by class:
+     the old build's panel carried the API text and this build's does not. */
+  /* the API's own words for each case, taken from the scripted answer itself */
+  const rawOf = c => {
+    const last = c.steps[c.steps.length - 1];
+    if (last === 'throw') return 'Failed to fetch';
+    if (last === 'garbage') return 'Malformed response';
+    return (last && last.body && last.body.error && last.body.error.message) || '';
+  };
   for (const c of CASES.filter(x => x.kind !== 'aborted')) {
     const a = await searchPanel(file, c);
     const b = await searchPanel(oldFile, c);
-    if (c.label.indexOf('only the message says it') >= 0) friendly = a;
-    /* One sentence is deliberately different, and only this one: when the API's
-       reason says quotaExceeded but its own message never uses the word, the old
-       build printed that raw message ("The request cannot be completed.") while
-       the new build recognises the refusal and shows the sentence the panel
-       already shows for a quota refusal. The check below pins that to the same
-       sentence, so no new wording reaches the screen. Every other class must be
-       byte-identical to the previous build. */
-    if (c.label.indexOf('message without the word') >= 0) {
-      ok('[' + c.label + '] the panel recognises the refusal instead of printing the API text', a !== b && /daily search limit is used up/.test(a), a);
-    } else {
-      ok('[' + c.label + '] the search panel reads exactly as the previous build did', a === b, '\n  new: ' + a + '\n  old: ' + b);
-    }
+    const raw = rawOf(c);
+    /* the quota cases were the one thing the old build got right: it recognised
+       the word and showed its own sentence, so there is no raw text to look for */
+    ok('[' + c.label + '] the previous build printed the API text',
+      c.kind === 'quota' ? true : (!raw || b.includes(raw)), '\n  old: ' + b);
+    ok('[' + c.label + '] this build does not print the API text', !raw || !a.includes(raw), '\n  new: ' + a);
+    ok('[' + c.label + '] the panel answers in its own words', /daily search limit is used up|>Search failed\. /.test(a), a);
   }
   const a0 = await searchPanel(file, CASES.find(x => x.label.indexOf('message without the word') >= 0));
-  ok('the quota sentence is the one the panel already used, not a new one', a0 === friendly, '\n  ' + a0 + '\n  ' + friendly);
+  const q0 = await searchPanel(file, CASES.find(x => x.kind === 'quota' && x.label.indexOf('message without the word') < 0));
+  ok('a quota refusal says the same sentence however the API words it', a0 === q0, '\n  ' + a0 + '\n  ' + q0);
 }
 
 (async () => {

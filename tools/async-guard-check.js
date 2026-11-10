@@ -346,10 +346,15 @@ function partSource(file) {
       oldBare.map(b => b.slice(0, 40)).join(' | '));
   }
   /* No new user-facing text: every fallback the item adds reuses a sentence the
-     app already shows, so the set of empty-state strings must be identical. */
+     app already shows, so the set of empty-state strings must be identical.
+     Item 5.3 is the one deliberate exception — a failure's empty state may take
+     its words from ekText(), which is where the app's own error sentences live,
+     instead of printing the API's message. So a string that was not there before
+     is allowed only if it reads its text from ekText(). */
   const a = emptyStates(src), b = emptyStates(fs.readFileSync(OLD_FILE || file, 'utf8'));
-  ok('no new empty-state text was introduced', a.length === b.length && a.every((s, i) => s === b[i]),
-    a.filter(s => b.indexOf(s) < 0).join(' | ') || 'count ' + a.length + ' vs ' + b.length);
+  const added = a.filter(s => b.indexOf(s) < 0);
+  ok('no new empty-state text was introduced, except from ekText()', added.every(s => /ekText\(/.test(s)),
+    added.join(' | ') || 'count ' + a.length + ' vs ' + b.length);
 }
 function emptyStates(src) {
   return [...new Set((src.match(/<div class="empty">[^<]*/g) || []).map(s => s.trim()))].sort();
