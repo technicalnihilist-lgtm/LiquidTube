@@ -406,10 +406,235 @@ function loadJSON(raw,fallback){
 }
 window.__ltStore=()=>({codec:Z_PREFIX,keys:['lt','lt_feed','lt_anime','lt_cartoon','lt_movies','lt_quota','lt_cver']});
 
+/* ---------- recovering a damaged stored value (item 5.6) ----------
+   `loadJSON` answers `fallback` for anything it cannot parse, and for a cache
+   that is exactly right: a cache that will not parse is a cache miss, and the
+   next visit fetches it again. For `lt` it is not right at all. That one key is
+   the whole of the user's own data — history, likes, later, subscriptions,
+   every setting — so a blob that lost a byte to a killed write, a full disk or
+   an engine that truncated the value loaded as "this user has nothing", and
+   the first `save()` after that (one heart, one setting) wrote the empty state
+   back over the damaged copy. The damage cost the library once; the overwrite
+   cost it for good.
+   What happens now, in this order, and only when a value will not parse or
+   parses to the wrong shape:
+   1. **Back it up first.** The raw string, byte for byte, is written to
+      `lt_rec_<key>` as plain JSON — deliberately *not* through the codec, so a
+      damaged codec cannot damage the backup — together with its key, time,
+      length and why it was set aside. At most 8 slots exist (REC_SLOTS); a
+      ninth evicts the oldest. The first damaged copy of a key is kept and later
+      ones for the same key are not allowed to replace it.
+   2. **Salvage what still reads.** The compressed body is decoded leniently —
+      `lzwUnpackPart` stops at the first bad code instead of throwing, so the
+      longest decodable prefix is kept — and `recFields` walks that text for
+      every `"key": <value>` at depth 1, parsing each value on its own, so one
+      broken field does not take the other seven with it. A list that will not
+      parse still names its ids, and whole 11-character ids are what the library
+      needs to reopen a video, so they are kept.
+   3. **Merge by field, by type.** The state is no longer `Object.assign`ed
+      blind: each list has to be an array of strings and each map an object, so
+      a field recovered in the wrong shape cannot put a string where an array is
+      read on the next line. A field that fails is the default, and nothing else
+      is touched.
+   4. **Never overwrite what could not be backed up.** If step 1 fails (quota,
+      private mode) the key is held: `save()` returns without writing, so the
+      damaged bytes stay exactly where they are, and the next `save()` retries
+      the backup and releases the hold as soon as it lands. A launch that cannot
+      back up a value loses nothing but the changes made in that session.
+   Nothing on screen changes: no dialog, no banner, no new element. The counters
+   are in memory behind `window.__ltRecover()` for the checks and for logcat
+   through the `lt-` console bridge only when something was actually damaged. */
+const REC_PREFIX='lt_rec_',REC_SLOTS=8,REC_KEYS_MAX=8;
+const REC_HOLD=new Set();                    /* damaged copies that could not be backed up */
+const REC_RAW=new Map();                     /* key -> raw, only while it is held */
+const REC_ST={reads:0,damaged:0,salvaged:0,failed:0,backed:0,kept:0,held:0,keys:[]};
+/* the same decoder as lzwUnpack, but it keeps the longest prefix that decodes
+   instead of throwing on the first bad code: a half-written blob is usually
+   whole JSON up to the point where the write stopped. */
+function lzwUnpackPart(str){
+  const n=str.length;
+  if(!n)return '';
+  const dict=new Array(256);
+  for(let i=0;i<256;i++)dict[i]=String.fromCharCode(i);
+  let next=256,prev='',out='';
+  for(let i=0;i<n;i++){
+    const code=zCode(str.charCodeAt(i));
+    let entry;
+    if(code<next&&dict[code]!==undefined)entry=dict[code];
+    else if(code===next&&prev)entry=prev+prev[0];
+    else break;                                        /* damaged here: keep what came before */
+    out+=entry;
+    if(prev&&next<Z_MAX)dict[next++]=prev+entry[0];
+    prev=entry;
+  }
+  const b=new Uint8Array(out.length);
+  for(let i=0;i<out.length;i++)b[i]=out.charCodeAt(i);
+  return TD.decode(b);
+}
+/* the best-effort plain text of a damaged value: the longest decodable prefix
+   of the compressed body, or the raw string when it was never compressed. */
+function recText(raw){
+  if(typeof raw!=='string')return '';
+  const body=raw.slice(0,3)===Z_PREFIX?raw.slice(3):raw;
+  let best='';
+  try{best=lzwUnpackPart(body)}catch(e){best=''}
+  return best.length>1?best:raw;
+}
+/* a JSON string starting at `i`: its end and its value, escaped quotes honoured */
+function recStr(text,i){
+  const n=text.length;let j=i+1;
+  while(j<n){
+    const c=text.charCodeAt(j);
+    if(c===92){j+=2;continue}                          /* backslash: skip the escaped unit */
+    if(c===34)break;
+    j++;
+  }
+  if(j>=n)return null;
+  const slice=text.slice(i,j+1);
+  let val=null;
+  try{val=JSON.parse(slice)}catch(e){val=slice.slice(1,-1)}
+  return {end:j+1,val:val};
+}
+/* one JSON value starting at `j`: its end and its value, or undefined when it
+   cannot be read. A list that will not parse keeps the whole ids it names. */
+function recVal(text,j){
+  const n=text.length;
+  if(j>=n)return null;
+  const c=text[j];
+  if(c==='{'||c==='['){
+    let d=0,k=j;
+    for(;k<n;k++){
+      const ch=text[k];
+      if(ch==='"'){const s=recStr(text,k);if(!s)break;k=s.end-1;continue}
+      if(ch==='{'||ch==='[')d++;
+      else if(ch==='}'||ch===']'){d--;if(!d){k++;break}}
+    }
+    const slice=text.slice(j,k);
+    let val;
+    try{val=JSON.parse(slice)}
+    catch(e){
+      if(c==='['){
+        const ids=slice.match(/"[A-Za-z0-9_-]{11}"/g);
+        if(ids&&ids.length)val=ids.map(s=>s.slice(1,-1));
+      }
+    }
+    return {end:k,val:val};
+  }
+  let k=j;
+  while(k<n&&text[k]!==','&&text[k]!=='}'&&text[k]!==']')k++;
+  let val;
+  try{val=JSON.parse(text.slice(j,k).trim())}catch(e){val=undefined}
+  return {end:k,val:val};
+}
+/* every `"key": <value>` at depth 1 of a damaged object, each value parsed on
+   its own. Returns the fields it managed to read and how many that was. */
+function recFields(text){
+  const out={};let got=0;
+  if(typeof text!=='string')return {fields:out,n:0};
+  const open=text.indexOf('{');
+  if(open<0)return {fields:out,n:0};
+  const n=text.length;let i=open+1,depth=1;
+  const ws=c=>c===' '||c==='\n'||c==='\r'||c==='\t';
+  while(i<n){
+    const c=text[i];
+    if(c==='{'){depth++;i++;continue}
+    if(c==='}'){depth--;i++;if(!depth)break;continue}
+    if(c==='['){const v=recVal(text,i);if(!v)break;i=v.end;continue}
+    if(c==='"'){
+      const s=recStr(text,i);
+      if(!s)break;
+      if(depth===1){
+        let j=s.end;
+        while(j<n&&ws(text[j]))j++;
+        if(text[j]===':'){
+          j++;
+          while(j<n&&ws(text[j]))j++;
+          const v=recVal(text,j);
+          if(v){if(v.val!==undefined){out[s.val]=v.val;got++}i=v.end;continue}
+        }
+      }
+      i=s.end;continue;
+    }
+    i++;
+  }
+  return {fields:out,n:got};
+}
+function recSlots(){
+  const out=[];
+  try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.indexOf(REC_PREFIX)===0)out.push(k)}}catch(e){}
+  return out;
+}
+/* step 1: set the damaged copy aside, uncompressed and untouched, before
+   anything can write over it. False means "no room": the caller holds the key. */
+function quarantine(key,raw,why){
+  const slot=REC_PREFIX+key;
+  try{
+    if(localStorage.getItem(slot)!=null){REC_ST.kept++;return true}   /* the first copy is the one worth keeping */
+    const have=recSlots();
+    if(have.length>=REC_SLOTS){                                       /* bounded: evict the oldest slot */
+      let victim=null,oldest=Infinity;
+      for(const k of have){
+        let at=0;
+        try{at=+((JSON.parse(localStorage.getItem(k)||'{}')||{}).at)||0}catch(e){at=0}
+        if(at<oldest){oldest=at;victim=k}
+      }
+      if(victim)localStorage.removeItem(victim);
+    }
+    localStorage.setItem(slot,JSON.stringify({v:1,key:key,at:Date.now(),why:why,len:raw.length,raw:raw}));
+    REC_ST.backed++;
+    return true;
+  }catch(e){return false}
+}
+/* the retry step 4 promises: a hold is released the moment the backup lands */
+function releaseHold(key){
+  const raw=REC_RAW.get(key);
+  if(raw==null)return false;
+  if(!quarantine(key,raw,'retry'))return false;
+  REC_RAW.delete(key);REC_HOLD.delete(key);
+  return true;
+}
+/* the reader every user-data key goes through. `shape` says what a usable
+   value looks like; a value that fails it is treated exactly like one that
+   will not parse. Caches deliberately do not come through here — a cache that
+   will not parse is a miss, not data, and must not cost a backup slot. */
+function readKey(key,fallback,shape){
+  REC_ST.reads++;
+  let raw=null;
+  try{raw=localStorage.getItem(key)}catch(e){return fallback}     /* no storage at all */
+  if(raw==null||raw==='')return fallback;
+  const v=loadJSON(raw,null);
+  if(v!=null&&(!shape||shape(v)))return v;
+  REC_ST.damaged++;
+  if(REC_ST.keys.length<REC_KEYS_MAX&&REC_ST.keys.indexOf(key)<0)REC_ST.keys.push(key);
+  if(!quarantine(key,raw,'parse')){REC_RAW.set(key,raw);REC_HOLD.add(key);REC_ST.held++}
+  const f=recFields(recText(raw));
+  if(f.n&&(!shape||shape(f.fields))){REC_ST.salvaged++;return f.fields}
+  REC_ST.failed++;
+  return fallback;
+}
+/* what the checks read, and the only thing this item adds to the page */
+window.__ltRecover=()=>({reads:REC_ST.reads,damaged:REC_ST.damaged,salvaged:REC_ST.salvaged,
+  failed:REC_ST.failed,backed:REC_ST.backed,kept:REC_ST.kept,held:REC_ST.held,
+  keys:REC_ST.keys.slice(),slots:recSlots(),hold:Array.from(REC_HOLD)});
+
 /* ---------- persisted state ---------- */
 const SKEY='lt';
-let S={liked:[],subs:[],later:[],hist:[],vd:{},pl:{},cats:{},opt:{cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,parallax:1,pdepth:65,glass:45,layout:'phone'}};
-try{const r=loadJSON(localStorage.getItem(SKEY),{});const p=r&&typeof r==='object'&&!Array.isArray(r)?r:{};Object.assign(S,p);S.opt=Object.assign({cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,parallax:1,pdepth:65,glass:45,layout:'phone'},p.opt||{})}catch(e){}
+const S_DEF={cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,parallax:1,pdepth:65,glass:45,layout:'phone'};
+let S={liked:[],subs:[],later:[],hist:[],vd:{},pl:{},cats:{},opt:Object.assign({},S_DEF)};
+/* The state is read through `readKey` (item 5.6): a blob that will not parse is
+   backed up and salvaged instead of being dropped, and each field is taken only
+   in the shape its readers expect, so a field that came back wrong is the
+   default rather than a string where the next line calls `indexOf`. */
+const S_OBJ=v=>!!v&&typeof v==='object'&&!Array.isArray(v);
+const S_IDS=a=>Array.isArray(a)?a.filter(x=>typeof x==='string'&&x):[];
+try{
+  const p=readKey(SKEY,null,S_OBJ)||{};
+  S.hist=S_IDS(p.hist);S.liked=S_IDS(p.liked);S.later=S_IDS(p.later);S.subs=S_IDS(p.subs);
+  if(S_OBJ(p.vd))S.vd=p.vd;
+  if(S_OBJ(p.pl))S.pl=p.pl;
+  if(S_OBJ(p.cats))S.cats=p.cats;
+  if(S_OBJ(p.opt))for(const k in S_DEF){const v=p.opt[k];if(typeof v===typeof S_DEF[k])S.opt[k]=v}
+}catch(e){}
 /* ---------- the saved library, bounded (item 4.5) ----------
    `hist`, `liked` and `later` are the three lists the Library sheet draws and
    the player resolves back through V. History was already trimmed to 100 in
@@ -439,7 +664,10 @@ window.__ltLibrary=()=>({hist:S.hist.length,liked:S.liked.length,later:S.later.l
   first:{hist:S.hist[0]||null,liked:S.liked[0]||null,later:S.later[0]||null},
   last:{hist:S.hist[S.hist.length-1]||null,liked:S.liked[S.liked.length-1]||null,later:S.later[S.later.length-1]||null},
   bytes:(()=>{try{return localStorage.getItem(SKEY).length}catch(e){return -1}})()});
-const save=()=>{try{localStorage.setItem(SKEY,storeJSON(S))}catch(e){}};
+/* A damaged blob that could not be backed up is left exactly as it is: writing
+   over it is the one way to lose it for good. The next save retries the backup
+   and writes normally as soon as it lands (item 5.6). */
+const save=()=>{if(REC_HOLD.has(SKEY)&&!releaseHold(SKEY))return;try{localStorage.setItem(SKEY,storeJSON(S))}catch(e){}};
 S.vd=S.vd||{};try{localStorage.removeItem('lt_shorts')}catch(e){}
 /* ---------- the section caches belong to the build that wrote them (item 4.9) ----------
    `lt_anime`, `lt_cartoon` and `lt_movies` hold the three Home sections: the
