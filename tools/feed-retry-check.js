@@ -104,7 +104,11 @@ function apiBody(url) {
   const u = new URL(url), p = u.pathname;
   if (p.endsWith('/videos')) return (u.searchParams.get('part') || '').includes('contentDetails') ? F.durations : F.videos;
   if (p.endsWith('/channels')) return chanAnswer(u, F.channels);
-  if (p.endsWith('/playlistItems')) return F.search;
+  /* a playlistItems body in the shape the endpoint really sends: the search
+     fixture's ids wrapped in snippet.resourceId. It used to answer with the
+     search body itself, which no server does — item 5.9 validates the shape
+     before mapping it now, so the fixture has to be the real one. */
+  if (p.endsWith('/playlistItems')) return { items: F.search.items.map(it => ({ snippet: Object.assign({}, it.snippet, { resourceId: { videoId: it.id.videoId } }), contentDetails: { videoPublishedAt: it.snippet.publishedAt } })) };
   if (p.endsWith('/search')) return F.search;
   return {};
 }
