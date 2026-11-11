@@ -183,6 +183,21 @@ function ok(label, cond, detail) {
   fails.push(label + (detail !== undefined ? ' — ' + detail : ''));
 }
 
+/* Item 5.8 puts a way out of the dead box: a `Try again` button, offered only
+   for the classes a tap can plausibly fix. It is not part of the sentence, so
+   every text assertion below reads the box without it and every shape assertion
+   strips it — what the box *says* must not move, and whether it offers a way out
+   is asserted separately. */
+const RETRY_KINDS = ['network', 'server', 'ratelimit', 'malformed', 'client', 'unknown'];
+const BTN_RE = /<button type="button" class="opt glass rty" data-r="[a-z.]+">Try again<\/button>/;
+function readBox(el) {
+  const btn = el.querySelector('button.rty');
+  const copy = el.cloneNode(true);
+  copy.querySelectorAll('button').forEach(b => b.remove());
+  const html = el.innerHTML.replace(/\s+/g, ' ');
+  return { html, shape: html.replace(BTN_RE, ''), text: copy.textContent.replace(/\s+/g, ' ').trim(), btn: btn ? btn.getAttribute('data-r') : null };
+}
+
 /* every class, with the API answer that produces it. `kind` is the class 5.2
    assigns; `frame` is the surface's own wording, which must survive. */
 const CASES = [
@@ -258,13 +273,10 @@ async function searchPanel(file, c, opts) {
     return r && /class="empty"/.test(r.innerHTML);
   }, 8000);
   await sleep(150);
-  const box = env.d.getElementById('results');
-  const html = box.innerHTML;
-  const text = box.textContent.replace(/\s+/g, ' ').trim();
-  const html2 = html.replace(/\s+/g, ' ');
+  const r = readBox(env.d.getElementById('results'));
   const lines = env.lines.filter(l => l.startsWith('lt-err')).length;
   env.dom.window.close();
-  return { html: html2, text, lines, ekText };
+  return { html: r.html, shape: r.shape, text: r.text, btn: r.btn, lines, ekText };
 }
 
 async function searchSurface(file) {
@@ -275,7 +287,10 @@ async function searchSurface(file) {
       : 'Search failed. ' + WANT[c.kind];
     ok('[' + c.label + '] the panel never shows the API text', !r.html.includes(SENT), r.html);
     ok('[' + c.label + '] the panel shows the sentence for its class', r.text === want, '\n  got: ' + r.text + '\n  want: ' + want);
-    ok('[' + c.label + '] the panel keeps its empty state', /^<div class="empty">[^<]*<\/div>$/.test(r.html), r.html);
+    ok('[' + c.label + '] the panel keeps its empty state', /^<div class="empty">[^<]*<\/div>$/.test(r.shape), r.shape);
+    ok('[' + c.label + '] the panel offers a way out only where a tap can help',
+      (r.btn !== null) === RETRY_KINDS.includes(c.kind), String(r.btn));
+    ok('[' + c.label + '] the way out re-runs the search', r.btn === null || r.btn === 'find', String(r.btn));
     ok('[' + c.label + '] one failure is still logged once', r.lines >= 1, r.lines);
   }
   /* the query is user data: it is never in the DOM of the failure state and
@@ -298,14 +313,15 @@ async function feedSurface(file) {
       return f && /class="empty"/.test(f.innerHTML);
     }, 12000);
     await sleep(150);
-    const f = env.d.getElementById('feed');
-    const html = f.innerHTML.replace(/\s+/g, ' ');
-    const text = f.textContent.replace(/\s+/g, ' ').trim();
-    ok('[' + c.label + ', feed] the feed never shows the API text', !html.includes(SENT), html);
+    const r = readBox(env.d.getElementById('feed'));
+    ok('[' + c.label + ', feed] the feed never shows the API text', !r.html.includes(SENT), r.html);
     ok('[' + c.label + ', feed] the feed shows the sentence for its class',
-      text === 'Could not load videos.' + WANT[c.kind], '\n  got: ' + text);
+      r.text === 'Could not load videos.' + WANT[c.kind], '\n  got: ' + r.text);
     ok('[' + c.label + ', feed] the feed keeps its two-line empty state',
-      /^<div class="empty">Could not load videos\.<br>[^<]*<\/div>$/.test(html), html);
+      /^<div class="empty">Could not load videos\.<br>[^<]*<\/div>$/.test(r.shape), r.shape);
+    ok('[' + c.label + ', feed] the feed offers a way out only where a tap can help',
+      (r.btn !== null) === RETRY_KINDS.includes(c.kind), String(r.btn));
+    ok('[' + c.label + ', feed] the way out re-runs the feed', r.btn === null || r.btn === 'feed', String(r.btn));
     env.dom.window.close();
   }
 }
@@ -324,13 +340,13 @@ async function channelSurface(file) {
       return b && /class="empty"/.test(b.innerHTML);
     }, 8000);
     await sleep(150);
-    const b = env.d.getElementById('shb');
-    const html = b.innerHTML.replace(/\s+/g, ' ');
-    const text = b.textContent.replace(/\s+/g, ' ').trim();
-    ok('[' + c.label + ', channel] the sheet never shows the API text', !html.includes(SENT), html);
-    ok('[' + c.label + ', channel] the sheet shows the sentence for its class', text === WANT[c.kind], '\n  got: ' + text);
+    const r = readBox(env.d.getElementById('shb'));
+    ok('[' + c.label + ', channel] the sheet never shows the API text', !r.html.includes(SENT), r.html);
+    ok('[' + c.label + ', channel] the sheet shows the sentence for its class', r.text === WANT[c.kind], '\n  got: ' + r.text);
     ok('[' + c.label + ', channel] the sheet keeps its empty state',
-      /^<div class="empty">[^<]*<\/div>$/.test(html), html);
+      /^<div class="empty">[^<]*<\/div>$/.test(r.shape), r.shape);
+    ok('[' + c.label + ', channel] the sheet offers a way out only where a tap can help',
+      (r.btn !== null) === RETRY_KINDS.includes(c.kind), String(r.btn));
     env.queue = [];
   }
   env.dom.window.close();

@@ -357,7 +357,14 @@ function partSource(file) {
     added.join(' | ') || 'count ' + a.length + ' vs ' + b.length);
 }
 function emptyStates(src) {
-  return [...new Set((src.match(/<div class="empty">[^<]*/g) || []).map(s => s.trim()))].sort();
+  /* Item 5.8 appends the way out of the box to the same state. A button is a
+     control, not a sentence, so a state's own words are compared with the call
+     taken off — and the quote it leaves behind normalised away, because the call
+     sits in the middle of a concatenation and its removal shifts the `+` around
+     the closing quote. This check is about text; the button's text is asserted
+     by tools/retry-affordance-check.js. */
+  const norm = s => s.replace(/\+?rtyBtn\([^)]*\)\+?/g, '').replace(/\+\s*'/g, "'").replace(/''+/g, "'").replace(/'$/, '').trim();
+  return [...new Set((src.match(/<div class="empty">[^<]*/g) || []).map(norm))].sort();
 }
 
 /* A `.then(` whose promise has no rejection handler at all: not `.catch`-ed on

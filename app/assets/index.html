@@ -1102,6 +1102,79 @@ const EK_TEXT={
 function ekText(e){const k=ekKind(e);return EK_TEXT[k]||EK_TEXT.unknown}
 window.__ltErrText=ekText;                     /* read by tools/error-text-check.js */
 
+/* ---------- a way out of a dead empty state (item 5.8) ----------
+   Every failure surface in this app ends in the same place: a box with one
+   sentence in it and nothing to press. That is right for a failure the user can
+   do nothing about — but for the common ones (a radio that dropped, a 5xx, a
+   moment of rate limiting) the only way out was to close the app and open it
+   again, which is a heavy way to repeat one request. Item 5.7 already retries
+   the feed once by itself; this is the same idea handed to the user, on every
+   surface that has a dead box.
+
+   The affordance is one button, built here and reused everywhere:
+
+     rtyBtn(key, error)   the button, or '' when there is nothing honest to offer
+
+   Two conditions, and both matter. A key has to be registered (rtySet), because
+   a button whose tap re-runs nothing is worse than no button — the surface
+   registers what to redo just before it writes the box, so the two cannot drift
+   apart. And the failure has to be one a tap can plausibly fix, decided by item
+   5.2's class and never by wording:
+
+     network, server, ratelimit, malformed, client, unknown   → a button
+     quota, auth, notfound, aborted                           → none
+
+   A spent daily allowance does not refill because a finger moved, a revoked key
+   does not repair itself, and a video that is gone stays gone: offering "Try
+   again" there would be a lie the user pays a request to discover. Those boxes
+   keep the sentence that already tells them what to do instead.
+
+   The button is the app's own `.opt glass` pill — the same control the channel
+   sheet, the library sheet and the settings panel already use — so a failure
+   state gains a way out and no new visual language. It is a real <button>, so it
+   is reachable by TalkBack and by keyboard, and it is 48 px tall by that class's
+   own height, so it is a real touch target. A tap disables it before running the
+   handler (one tap, one retry) and the handler immediately paints the surface's
+   own loading state — the same skeletons the boot uses — so the button is gone
+   before a second tap could reach it.
+
+   The registry is bounded (RTY_MAX keys, and the keys are a fixed set of eight:
+   feed, find, chip, sec.anime, sec.cartoon, sec.movies, ch.list, ch.info), so a
+   long session cannot grow it. Nothing here runs unless a failure box is drawn:
+   no timer, no listener of its own — the tap rides the one delegated click
+   handler the app already has. window.__ltRetry() is what
+   tools/retry-affordance-check.js reads. */
+const RTY_MAX=8,RTY=Object.create(null);
+let rtyN=0;
+const RTY_ST={shown:0,taps:0,ran:0,miss:0};
+function ekRetryable(k){
+  return k==='network'||k==='server'||k==='ratelimit'||k==='malformed'||k==='client'||k==='unknown';
+}
+function rtySet(k,fn){
+  if(!(k in RTY)){if(rtyN>=RTY_MAX)return false;rtyN++}   /* bounded: fixed keys, never grows */
+  RTY[k]=fn;return true;
+}
+function rtyBtn(k,e){
+  const key=String(k||'');
+  if(!key||!(key in RTY))return '';          /* nothing to re-run: no button, no promise */
+  if(!ekRetryable(ekKind(e)))return '';      /* this one does not heal on a tap */
+  RTY_ST.shown++;
+  return '<button type="button" class="opt glass rty" data-r="'+esc(key)+'">Try again</button>';
+}
+function rtyRun(btn){
+  const k=btn&&btn.dataset?btn.dataset.r:'';
+  RTY_ST.taps++;
+  if(!btn||btn.disabled){RTY_ST.miss++;return}   /* already spent: one tap, one retry, always */
+  const fn=k?RTY[k]:null;
+  if(!fn){RTY_ST.miss++;return}              /* the surface moved on: the tap means nothing now */
+  RTY_ST.ran++;
+  btn.disabled=true;                         /* one tap, one retry */
+  try{btn.setAttribute('aria-busy','true')}catch(x){}
+  try{fn()}catch(e){asSafe('retry.'+k,e)}    /* a retry that throws is a retry that failed */
+}
+window.__ltRetry=()=>({keys:Object.keys(RTY).sort(),max:RTY_MAX,shown:RTY_ST.shown,
+  taps:RTY_ST.taps,ran:RTY_ST.ran,miss:RTY_ST.miss});
+
 /* ---------- async safety net (item 5.1) ----------
    Every path in this app that waits — a request, a channel lookup, a section, a
    shelf, the boot's second stage, the work bindInput does in an idle slot —
@@ -1917,7 +1990,8 @@ function chip(n){
       if(secPending===n)secPending=null;
       if(cat!==n)return;                        // user moved on
       list(items,f);
-      if(!items.length)f.innerHTML='<div class="empty">Could not load '+esc(n)+' videos right now.</div>';
+      if(!items.length){rtySet('chip',()=>{secForget(custom[1]);chip(n)});   /* an empty section gets the same way out as a failed one */
+        f.innerHTML='<div class="empty">Could not load '+esc(n)+' videos right now.'+rtyBtn('chip',null)+'</div>';}
     }).catch(e=>{
       if(e&&e.name==='AbortError'){             /* left the page: the skeletons stay, homeResume re-runs it */
         if(cat===n)secPending=n;
@@ -1925,7 +1999,8 @@ function chip(n){
       }
       if(cat!==n)return;
       list([],f);
-      f.innerHTML='<div class="empty">Could not load '+esc(n)+' videos right now.</div>';
+      rtySet('chip',()=>{secForget(custom[1]);chip(n)});
+      f.innerHTML='<div class="empty">Could not load '+esc(n)+' videos right now.'+rtyBtn('chip',e)+'</div>';
     });
     return;
   }
@@ -2045,6 +2120,11 @@ const SECTIONS={
   }
 };
 const SEC={};
+/* A section that came back empty is cached as empty — `[]` is truthy, so
+   `if(SEC[name])return` hands the next caller the same empty answer for the rest
+   of the session, and a retry (item 5.8) would re-read it and paint the same box.
+   Forgetting it first is what makes the tap a real second attempt. */
+const secForget=n=>{try{delete SEC[n]}catch(x){}};
 
 function keep(v){
   const t=(v.t||'');
@@ -2121,12 +2201,14 @@ async function renderSection(name){
        used to re-throw — and renderSection is a promise nobody holds, so the
        rejection went nowhere and the skeletons stayed on screen for good. */
     asSafe('section.render.'+name,e);
-    box.innerHTML='<div class="empty">Could not load '+name+' videos right now.<br>Try again in a minute.</div>';
+    rtySet('sec.'+name,()=>{secForget(name);renderSection(name)});   /* dataset.done is never set on this path, so this re-runs the section */
+    box.innerHTML='<div class="empty">Could not load '+name+' videos right now.<br>Try again in a minute.'+rtyBtn('sec.'+name,e)+'</div>';
     return;
   }
   box.dataset.done='1';
   if(!list2.length){
-    box.innerHTML='<div class="empty">Could not load '+name+' videos right now.<br>Try again in a minute.</div>';
+    rtySet('sec.'+name,()=>{secForget(name);renderSection(name)});
+    box.innerHTML='<div class="empty">Could not load '+name+' videos right now.<br>Try again in a minute.'+rtyBtn('sec.'+name,null)+'</div>';
     return;
   }
   box.innerHTML=list2.map(cardOf).join('');
@@ -2228,6 +2310,27 @@ function onYtMsg(e){
 }
 
 /* ---------- channel sheet ---------- */
+/* The uploads list, split out of openChannel so a retry (item 5.8) can re-run
+   just this half: re-running openChannel would re-request the channel as well,
+   and the channel had already answered. `g` is the sheet's generation, the guard
+   this list has always had — a list that lands after the sheet was closed or
+   replaced must not paint. */
+function fillChList(c,g){
+  if(g!==shGen)return;
+  const box=$('chlist');if(!box)return;
+  box.innerHTML=LDR+'<div class="skl"></div><div class="skl"></div>';
+  yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:50}).then(j=>{
+    if(g!==shGen)return;
+    const items=(j.items||[]).map(it=>vObj(it.snippet.resourceId.videoId,{t:dec(it.snippet.title),c:c.title,ch:c.id,
+      pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,cat:'Channel'}));
+    return dropShorts(items).then(clean=>{if(g!==shGen)return;$('chlist').innerHTML=clean.map(cardOf).join('')||'<div class="empty">No videos.</div>'});
+  }).catch(e=>{
+    if(g!==shGen)return;
+    asSafe('channel.list',e);                /* the box answers for itself below */
+    rtySet('ch.list',()=>fillChList(c,g));
+    $('chlist').innerHTML='<div class="empty">Could not load videos.'+rtyBtn('ch.list',e)+'</div>';
+  });
+}
 function openChannel(id){
   sheet('Channel',LDR+'<div class="skl" style="height:120px"></div>',0);
   const g=shGen;                          /* this sheet's generation: writes below must still own it */
@@ -2246,15 +2349,12 @@ function openChannel(id){
       (c.desc?'<div class="desc">'+esc(c.desc)+'</div>':'')+
       '<div id="chlist">'+LDR+'<div class="skl"></div><div class="skl"></div></div>';
     if(!c.up){$('chlist').innerHTML='<div class="empty">This channel hides its uploads.</div>';return}
-    yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:50}).then(j=>{
-      if(g!==shGen)return;
-      const items=(j.items||[]).map(it=>vObj(it.snippet.resourceId.videoId,{t:dec(it.snippet.title),c:c.title,ch:c.id,
-        pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,cat:'Channel'}));
-      return dropShorts(items).then(clean=>{if(g!==shGen)return;$('chlist').innerHTML=clean.map(cardOf).join('')||'<div class="empty">No videos.</div>'});
-    }).catch(()=>{if(g!==shGen)return;$('chlist').innerHTML='<div class="empty">Could not load videos.</div>'});
+    fillChList(c,g);
   }).catch(e=>{
     asSafe('channel.sheet',e);               /* the sheet answers for itself below */
-    if(g!==shGen)return;$('sht').textContent='Channel';$('shb').innerHTML='<div class="empty">'+esc(ekText(e))+'</div>'});   /* our sentence, not the API's (item 5.3) */
+    if(g!==shGen)return;
+    rtySet('ch.info',()=>openChannel(id));   /* the whole sheet, header and all */
+    $('sht').textContent='Channel';$('shb').innerHTML='<div class="empty">'+esc(ekText(e))+rtyBtn('ch.info',e)+'</div>'});   /* our sentence, not the API's (item 5.3) */
 }
 
 /* ---------- library sheet (avatar button) ---------- */
@@ -2390,7 +2490,8 @@ async function find(){
   }catch(e){
     asSafe('search.find',e);                 /* the panel answers for itself below */
     const q=ekKind(e)==='quota';             /* the failure's class, not its wording (item 5.2) */
-    $('results').innerHTML='<div class="empty">'+(q?"YouTube's daily search limit is used up.":'Search failed. '+esc(ekText(e)))+'</div>';   /* our sentence, not the API's (item 5.3) */
+    rtySet('find',find);                     /* the same query, asked again */
+    $('results').innerHTML='<div class="empty">'+(q?"YouTube's daily search limit is used up.":'Search failed. '+esc(ekText(e)))+rtyBtn('find',e)+'</div>';   /* our sentence, not the API's (item 5.3) */
   }
 }
 qi.oninput=find;
@@ -2403,6 +2504,8 @@ document.addEventListener('click',e=>{
   if(p){play(p.dataset.v);return}
   const sh=e.target.closest('[data-shelf]');
   if(sh){const s=SHELVES.find(x=>x.id===sh.dataset.shelf);openS();qi.value=s?(s.q||s.title):'';if(qi.value)find();return}
+  const rb=e.target.closest('[data-r]');
+  if(rb){rtyRun(rb);return}                    /* item 5.8: the way out of a dead empty state */
   const d=e.target.closest('[data-do]');
   if(d){const k=d.dataset.do;k==='you'?openLibrary():k==='bell'?sheet('Notifications','<div class="empty">No new notifications.</div>',0):k==='plus'?sheet('Create','<button class="opt glass" data-do="upload">Upload a video</button>',0):toast('Not available on this device')}
 });
@@ -2521,9 +2624,28 @@ function paintSkeleton(){
 function paintShell(){
   renderChips();
   list(feed(),$('feed'));
-  if(!feed().length&&FEED.error)$('feed').innerHTML='<div class="empty">Could not load videos.<br>'+esc(ekText(FEED.error))+'</div>';   /* our sentence, not the API's (item 5.3) */
+  if(!feed().length&&FEED.error)$('feed').innerHTML='<div class="empty">Could not load videos.<br>'+esc(ekText(FEED.error))+rtyBtn('feed',FEED.error)+'</div>';   /* our sentence, not the API's (item 5.3) */
   renderExplore();
   renderSubs();
+}
+/* The feed's way out of its own empty state (item 5.8). Item 5.7 spends the
+   launch's one automatic retry; this is the user spending another, and it is the
+   same load — nothing about the chain changes, so a tap can never reach a state a
+   boot could not. The box is replaced by the boot's own skeleton first, which is
+   what removes the button before a second tap can find it, and the failure is
+   cleared before the load so a retry that fails again paints the same sentence
+   with the same button rather than leaving a stale error over fresh cards.
+   paintShell re-renders the feed, Explore and Subscriptions exactly as the boot's
+   stage 2 does, so a retry that works leaves the page in the state a successful
+   boot would have left it in. */
+function retryFeed(){
+  FEED.error='';                               /* the failure we are leaving, not one we are hiding */
+  const f=$('feed');if(!f)return;
+  f.innerHTML=LDR+SK3;                         /* the boot's skeleton: no new loading state */
+  asGuard('feed.retry',()=>loadTrending().then(()=>{
+    if(window.__ltRestNow)window.__ltRestNow();
+    try{paintShell()}catch(e){asSafe('feed.retry.paint',e)}   /* the skeleton stays painted: nothing blanks */
+  }));
 }
 /* Boot, in two stages. Stage 1 needs no network: the shell and its skeletons are
    painted and the splash leaves on the first frame the app can actually produce,
@@ -2533,6 +2655,8 @@ function paintShell(){
    the only stage-1 work that reads storage, and it costs one JSON.parse. */
 {const fc=readFeedCache();
  if(fc){for(const k in fc.chav)cavSet(k,fc.chav[k]);fc.items.forEach(o=>vObj(o.id,o));FEED.cached=fc.items;FEED.at=fc.at}}
+rtySet('feed',retryFeed);   /* registered before any box can be drawn, so the button is never a dead one */
+rtySet('find',find);
 paintSkeleton();
 mark('shell');
 reveal();
@@ -3410,6 +3534,7 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 .sug{display:flex;flex-wrap:wrap;gap:8px;padding:16px 0}.sug button{padding:8px 14px;border-radius:99px;font-size:13px;font-weight:600}
 .res{display:flex;gap:12px;padding:10px 0;text-align:left;width:100%}.res .thumb{width:44%;flex:none;border-radius:16px}.res b{font-size:14px;line-height:1.3}
 .empty{padding:40px 10px;text-align:center;color:var(--mute);font-size:14px}
+.empty .rty{display:block;margin:16px auto 0;padding:0 26px;min-width:148px;font-size:14px;color:var(--ink)}
 #scrim{position:absolute;inset:0;z-index:38;background:#0006;opacity:0;pointer-events:none;transition:opacity .35s}#scrim.on{opacity:1;pointer-events:auto}
 #pl,#sheet{position:absolute;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);z-index:40;padding:16px;border-radius:34px;display:flex;flex-direction:column;gap:8px;text-align:left;transform:translateY(125%);transition:transform .9s var(--bounce)}
 /* The overlays slide for .85-.9 s when their `.on` class changes, and at no other
