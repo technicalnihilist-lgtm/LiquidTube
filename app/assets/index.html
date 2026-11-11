@@ -1175,6 +1175,125 @@ function rtyRun(btn){
 window.__ltRetry=()=>({keys:Object.keys(RTY).sort(),max:RTY_MAX,shown:RTY_ST.shown,
   taps:RTY_ST.taps,ran:RTY_ST.ran,miss:RTY_ST.miss});
 
+/* ---------- response shape validation (item 5.9) ----------
+   Every mapper in the app assumed the body it was handed was the body it
+   expected: `(j.items||[]).map(it=>vObj(it.id,{t:dec(it.snippet.title),...}))`.
+   `j.items` was guarded and nothing else was. A 200 whose `items` is not an
+   array, an entry that is null, a search result without `snippet`, a playlist
+   item without `resourceId` — any of those threw a TypeError halfway through a
+   map, and the throw took the whole answer with it: twenty-three good cards and
+   one bad entry became one failure on screen, classed `unknown` (a failure the
+   app has no name for), which 5.7 then retried even though a second identical
+   request arrives with the same shape and fails the same way. The two places
+   that did filter (`it.id&&it.id.videoId`) filtered for the search endpoint's
+   nested id only; the videos endpoint, whose `id` is a plain string, was mapped
+   with no check at all, and no path checked the `snippet` the title comes from.
+
+   So a response is now checked against the shape its mapper needs once, in the
+   request layer, before it is cached and before any mapper sees it:
+
+     shBody(ep, j)         the body, with only the entries a card can be built
+                           from left in `items` — or a `malformed` failure
+     shList / shKeep       the two rules it is made of: the body's `items` array,
+                           and the entries that survive
+     shVid shRes shSea shDur shChn   the shape of one entry, per endpoint
+
+   Two rules, and the split between them is the item. A body that is not the
+   shape at all — no `items`, `items` not an array, or a non-empty `items` where
+   not one entry survives — is a `malformed` failure, made through rqErr so it is
+   classified exactly once, where it is made (5.2): 5.3 already has a sentence
+   for it ("YouTube sent an unexpected answer. Try again."), 5.7 already retries
+   the feed on it and 5.8 already offers the way out of the box it leaves. An
+   entry that is missing what its card needs is dropped instead, because one bad
+   entry must not cost the other twenty-three — which is what the search paths
+   did by hand, now done for every path, in one place, for the right fields.
+
+   Where the check sits is the other half of the item. It has to be before
+   rqPut, because a body that fails validation must not be cached: the request
+   cache (2.1) would otherwise hand the same bad body to the automatic retry
+   (5.7), to the next render and to every `Try again` (5.8) for the rest of the
+   TTL, so the way out of the box would re-read the very answer that drew it —
+   the bug 5.8 had to fix for a section's cached empty answer, one layer down.
+   And it has to be before the mappers, so that no mapper has to defend itself
+   and none of them can be forgotten. The shape of each endpoint is keyed by
+   rqEp(), the same name the error and slow logs already use, so the table and
+   the log agree: 'videos.chart' (the trending chart), 'videos.dur' (the
+   duration lookup), 'playlistItems', 'search' and 'channels' — the five calls
+   the app makes, and no others. A path outside that table is passed through
+   untouched rather than guessed at.
+
+   What an entry "needs" is read off its mapper, not guessed: a video needs a
+   non-empty string id and a snippet with a string title (the card's `data-v`,
+   its thumbnail URL and its headline); a search or playlist entry needs its id
+   nested one level down (`id.videoId`, `snippet.resourceId.videoId`); a channel
+   needs a string id and a snippet (cObj guards every other field with `||{}`,
+   so the rest is optional by construction); a duration entry needs only its id,
+   because a video with no contentDetails is a legitimate answer that the
+   duration skip-list already handles. An empty `items` is a legitimate answer
+   too — a search that matches nothing, a channel with no uploads — and is never
+   called malformed.
+
+   Nothing is allocated for a well-formed answer: shKeep's array becomes the
+   body's `items` (the filter the search paths already paid for), and the
+   counters are a handful of numbers on one object. A bad body writes one logcat
+   line, bounded at SH_LINES, naming the endpoint and the field but never the
+   body, the query or the key (`lt-shape ep=videos.chart bad=entry n=1`), and it
+   reaches the error table through rqFetch's own ekFail like any other failure,
+   so `lt-err kind=malformed ep=videos.chart` sits beside the rest.
+   window.__ltShape() is what tools/shape-check.js reads. */
+const SH_LINES=20;
+const SH_ST={bodies:0,items:0,kept:0,dropped:0,bad:0,lines:0,ep:{}};
+const shObj=o=>!!o&&typeof o==='object'&&!Array.isArray(o);
+const shStr=s=>typeof s==='string'&&s!=='';
+function shNote(ep,why){
+  const k=String(ep||'?');
+  if(!(k in SH_ST.ep)){                       /* bounded: the endpoint set is fixed */
+    if(Object.keys(SH_ST.ep).length>=8)return;
+    SH_ST.ep[k]=0;
+  }
+  SH_ST.ep[k]++;
+  if(SH_ST.lines>=SH_LINES)return;            /* bounded: the count keeps counting */
+  SH_ST.lines++;
+  try{console.log('lt-shape ep='+k+' bad='+why+' n='+SH_ST.bad)}catch(x){}
+}
+function shErr(ep,why){
+  SH_ST.bad++;
+  shNote(ep,why);
+  const e=rqErr('Malformed response',200,'','malformed');
+  try{e.shape=why}catch(x){}                  /* for the harness; `kind` is what the app reads */
+  return e;
+}
+function shList(j,ep){                        /* the body's items array, or a malformed failure */
+  SH_ST.bodies++;
+  if(!shObj(j)||!Array.isArray(j.items))throw shErr(ep,'items');
+  SH_ST.items+=j.items.length;
+  return j.items;
+}
+function shKeep(arr,ok,ep){                   /* the entries a card can be built from */
+  const out=[];
+  for(let i=0;i<arr.length;i++){const it=arr[i];if(ok(it))out.push(it);else SH_ST.dropped++}
+  if(arr.length&&!out.length)throw shErr(ep,'entry');   /* a non-empty answer with nothing usable */
+  SH_ST.kept+=out.length;
+  return out;
+}
+const shTitle=it=>shObj(it.snippet)&&typeof it.snippet.title==='string';
+const shVid=it=>shObj(it)&&shStr(it.id)&&shTitle(it);                        /* videos: id is the string */
+const shRes=it=>shObj(it)&&shTitle(it)&&shObj(it.snippet.resourceId)
+  &&shStr(it.snippet.resourceId.videoId);                                    /* playlistItems */
+const shSea=it=>shObj(it)&&shTitle(it)&&shObj(it.id)&&shStr(it.id.videoId);   /* search: id.videoId */
+const shDur=it=>shObj(it)&&shStr(it.id);                                     /* videos?part=contentDetails */
+const shChn=it=>shObj(it)&&shStr(it.id)&&shObj(it.snippet);                   /* channels */
+const SH_SPEC={'videos.chart':shVid,'videos.dur':shDur,playlistItems:shRes,search:shSea,channels:shChn};
+function shBody(ep,j){
+  const ok=SH_SPEC[ep];
+  if(!ok)return j;                            /* an endpoint with no spec: passed through as before */
+  const items=shList(j,ep),kept=shKeep(items,ok,ep);
+  if(kept.length!==items.length)j.items=kept; /* the entries a card can be built from, and nothing else */
+  return j;
+}
+window.__ltShape=()=>({bodies:SH_ST.bodies,items:SH_ST.items,kept:SH_ST.kept,dropped:SH_ST.dropped,
+  bad:SH_ST.bad,lines:SH_ST.lines,ep:Object.assign({},SH_ST.ep)});
+
 /* ---------- async safety net (item 5.1) ----------
    Every path in this app that waits — a request, a channel lookup, a section, a
    shelf, the boot's second stage, the work bindInput does in an idle slot —
@@ -1539,14 +1658,18 @@ async function rqFetch(ck,path,params,q,now,sig){
     try{
       const r=await rqOnce(path,q,sig);
       rqSlow(ep,rqNow()-t0,attempt,r.s,'');    /* no-op unless it crossed RQ_SLOW_MS */
+      /* item 5.9: the shape is checked here, once, before the answer is kept or
+         mapped — a body that is not what its mapper needs throws a malformed
+         failure, so it is never cached and never reaches a map() */
+      const j=shBody(ep,r.j);
       const base=rqTtl(path,params),hd=rqHdrFresh(r.h,now);
       const ttl=hd&&hd.ttl<base?hd.ttl:base; /* the table is the ceiling: a header only shortens */
       if(ttl>0){
-        rqPut(ck,r.j,ttl,now);               /* `now` is pre-fetch: the TTL never runs long */
+        rqPut(ck,j,ttl,now);                 /* `now` is pre-fetch: the TTL never runs long */
         if(ttl<base)RQ_ST.hdr++;             /* this window came from the response */
       }else RQ_ST.keep++;                    /* the response said not to keep it */
       if(attempt)RQ_ST.retryOk++;
-      return r.j;
+      return j;
     }catch(e){
       const st=e.status|0;
       rqSlow(ep,rqNow()-t0,attempt,st,e.name==='AbortError'?'abort':(st?'':'net'));
@@ -2155,9 +2278,7 @@ async function loadSection(name){
       if(!c.up)continue;
       const j=await yt('playlistItems',{part:'snippet,contentDetails',playlistId:c.up,maxResults:12},'home');
       (j.items||[]).forEach(it=>{
-        const v=it.snippet&&it.snippet.resourceId;
-        if(!v||!v.videoId)return;
-        out.push(vObj(v.videoId,{t:dec(it.snippet.title),c:c.title,ch:chId,
+        out.push(vObj(it.snippet.resourceId.videoId,{t:dec(it.snippet.title),c:c.title,ch:chId,
           pub:(it.contentDetails&&it.contentDetails.videoPublishedAt)||it.snippet.publishedAt,
           cat:name==='anime'?'Anime':name==='cartoon'?'Cartoon':'Animation'}));
       });
