@@ -1709,17 +1709,103 @@ function vObj(id,d){
   if(VQ.size>V_HI)vTrim();                     /* only past the high-water mark, so a batch build never trims */
   return v;
 }
+/* ---------- one automatic feed retry (item 5.7) ----------
+   The feed used to have one chance. rqFetch already retries a single request that
+   failed with a 5xx, a 429 or no response at all (2.3), but that retry covers the
+   *request*: if the second attempt also failed — a flaky radio, a proxy that
+   dropped the connection, a CDN edge that answered 502 for a moment — the boot
+   gave up for the whole launch and the page sat on `Could not load videos.` until
+   the user closed and reopened the app. Nothing was wrong with the app; the
+   moment had passed.
+
+   So the feed now gets exactly one more go, after a short wait, and only for the
+   failures a second go can plausibly fix:
+
+     network, server, ratelimit, malformed, unknown   → retried once
+     quota, auth, notfound, client, aborted           → never
+
+   That split is item 5.2's classes, read by `kind` rather than by wording. A
+   spent daily quota does not refill in a second, a bad key does not repair
+   itself, and a video that is gone stays gone — retrying those would cost a
+   request, delay the same sentence on screen, and teach nobody anything. An
+   AbortError is a page the user left on purpose, which is never repeated.
+
+   The wait is a flat 900 ms (FR_DELAY), not the request layer's doubling
+   backoff: rqFetch has already paid its own ~0.5 s on the attempt that just
+   failed, so this is the second gap, not the first. Worst case a doomed boot
+   shows its empty state ~1.4 s later than before, and a boot that recovers shows
+   cards instead of an error — which is the whole point.
+
+   Three things make it safe to have a second attempt at all. FEED.trending is
+   cleared *before* the retry, because a failed load leaves it as `[]` and `[]` is
+   truthy — the old `if(FEED.trending)return` would have handed the retry the same
+   empty array instead of asking again. Only a success writes the feed, the cache
+   and the timeline's `data` mark, so a retry that fails cannot leave half a feed
+   behind. And the retry re-runs the *chain*, not the chart call: if the chart
+   answer was fine and only the duration lookup threw, the request cache (2.1)
+   serves the chart from memory and the second attempt spends one request, on the
+   part that actually failed.
+
+   The visible result is one of the two surfaces the app already had — the same
+   cards, or the same `Could not load videos.` sentence from 5.3 — so the UI is
+   unchanged; what changes is that the second surface is now rarer. Nothing is
+   drawn while the retry waits: the skeletons or the cached cards stay exactly
+   where they were.
+
+   Cost when the first attempt succeeds: one boolean read in frWorthRetry's
+   caller and no timer, no request, no allocation. window.__ltFeedRetry() returns
+   the session's counters, and a retry that happened writes one logcat line
+   (`lt-feedretry attempt=1 ok=1 kind=network ms=904`) — never the request's
+   parameters, and at most one line per launch, since there is at most one retry. */
+const FR_MAX=1,FR_DELAY=900;
+const FR_ST={attempts:0,retries:0,ok:0,fail:0,skip:0,waited:0,kind:''};
+function frWorthRetry(e){
+  if(!e||e.name==='AbortError')return false;      /* cancelled on purpose: never repeated */
+  const k=ekKind(e);
+  return k==='network'||k==='server'||k==='ratelimit'||k==='malformed'||k==='unknown';
+}
+function frLog(ok,kind,ms,attempt){
+  try{console.log('lt-feedretry attempt='+attempt+' ok='+(ok?1:0)+' kind='+(kind||'unknown')+' ms='+(ms|0))}catch(x){}
+}
+window.__ltFeedRetry=()=>({max:FR_MAX,delay:FR_DELAY,attempts:FR_ST.attempts,retries:FR_ST.retries,
+  ok:FR_ST.ok,fail:FR_ST.fail,skip:FR_ST.skip,waited:FR_ST.waited,kind:FR_ST.kind,
+  trending:FEED.trending?FEED.trending.length:-1,error:!!FEED.error});
+/* the request half: everything loadTrending did before, throwing on failure so
+   the caller decides whether a second attempt is worth it. */
+async function fetchTrending(){
+  const j=await yt('videos',{part:'snippet,statistics',chart:'mostPopular',regionCode:'IN',maxResults:24});
+  const list=(j.items||[]).map(it=>vObj(it.id,{t:dec(it.snippet.title),c:dec(it.snippet.channelTitle),ch:it.snippet.channelId,
+    views:it.statistics&&it.statistics.viewCount,pub:it.snippet.publishedAt,
+    cat:CATMAP[+it.snippet.categoryId]||'All'}));
+  const clean=await dropShorts(list);
+  await loadChannels(clean.map(v=>v.ch));
+  return clean;
+}
 async function loadTrending(){
-  if(FEED.trending)return FEED.trending;
-  try{
-    const j=await yt('videos',{part:'snippet,statistics',chart:'mostPopular',regionCode:'IN',maxResults:24});
-    const list=(j.items||[]).map(it=>vObj(it.id,{t:dec(it.snippet.title),c:dec(it.snippet.channelTitle),ch:it.snippet.channelId,
-      views:it.statistics&&it.statistics.viewCount,pub:it.snippet.publishedAt,
-      cat:CATMAP[+it.snippet.categoryId]||'All'}));
-    const clean=await dropShorts(list);
-    await loadChannels(clean.map(v=>v.ch));
-    FEED.trending=clean;FEED.cached=null;saveFeedCache(clean);return clean;
-  }catch(e){FEED.error=e||new Error('offline');FEED.trending=[];return []}   /* the failure itself, never its text: the empty state says its own sentence (item 5.3) */
+  if(FEED.trending&&FEED.trending.length)return FEED.trending;
+  let last=null;
+  for(let a=0;a<=FR_MAX;a++){
+    FR_ST.attempts++;
+    const t0=Date.now();
+    try{
+      const clean=await fetchTrending();
+      FEED.trending=clean;FEED.cached=null;FEED.error='';saveFeedCache(clean);
+      if(a){FR_ST.ok++;frLog(1,ekKind(last),Date.now()-t0,a)}   /* the retry that rescued the boot */
+      return clean;
+    }catch(e){
+      last=e||new Error('offline');
+      if(a>=FR_MAX)break;
+      if(!frWorthRetry(last)){FR_ST.skip++;FR_ST.kind=ekKind(last);break}   /* this one will not heal */
+      FR_ST.retries++;FR_ST.kind=ekKind(last);
+      const tw=Date.now();
+      await rqSleep(FR_DELAY);
+      FR_ST.waited+=Date.now()-tw;
+    }
+  }
+  FR_ST.fail++;FR_ST.kind=ekKind(last);
+  if(FR_ST.retries)frLog(0,ekKind(last),FR_ST.waited,FR_MAX);   /* one line, and only if a retry happened */
+  FEED.error=last;FEED.trending=[];   /* the failure itself, never its text: the empty state says its own sentence (item 5.3) */
+  return [];
 }
 const feed=()=>FEED.trending||FEED.cached||[];
 /* ---------- last-feed cache (localStorage) ---------- */

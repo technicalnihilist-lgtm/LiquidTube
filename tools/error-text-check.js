@@ -285,9 +285,14 @@ async function searchSurface(file) {
 }
 
 /* ---------- 3. the feed ---------- */
+/* The feed gets the request layer's retry (2.3) and then item 5.7's one extra
+   attempt, so a scripted failure has to refuse twice as many times as it would
+   for a single request before the surface can be reached: the failure is the
+   point of this check, not how many attempts it took to accept it. */
+const feedSteps = c => c.steps.concat(c.steps);
 async function feedSurface(file) {
   for (const c of [CASES[0], CASES.find(x => x.kind === 'network'), CASES.find(x => x.kind === 'server')]) {
-    const env = open(file, { queue: c.steps.slice(), only: isTrending });
+    const env = open(file, { queue: feedSteps(c), only: isTrending });
     await waitFor(() => {
       const f = env.d.getElementById('feed');
       return f && /class="empty"/.test(f.innerHTML);

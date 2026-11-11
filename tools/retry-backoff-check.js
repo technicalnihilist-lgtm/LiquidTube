@@ -326,7 +326,7 @@ async function requestLayer(file) {
    page runs; this wraps open() with the queue already in place */
 async function bootWith(file, trending) {
   const HTML = fs.readFileSync(file, 'utf8');
-  const env = { log: [], queue: [], trendingQueue: (trending || []).slice(), bodies: {} };
+  const env = { log: [], queue: [], trendingQueue: (trending || []).slice(), bodies: {}, console: [] };
   const mockFetch = async u => {
     u = String(u);
     env.log.push({ url: u.replace(/([?&])key=[^&]*/, '$1key=<key>'), t: Date.now() });
@@ -346,6 +346,7 @@ async function bootWith(file, trending) {
       w.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
       w.fetch = mockFetch;
       w.scrollTo = () => {};
+      w.console.log = (...a) => { env.console.push(a.map(x => (typeof x === 'string' ? x : String(x))).join(' ')); };
     },
   });
   env.w = dom.window; env.d = dom.window.document; env.dom = dom;
@@ -378,8 +379,12 @@ async function appLevel() {
   ok('the recovered boot renders the clean boot’s markup', JSON.stringify(onceSnap) === JSON.stringify(cleanSnap));
   once.dom.window.close();
 
-  /* the chart fails twice: one retry, then the same error surface as before */
+  /* the chart keeps failing: the request retry (2.3) and the feed retry (5.7)
+     are both spent — four refusals, two per attempt — and the boot ends on the
+     same error surface as before */
   const dead = await bootWith(NEW_FILE, [
+    { status: 500, body: { error: { message: 'Backend Error' } } },
+    { status: 500, body: { error: { message: 'Backend Error' } } },
     { status: 500, body: { error: { message: 'Backend Error' } } },
     { status: 500, body: { error: { message: 'Backend Error' } } },
   ]);
@@ -390,7 +395,12 @@ async function appLevel() {
   ok('the error text is the app’s own sentence, not the API’s',
     /YouTube is having trouble/.test(deadText) && !/Backend Error/.test(deadText), deadText.trim());
   ok('the timeline records the error', dead.w.__ltTimeline && /err=1/.test(dead.w.__ltTimeline), dead.w.__ltTimeline);
-  ok('the chart was asked exactly twice', dead.log.filter(e => isTrending(e.url)).length === 2, dead.log.filter(e => isTrending(e.url)).length);
+  /* two attempts, each with the request layer's single retry: item 5.7's bound
+     is one extra attempt and no more */
+  ok('the chart was asked exactly four times', dead.log.filter(e => isTrending(e.url)).length === 4, dead.log.filter(e => isTrending(e.url)).length);
+  ok('the feed retry line records the second attempt',
+    (dead.console || []).filter(l => /^lt-feedretry attempt=1 ok=0 /.test(l)).length === 1,
+    (dead.console || []).filter(l => l.startsWith('lt-feedretry')).join(' | '));
 
   if (OLD_FILE) {
     const oldClean = await bootWith(OLD_FILE, []);
@@ -408,11 +418,15 @@ async function appLevel() {
       { status: 500, body: { error: { message: 'Backend Error' } } },
     ]);
     const oldText = (oldDead.d.querySelector('#feed') || {}).textContent || '';
-    /* the one intended difference between the builds: the previous build printed
-       the API's message, this one prints its own sentence (item 5.3) */
-    ok('the previous build printed the API text and this one does not',
-      /Backend Error/.test(oldText) && !/Backend Error/.test(deadText), JSON.stringify([oldText, deadText]));
-    ok('the previous build asks the chart twice, as this one does', oldDead.log.filter(e => isTrending(e.url)).length === 2, oldDead.log.filter(e => isTrending(e.url)).length);
+    /* both builds end on the same surface. The wording is compared only for
+       this build, because a previous build from before 5.3 still printed the
+       API's message and one from after it already prints its own sentence —
+       either way this build must never show the API's text. */
+    ok('both builds end on the same error surface',
+      /Could not load videos/.test(oldText) && /Could not load videos/.test(deadText), JSON.stringify([oldText, deadText]));
+    ok('this build never prints the API text', !/Backend Error/.test(deadText), deadText);
+    ok('the previous build asks the chart twice, and this one four times with the feed retry',
+      oldDead.log.filter(e => isTrending(e.url)).length === 2, oldDead.log.filter(e => isTrending(e.url)).length);
     oldDead.dom.window.close();
   }
   dead.dom.window.close();
