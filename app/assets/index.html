@@ -361,7 +361,30 @@ function thumbScan(muts){
   }
   if(gone)thumbPrune();
 }
-const thumbImg=id=>'<img alt="" data-id="'+esc(id)+'" data-q="0" data-l="0" onload="THOK(this)" onerror="TH(this)">';
+/* ---------- thumbnails: decode off the main thread (item 6.2) ----------
+   `decoding="async"` is the one thing the markup can say about *decode* rather
+   than about fetch, and it is a hint the WebView may take or ignore — a build
+   that ignores it behaves exactly as it did before this item, which is why the
+   attribute is safe to add everywhere a thumbnail is built.
+
+   What it asks for: the decode of a JPEG that has finished downloading happens
+   on the image-decode thread instead of the main thread, so a card that lands
+   under the user's thumb while a fling is running does not steal a frame from
+   the scroll to turn 1280x720 of bytes into a bitmap. Without it the WebView
+   decodes synchronously at the moment it needs the frame, which is the worst
+   possible moment: the scroll is mid-fling and the card is already in view.
+   With it the bitmap is ready by the next frame and the picture appears a frame
+   or two later than it otherwise would — the same picture, on the same reserved
+   `aspect-ratio:16/9` box (6.8), so nothing shifts while it waits.
+
+   It goes on the thumbnail and nowhere else. Channel avatars (`.av`, the chip
+   row, the channel header) are 24–40 px, so their decode is a rounding error
+   and their appearance is the identity of the row they sit in; they keep the
+   synchronous path they had. `decoding` is not a fetch hint and does not touch
+   6.1's arming — `thumbImg` is still born with no `src` — and because it is an
+   attribute of the element it survives every `src` swap the fallback makes, so
+   a card that ends up on `hqdefault` decodes that one asynchronously too. */
+const thumbImg=id=>'<img alt="" data-id="'+esc(id)+'" data-q="0" data-l="0" decoding="async" onload="THOK(this)" onerror="TH(this)">';
 /* Read-only census for tools/lazy-thumb-check.js: how many thumbnails are armed
    and still waiting, and whether an observer exists at all. It reads state the
    app already holds and writes nothing, on the same terms as `__ltSurfaces`. */
@@ -2297,7 +2320,7 @@ const SHELF_BUSY=new Set();
 function fillShelf(sh,list){
   const el=document.getElementById('car-'+sh.id);
   if(!el)return;
-  el.innerHTML=list.slice(0,6).map(v=>'<div class="big" data-v="'+esc(v.id)+'"><img src="'+THUMB_BASE+esc(v.id)+'/hqdefault.jpg" alt=""><div><b>'+esc(v.t)+'</b><small>'+esc(v.c)+'</small></div><button class="play glass" data-v="'+esc(v.id)+'">'+PLAY_IC+'Play</button></div>').join('');
+  el.innerHTML=list.slice(0,6).map(v=>'<div class="big" data-v="'+esc(v.id)+'"><img src="'+THUMB_BASE+esc(v.id)+'/hqdefault.jpg" alt="" decoding="async"><div><b>'+esc(v.t)+'</b><small>'+esc(v.c)+'</small></div><button class="play glass" data-v="'+esc(v.id)+'">'+PLAY_IC+'Play</button></div>').join('');
 }
 function paintShelf(sh){
   if(SHELF_BUSY.has(sh.id))return;           /* already on the wire: it fills itself */
@@ -2854,8 +2877,9 @@ const SC=[
   ['escape',()=>esc('<b>&"')==='&lt;b&gt;&amp;&quot;'&&dec('a&amp;b')==='a&b'],
   ['numbers',()=>num(1500)==='1.5K'&&num(2e6)==='2M'&&num(0)===''],
   /* thumbnails are armed, not asked for (6.1): a card is born with no `src` and
-     no native lazy, and still ships the fallback hooks the image items read */
-  ['thumbs',()=>{const t=thumbImg('abc');return t.indexOf('data-q="0"')>0&&t.indexOf('data-l="0"')>0&&t.indexOf('onerror=')>0&&t.indexOf('data-id="abc"')>0&&t.indexOf('src=')<0&&t.indexOf('loading=')<0}],
+     no native lazy, and still ships the fallback hooks the image items read;
+     and it asks for its decode off the main thread (6.2) */
+  ['thumbs',()=>{const t=thumbImg('abc');return t.indexOf('data-q="0"')>0&&t.indexOf('data-l="0"')>0&&t.indexOf('decoding="async"')>0&&t.indexOf('onerror=')>0&&t.indexOf('data-id="abc"')>0&&t.indexOf('src=')<0&&t.indexOf('loading=')<0}],
   /* the two origins the first screen needs are still warmed before it paints */
   ['preconnect',()=>qsa('link[rel="preconnect"]').length>=2],
   ['doc',()=>document.documentElement.lang==='en'&&!!qs('meta[name="viewport"]')],
