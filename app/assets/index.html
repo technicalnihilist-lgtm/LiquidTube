@@ -302,12 +302,71 @@ window.TH=function(img){
 const THUMB_AHEAD='800px 0px';   /* how far past the viewport a card starts fetching */
 const THUMB_LIVE=new Set();      /* armed and not yet asked for: the observer's only hold */
 let THUMB_IO=null,THUMB_IO_TRIED=false;
+/* ---------- thumbnails: the smallest size that fits the card (item 6.3) ----------
+   Every card used to ask for `maxresdefault.jpg` whatever its box on screen. That
+   file is 1280x720 and roughly 100-160 KB, so a 44 %-wide search row, a card in
+   the channel sheet and a full-width feed card all fetched the same picture — and
+   the small ones paid ten times the bytes they could ever draw. i.ytimg.com
+   serves the same frame at several sizes, so the app now asks for the smallest
+   one that still covers the pixels the card actually paints.
+
+   The ladder is the CDN's, and every rung is a real file:
+     mqdefault 320x180   hqdefault 480x360   sddefault 640x480   maxresdefault 1280x720
+   The pick is made at *fire* time, not at render time, because that is the first
+   moment the box has a size: the image is in the document, laid out, and about to
+   be asked for. `img.clientWidth` is the `.thumb` width (the image is
+   `position:absolute; inset:0; width:100%`), and the reads all happen before any
+   write in the same callback, so the batch costs one style/layout flush at most.
+
+   Three factors, and nothing else:
+   - the box in CSS px;
+   - `devicePixelRatio`, capped at 3. A 4x screen gains nothing a 3x pick does
+     not already give, and an uncapped ratio would push every card to maxres on
+     exactly the phones that can least afford the bytes;
+   - 1.14 while parallax is on, because the tilt layer draws the picture at
+     `transform:scale(1.14)` — those are real pixels the card paints. With
+     parallax off the CSS drops the scale, so the picker drops it too.
+
+   Never smaller than the box: the ladder rounds *up*, so no card is ever served
+   a picture it has to enlarge, and the sharpness on screen is the sharpness it
+   had. Where the box cannot be measured (a detached card, a WebView that answers
+   0 — and every run of tools/lazy-thumb-check.js, which has no layout at all)
+   the pick is `maxresdefault`, which is the request this build made before the
+   item: the worst case of 6.3 is the build before it.
+
+   The fallbacks are untouched and still make sense on the way up: `THOK` swaps a
+   grey 120x90 placeholder for hqdefault, and `TH` swaps a first failure for
+   hqdefault — both are at least as large as anything the ladder picks below
+   maxres, so a card that falls back is never served a smaller picture than the
+   one it asked for. A size the CDN does not have (sddefault is missing on many
+   uploads) fails exactly the way a missing maxres already did on the build
+   before this one, which is the app's normal path today. */
+const THUMB_LADDER=[['mqdefault',320],['hqdefault',480],['sddefault',640],['maxresdefault',1280]];
+const THUMB_DPR_MAX=3;      /* above 3x the extra pixels are invisible and expensive */
+const THUMB_TILT=1.14;      /* `.thumb img{transform:scale(1.14)}` — the tilt layer's scale */
+function thumbPick(px){
+  if(!(px>0))return 'maxresdefault';        /* unmeasurable: the request the old build made */
+  for(let i=0;i<THUMB_LADDER.length;i++)if(THUMB_LADDER[i][1]>=px)return THUMB_LADDER[i][0];
+  return 'maxresdefault';
+}
+/* Device pixels the picture has to cover, or 0 when the box has no size yet. */
+function thumbPixels(img){
+  const box=img.parentElement;
+  const css=img.clientWidth||(box?box.clientWidth:0)||0;
+  if(!css)return 0;
+  let dpr=window.devicePixelRatio||1;
+  if(!(dpr>0))dpr=1;
+  if(dpr>THUMB_DPR_MAX)dpr=THUMB_DPR_MAX;
+  const tilt=document.documentElement.dataset.parallax==='off'?1:THUMB_TILT;
+  return Math.ceil(css*dpr*tilt);
+}
+function thumbURL(img){return THUMB_BASE+img.dataset.id+'/'+thumbPick(thumbPixels(img))+'.jpg'}
 function thumbFire(img){
   if(!img||img.dataset.l!=='0')return;
   img.dataset.l='1';
   THUMB_LIVE.delete(img);
   if(THUMB_IO)THUMB_IO.unobserve(img);
-  img.src=THUMB_BASE+img.dataset.id+'/maxresdefault.jpg';
+  img.src=thumbURL(img);
 }
 function thumbSeen(ents){
   for(let i=0;i<ents.length;i++){const e=ents[i];if(e.isIntersecting)thumbFire(e.target)}
@@ -2880,6 +2939,9 @@ const SC=[
      no native lazy, and still ships the fallback hooks the image items read;
      and it asks for its decode off the main thread (6.2) */
   ['thumbs',()=>{const t=thumbImg('abc');return t.indexOf('data-q="0"')>0&&t.indexOf('data-l="0"')>0&&t.indexOf('decoding="async"')>0&&t.indexOf('onerror=')>0&&t.indexOf('data-id="abc"')>0&&t.indexOf('src=')<0&&t.indexOf('loading=')<0}],
+  /* a card asks for the smallest size that covers its box (6.3): the ladder rounds
+     up, never down, and a box that cannot be measured keeps the old request */
+  ['thumbsize',()=>thumbPick(0)==='maxresdefault'&&thumbPick(1)==='mqdefault'&&thumbPick(320)==='mqdefault'&&thumbPick(321)==='hqdefault'&&thumbPick(480)==='hqdefault'&&thumbPick(481)==='sddefault'&&thumbPick(640)==='sddefault'&&thumbPick(641)==='maxresdefault'&&thumbPick(4000)==='maxresdefault'&&THUMB_LADDER.length===4],
   /* the two origins the first screen needs are still warmed before it paints */
   ['preconnect',()=>qsa('link[rel="preconnect"]').length>=2],
   ['doc',()=>document.documentElement.lang==='en'&&!!qs('meta[name="viewport"]')],
