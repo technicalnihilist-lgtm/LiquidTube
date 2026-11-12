@@ -271,7 +271,101 @@ window.TH=function(img){
     if(p)p.style.background='linear-gradient(135deg,#23262f,#3d4256)';
     return;
   }img.dataset.f='1';img.src='https://i.ytimg.com/vi/'+img.dataset.id+'/hqdefault.jpg';};
-const thumbImg=id=>'<img src="'+THUMB_BASE+esc(id)+'/maxresdefault.jpg" alt="" loading="lazy" data-id="'+esc(id)+'" data-q="0" onload="THOK(this)" onerror="TH(this)">';
+/* ---------- thumbnails: one observer for the whole app (item 6.1) ----------
+   A card used to be born with its picture already asked for: `thumbImg` wrote the
+   `src` into the markup and left the fetching to the WebView's own
+   `loading="lazy"`. That queue is not the one this app wants. Chromium picks the
+   distance itself — roughly 1250 px on a slow link and 3000 px on a fast one —
+   so on a 24-card feed it is fetching, and decoding, the whole feed while the
+   user is looking at the first two screens; and it re-examines every image it
+   still holds on every scroll it drives. Here the distance is the app's own
+   (`THUMB_AHEAD`, a bit over one screen, enough that a fling lands on cards that
+   already have their picture), and an image that has been asked for is
+   unobserved, so a scroll afterwards costs nothing for a card that is done.
+
+   What must not change is the card. `.thumb` is `aspect-ratio:16/9`, so the box
+   is reserved by the stylesheet and a picture that arrives late shifts nothing
+   (that is 6.8's subject, and this item must not spoil it). An `<img>` with no
+   `src` draws nothing, which is exactly what an image that is still fetching
+   draws, so the empty frame before the picture lands is the frame the user saw
+   before. The hooks the rest of the app reads are untouched: `data-id` and
+   `data-q` (the tilt layer's transform), `onload`→`THOK` (the
+   maxres→hqdefault fallback) and `onerror`→`TH` (the twice-failed card).
+   `data-l` is this item's own state — `0` armed, `1` asked for — and it is what
+   makes a second pass over the same card free.
+
+   Two failure paths, both silent. A WebView without `IntersectionObserver`
+   arms every image at render, which is the old behaviour exactly, so the worst
+   case of this item is the build before it. And a card detached before it ever
+   came into view is dropped by `thumbPrune`, so the observer never holds a
+   replaced feed: its one reference is the image it is still waiting to see. */
+const THUMB_AHEAD='800px 0px';   /* how far past the viewport a card starts fetching */
+const THUMB_LIVE=new Set();      /* armed and not yet asked for: the observer's only hold */
+let THUMB_IO=null,THUMB_IO_TRIED=false;
+function thumbFire(img){
+  if(!img||img.dataset.l!=='0')return;
+  img.dataset.l='1';
+  THUMB_LIVE.delete(img);
+  if(THUMB_IO)THUMB_IO.unobserve(img);
+  img.src=THUMB_BASE+img.dataset.id+'/maxresdefault.jpg';
+}
+function thumbSeen(ents){
+  for(let i=0;i<ents.length;i++){const e=ents[i];if(e.isIntersecting)thumbFire(e.target)}
+}
+function thumbIO(){
+  if(THUMB_IO_TRIED)return THUMB_IO;
+  THUMB_IO_TRIED=true;
+  try{THUMB_IO=new IntersectionObserver(thumbSeen,{root:null,rootMargin:THUMB_AHEAD,threshold:0})}
+  catch(e){THUMB_IO=null}
+  return THUMB_IO;
+}
+/* Arm every thumbnail in a subtree the app has just inserted. The card itself is
+   `cardOf`'s button, so the images are found with `getElementsByTagName` (a live
+   collection, no selector engine) and only the unarmed ones are observed. */
+function thumbArm(root){
+  if(!root||root.nodeType!==1)return;
+  const io=thumbIO();
+  const list=root.tagName==='IMG'?[root]:root.getElementsByTagName('img');
+  for(let i=0;i<list.length;i++){
+    const im=list[i];
+    if(im.dataset.l!=='0')continue;
+    if(!io){thumbFire(im);continue}   /* no observer here: ask now, exactly as before */
+    THUMB_LIVE.add(im);
+    io.observe(im);
+  }
+}
+function thumbPrune(){
+  if(!THUMB_LIVE.size)return;
+  THUMB_LIVE.forEach(im=>{
+    /* `!==false`, not `!isConnected`: a WebView old enough to have no
+       `isConnected` would otherwise have its live cards pruned away. The
+       observer and `isConnected` arrived in the same Chromium, so this only
+       guards the build where neither is present. */
+    if(im.isConnected!==false)return;
+    THUMB_LIVE.delete(im);
+    if(THUMB_IO)THUMB_IO.unobserve(im);
+  });
+}
+/* Every render in the app — the feed, a chip section, the channel sheet, the
+   library, the search results — reaches the document as an insertion, and the
+   document already has one observer watching insertions for the frame cache.
+   So this rides on that: the same callback arms what was added and prunes what
+   was taken away, and no render path has to remember to call anything. */
+function thumbScan(muts){
+  let gone=false;
+  for(let i=0;i<muts.length;i++){
+    const m=muts[i];
+    if(m.removedNodes.length)gone=true;
+    const add=m.addedNodes;
+    for(let j=0;j<add.length;j++)thumbArm(add[j]);
+  }
+  if(gone)thumbPrune();
+}
+const thumbImg=id=>'<img alt="" data-id="'+esc(id)+'" data-q="0" data-l="0" onload="THOK(this)" onerror="TH(this)">';
+/* Read-only census for tools/lazy-thumb-check.js: how many thumbnails are armed
+   and still waiting, and whether an observer exists at all. It reads state the
+   app already holds and writes nothing, on the same terms as `__ltSurfaces`. */
+window.__ltThumbs=()=>({live:THUMB_LIVE.size,io:!!THUMB_IO,ahead:THUMB_AHEAD});
 
 /* ---------- surfaces, and the listeners that belong to them (item 4.3) ----------
    The app is one document with three tab pages that are never rebuilt and four
@@ -2759,8 +2853,9 @@ const SC=[
   /* the text helpers that every card goes through */
   ['escape',()=>esc('<b>&"')==='&lt;b&gt;&amp;&quot;'&&dec('a&amp;b')==='a&b'],
   ['numbers',()=>num(1500)==='1.5K'&&num(2e6)==='2M'&&num(0)===''],
-  /* thumbnails still ship the fallback hooks the image items rely on */
-  ['thumbs',()=>{const t=thumbImg('abc');return t.indexOf('data-q="0"')>0&&t.indexOf('onerror=')>0&&t.indexOf('data-id="abc"')>0}],
+  /* thumbnails are armed, not asked for (6.1): a card is born with no `src` and
+     no native lazy, and still ships the fallback hooks the image items read */
+  ['thumbs',()=>{const t=thumbImg('abc');return t.indexOf('data-q="0"')>0&&t.indexOf('data-l="0"')>0&&t.indexOf('onerror=')>0&&t.indexOf('data-id="abc"')>0&&t.indexOf('src=')<0&&t.indexOf('loading=')<0}],
   /* the two origins the first screen needs are still warmed before it paints */
   ['preconnect',()=>qsa('link[rel="preconnect"]').length>=2],
   ['doc',()=>document.documentElement.lang==='en'&&!!qs('meta[name="viewport"]')],
@@ -3256,7 +3351,10 @@ function domDrop(){
   F_ALL.length=0;F_VIS.length=0;
   F_CARD.length=0;F_CTOP.length=0;F_CH.length=0;F_IMG.length=0;F_REL.length=0;
 }
-new MutationObserver(()=>{domGen++;domDrop()})
+/* The same callback arms the thumbnails an insertion brought with it and drops
+   the ones a replacement detached (item 6.1), so a render path never has to
+   remember to do it: it is one observer, on the same mutations. */
+new MutationObserver(muts=>{domGen++;domDrop();thumbScan(muts)})
   .observe(document.body,{childList:true,subtree:true});
 function frameKick(force){
   if(force)forceFrame=true;
