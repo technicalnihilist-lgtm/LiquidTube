@@ -2689,8 +2689,115 @@ function tlFlush(partial){
     try{localStorage.setItem(TL_KEY,JSON.stringify({v:1,t:total,at:Date.now()}))}catch(e){}
     try{console.info(line)}catch(e){}
   }catch(e){}
+  try{if(DBG)scSoon()}catch(e){}       /* debug mode only: the boot has settled, the check runs */
 }
 tlTimer=setTimeout(()=>tlFlush(1),12000);   /* last resort: never leave a boot unlogged */
+
+/* ---------- boot self-check, debug mode only (item 5.10) ----------
+   Every item above this one left an invariant behind: a bound that must hold, a
+   codec that must round-trip, a registry that must be complete, a net that must
+   be installed. Until now the only thing asserting them was a script in tools/,
+   on a desktop, and the shipped app could drift from the code those scripts
+   measure with nothing on the device to say so. This runs the same assertions on
+   the app as it actually shipped, once per boot, and only in debug mode.
+
+   Debug mode is an opt-in and costs one string scan when it is off. It reads
+   nothing else: no storage key, no request, no DOM write, no timer. It is on
+   when the page was loaded with `?ltdebug=1` (also `#ltdebug`, or a bare
+   `?debug`), or when `window.__LT_DEBUG===true` was set before this script ran
+   — which is how `adb shell am start -n com.liquidtube.app/.MainActivity --ez
+   ltdebug true` turns it on for one launch; MainActivity appends the parameter,
+   so the on-device switch is an extra, not a build.
+
+   Each probe returns true, reads only state the app already holds, touches no
+   DOM and is caught on its own: one broken invariant is one `fail=` name in the
+   line, never a thrown boot. The run happens in an idle slot after the shell has
+   painted, so the boot's own timings are untouched, and the whole result is one
+   `lt-` line — the only console prefix the WebView forwards — so
+   `adb logcat -s LiquidTube` shows it beside the startup timeline.
+   window.__ltSelfCheck() is the census: nothing on screen reads it, no pixel
+   changes, and with debug mode off none of this ever runs. */
+const DBG=(()=>{
+  try{
+    if(window.__LT_DEBUG===true)return 1;
+    const q=' '+String(location.search||'')+' '+String(location.hash||'')+' ';
+    return /[?&#](lt)?debug(=1)?[&#\s]/.test(q)?1:0;
+  }catch(e){return 0}
+})();
+const SC_MAXL=8,SC_SEL_MAX=8;                 /* names in the line, and the misses that are still fine */
+const SC_ST={runs:0,ok:0,fail:0,ms:0,fails:[],last:'',at:0};
+const SC=[
+  /* the shell the boot paints into: every stage-1 node, by id, still present */
+  ['shell',()=>['app','feed','ex','subfeed','chips','splash'].every(id=>!!$(id))],
+  /* the timeline is bounded and holds [name, ms] pairs, nothing else */
+  ['timeline',()=>Array.isArray(TL)&&TL_CAP===16&&TL.length<=TL_CAP],
+  ['marks',()=>TL.every(m=>!!m&&typeof m[0]==='string'&&isFinite(m[1]))],
+  /* the persisted state still survives a write/read cycle through the codec */
+  ['codec',()=>{const r=storeJSON({a:[1,2,3],b:'x'});const o=loadJSON(r,null);return r.indexOf(Z_PREFIX)===0&&!!o&&o.b==='x'&&o.a.length===3}],
+  /* every cache and map that was given a ceiling is still under it */
+  ['reqcache',()=>RQ_MAX>0&&RQ.size<=RQ_MAX&&RQI.size<=RQ_MAX*2],
+  ['vmap',()=>VQ.size<=V_HI&&Object.keys(V).length<=V_HI],
+  ['chmap',()=>CHQ.size<=CH_HI&&Object.keys(CH).length<=CH_HI],
+  ['avatars',()=>CAVQ.size<=CAV_MAX&&Object.keys(CAV).length<=CAV_MAX],
+  ['library',()=>S.hist.length<=HIST_MAX&&S.liked.length<=LIKED_MAX&&S.later.length<=LATER_MAX],
+  /* the error map has a sentence for every class, and no sentence is empty */
+  ['errors',()=>Object.keys(EK_TEXT).length>=10&&Object.keys(EK_TEXT).every(k=>typeof EK_TEXT[k]==='string'&&EK_TEXT[k].length>8)],
+  /* a retry button can only point at a key that has something to run */
+  ['retry',()=>Object.keys(RTY).length<=RTY_MAX&&Object.keys(RTY).every(k=>typeof RTY[k]==='function')],
+  /* every endpoint that is validated has a validator */
+  ['shape',()=>Object.keys(SH_SPEC).length>=5&&Object.keys(SH_SPEC).every(k=>typeof SH_SPEC[k]==='function')],
+  ['async',()=>typeof asGuard==='function'&&typeof asSafe==='function'&&typeof asWatch==='function'&&AS_MAXW>0],
+  /* the global net is installed and can still take the splash down */
+  ['global',()=>typeof glHandle==='function'&&typeof glRescue==='function'&&GL_ST.n>=0],
+  /* the meter is inside its own limit and knows which day it is on */
+  ['quota',()=>Q.units>=0&&Q.units<=Q_LIMIT&&typeof Q.day==='string'&&Q.day.length===10],
+  /* listeners are registered through the census, so teardown can find them */
+  /* no owner holds more listeners than the census ever registered: the player is
+     the only surface that uses it, and it is not open on a boot */
+  ['surfaces',()=>typeof ltOn==='function'&&typeof ltOff==='function'&&LT_ST.on>=LT_ST.off&&LT_OWN.size<=LT_ST.on-LT_ST.off],
+  ['selectors',()=>SEL_MISS.size<=SC_SEL_MAX],
+  /* the text helpers that every card goes through */
+  ['escape',()=>esc('<b>&"')==='&lt;b&gt;&amp;&quot;'&&dec('a&amp;b')==='a&b'],
+  ['numbers',()=>num(1500)==='1.5K'&&num(2e6)==='2M'&&num(0)===''],
+  /* thumbnails still ship the fallback hooks the image items rely on */
+  ['thumbs',()=>{const t=thumbImg('abc');return t.indexOf('data-q="0"')>0&&t.indexOf('onerror=')>0&&t.indexOf('data-id="abc"')>0}],
+  /* the two origins the first screen needs are still warmed before it paints */
+  ['preconnect',()=>qsa('link[rel="preconnect"]').length>=2],
+  ['doc',()=>document.documentElement.lang==='en'&&!!qs('meta[name="viewport"]')],
+  /* the settings object a render reads is shaped as every render assumes */
+  ['state',()=>S_OBJ(S)&&S_OBJ(S.opt)&&typeof S.opt.depth==='number'&&typeof S.opt.pdepth==='number'],
+  /* the splash left on its own: a boot that reached neither is a boot in trouble */
+  ['booted',()=>revealed===true||tlDone===true]
+];
+/* One pass. Every probe is caught separately, so a probe that throws is a
+   failure with its own name rather than the end of the run. */
+function scRun(){
+  const t0=rqNow();
+  let ok=0,fail=0;const bad=[];
+  for(let i=0;i<SC.length;i++){
+    let good=0;
+    try{good=SC[i][1]()?1:0}catch(e){good=0}
+    if(good)ok++;else{fail++;if(bad.length<SC_MAXL)bad.push(SC[i][0])}
+  }
+  SC_ST.runs++;SC_ST.ok=ok;SC_ST.fail=fail;SC_ST.fails=bad;
+  SC_ST.ms=Math.round(rqNow()-t0);SC_ST.at=Math.round(performance.now());
+  SC_ST.last='lt-selfcheck on='+DBG+' ok='+ok+' fail='+fail+' n='+SC.length+' ms='+SC_ST.ms
+    +(bad.length?' fails='+bad.join(','):'');
+  try{console.info(SC_ST.last)}catch(e){}
+  return SC_ST;
+}
+/* Idle, and after the shell has painted: the check never sits between the first
+   frame and the user, and its own cost lands in a slot the boot is not using. */
+function scSoon(){
+  const go=()=>{try{scRun()}catch(e){}};
+  try{
+    if(typeof requestIdleCallback==='function')requestIdleCallback(go,{timeout:3000});
+    else setTimeout(go,600);
+  }catch(e){setTimeout(go,600)}
+}
+window.__ltSelfCheck=()=>({on:DBG,n:SC.length,ok:SC_ST.ok,fail:SC_ST.fail,ms:SC_ST.ms,
+  fails:SC_ST.fails.slice(),runs:SC_ST.runs,at:SC_ST.at,last:SC_ST.last,names:SC.map(c=>c[0])});
+window.__ltSelfCheckRun=()=>{try{return scRun()}catch(e){return SC_ST}};   /* tools/ re-runs it after breaking one */
 let revealed=false,revealT=0;
 const reveal=()=>{
   if(revealed)return;revealed=true;
