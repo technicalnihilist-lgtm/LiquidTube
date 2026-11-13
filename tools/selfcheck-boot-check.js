@@ -185,7 +185,7 @@ const num = (line, k) => +new RegExp(k + '=(\\d+)').exec(line)[1];
 /* The healthy set, named here so a probe cannot vanish quietly. Order-free. */
 const PROBES = ['shell', 'timeline', 'marks', 'codec', 'reqcache', 'vmap', 'chmap', 'avatars',
   'library', 'errors', 'retry', 'shape', 'async', 'global', 'quota', 'surfaces', 'selectors',
-  'escape', 'numbers', 'thumbs', 'thumbsize', 'preconnect', 'doc', 'state', 'booted'];
+  'escape', 'numbers', 'thumbs', 'thumbsize', 'thumburls', 'preconnect', 'doc', 'state', 'booted'];
 
 async function boot(dbg) {
   const env = open(dbg);
@@ -225,7 +225,7 @@ async function boot(dbg) {
   ok('on: it runs after the boot has settled', on.lines.findIndex(l => l.indexOf('lt-selfcheck') === 0) >
     on.lines.findIndex(l => l.indexOf('lt-startup') === 0));
   const census = on.w.__ltSelfCheck ? on.w.__ltSelfCheck() : {};
-  ok('on: the census reports the same count as the line', census.n === 25, String(census.n));
+  ok('on: the census reports the same count as the line', census.n === PROBES.length, String(census.n));
   ok('on: the census reports one run', census.runs === 1, String(census.runs));
   ok('on: the census keeps the last line', census.last === line, String(census.last));
 
