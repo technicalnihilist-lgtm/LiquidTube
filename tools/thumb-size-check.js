@@ -295,7 +295,10 @@ async function boot() {
   /* ---- the card on screen did not move ---- */
   {
     const img = thumbsOf(env)[14];
-    const names = () => [...img.attributes].map(a => a.name).filter(n => n !== 'src').sort().join(',');
+    /* `sizes`/`srcset` are item 6.6's own: the density it declares to the engine
+       beside the pick. Everything else on the element must be what it was. */
+    const names = () => [...img.attributes].map(a => a.name)
+      .filter(n => n !== 'src' && n !== 'sizes' && n !== 'srcset').sort().join(',');
     const before = names();
     const styleBefore = img.getAttribute('style');
     size(img, 170, 3, true);
