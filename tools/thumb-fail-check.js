@@ -180,7 +180,7 @@ const lookOf = (el, withStyle) => {
       if (c.nodeType === 3) { const t = c.textContent.trim(); if (t) out.push('#' + t); continue; }
       if (c.nodeType !== 1) continue;
       const attrs = [...c.attributes]
-        .filter(a => !['src', 'loading', 'data-l', 'decoding', 'data-f'].includes(a.name))
+        .filter(a => !['src', 'loading', 'data-l', 'decoding', 'data-f', 'data-fd'].includes(a.name))
         .filter(a => withStyle || a.name !== 'style')
         .map(a => a.name + '=' + a.value).sort().join(';');
       out.push('<' + c.tagName + ' ' + attrs);
@@ -417,8 +417,12 @@ const idsOf = imgs => imgs.map(i => i.dataset.id);
     const a = feedLook(env, false), b = feedLook(old, false);
     ok('every card looks exactly as it did before this item', a === b,
       a === b ? 'identical' : 'differs at card ' + (a.split('\n').findIndex((l, i) => l !== b.split('\n')[i]) + 1));
+    /* `data-fd` is 6.7's own attribute on the same element, so it is taken out
+       before the comparison: the markup a card is built from must otherwise be
+       byte-for-byte the old markup. */
+    const mk = e => String(e.w.eval('thumbImg("abc")')).replace(/ data-fd="\d"/, '');
     ok('the markup a card is built from is byte-for-byte the old markup',
-      env.w.eval('thumbImg("abc")') === old.w.eval('thumbImg("abc")'), env.w.eval('thumbImg("abc")'));
+      mk(env) === mk(old), mk(env));
     ok('the fallback URL is unchanged',
       env.w.eval('thumbHQ("abc")') === old.w.eval('thumbHQ("abc")'), env.w.eval('thumbHQ("abc")'));
     env.dom.window.close();

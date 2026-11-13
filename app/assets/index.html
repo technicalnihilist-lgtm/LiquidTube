@@ -628,6 +628,7 @@ function thumbAsk(img,id,url){
     THUMB_DS.set++;
   }
   img.src=url;
+  thumbFade(img);
 }
 /* A fallback is one file, so the candidates have to come off first: while a
    width-descriptor `srcset` is on the element the engine never loads `src`. */
@@ -637,6 +638,85 @@ function thumbHQSet(img,id){
     THUMB_DS.clear++;
   }
   img.src=thumbHQ(id);
+  thumbFade(img);
+}
+/* ---------- thumbnails: a picture is shown only once it is decoded (item 6.7) ----------
+   Every item before this one is about the bytes: 6.1 stops the app asking for a
+   card it cannot see, 6.3 stops it asking for a file bigger than the box, 6.4
+   stops it asking twice, 6.5 stops it asking for a file that is not there and
+   6.6 lets the engine re-answer the size question by itself. What none of them
+   touches is the moment the picture becomes visible, and that moment is the one
+   the user actually sees. Today it is whatever frame the engine happens to
+   finish on: the JPEG's first scanlines decode, the engine paints, and a card
+   that was an empty box is suddenly a photograph — mid-scroll, mid-fling, in
+   the middle of the frame the user was following. A baseline JPEG arrives in
+   one piece and pops; a progressive one arrives in passes and paints its own
+   blurry first pass first, so the card is briefly a smeared version of the
+   picture and then a sharp one, which reads as a flicker rather than a load.
+
+   `img.decode()` is the engine's own answer to "when is this picture ready to
+   paint". It returns a promise that resolves once the file has been fetched
+   *and* fully decoded into a bitmap that the next frame can composite without
+   blocking the main thread, and it rejects when the file cannot be decoded at
+   all. So the reveal is driven by the promise instead of by the paint:
+
+     - the image is born `data-fd="0"` and the stylesheet holds it at
+       `opacity:0`. An image with no `src` draws nothing anyway (that is 6.1's
+       empty reserved box), so a hidden thumbnail and an unasked-for one are the
+       same pixels — the card looks exactly as it did before the item while the
+       picture is on its way;
+     - the ask (`thumbAsk`, and `thumbHQSet` for both fallbacks) sets the `src`
+       and then hands the element to `thumbFade`, which awaits `decode()` and
+       flips `data-fd` to `1`. The stylesheet's `[data-fd="1"]` rule carries the
+       opacity transition — the same 260 ms ease the player's own iframe already
+       fades in with — so the picture arrives as a fade over a box that was
+       already the right size, never as a pop;
+     - because the bitmap is decoded before the flip, the fade's first frame is
+       the finished picture. A progressive JPEG cannot smear its way in: by the
+       time the opacity leaves 0 the file is a complete bitmap.
+
+   Nothing new is drawn and nothing moves. The box is still the stylesheet's
+   `aspect-ratio:16/9` (6.8), the fade is `opacity` only — a compositor property
+   that costs no layout and no paint of the box behind it — and the element's own
+   `transform` transition is carried alongside it, so the tilt layer behaves
+   exactly as before. `thumbDead` still hides a card that has no picture, and a
+   hidden-by-decode element that is then declared dead is hidden twice, which is
+   the same card.
+
+   The three ways this can be less than it is, all of them the build before the
+   item:
+
+     - no `decode` (a WebView older than Chromium 64) → `thumbShow` is called at
+       once and the picture appears exactly when it used to;
+     - `decode` rejects → the file is one that cannot be drawn, which is `TH`'s
+       path already (`hqdefault`, then the tidy gradient); nothing is revealed
+       here and the fallback asks again, which fades in its own turn;
+     - a decode that never settles leaves the card as an empty box — the state
+       it is in today for as long as the request is in flight. There is no
+       timeout and no polling: a timer per image would be hundreds of timers on
+       a feed, which is the thing 4.1 removed.
+
+   The reveal is idempotent (`data-fd` is checked before it is written), so the
+   pick and a fallback can both reach it for one element, and the census below
+   counts the three outcomes so a run can say how many pictures faded and how
+   many had to appear the old way. */
+const THUMB_FD={ask:0,reveal:0,instant:0,lost:0};   /* asks, faded in, revealed without decode, undecodable */
+/* Show the picture. One write, and only the first time: `data-fd` is the state. */
+function thumbShow(img){
+  if(!img||img.dataset.fd==='1')return;
+  img.dataset.fd='1';
+}
+/* Wait for the engine to finish decoding, then show it. No timer, no poll: the
+   promise is the whole schedule, and an engine without one shows it now. */
+function thumbFade(img){
+  if(!img)return;
+  THUMB_FD.ask++;
+  const d=img.decode;
+  if(typeof d!=='function'){THUMB_FD.instant++;thumbShow(img);return}
+  let p;
+  try{p=d.call(img)}catch(e){THUMB_FD.instant++;thumbShow(img);return}
+  if(!p||typeof p.then!=='function'){THUMB_FD.instant++;thumbShow(img);return}
+  p.then(function(){THUMB_FD.reveal++;thumbShow(img)},function(){THUMB_FD.lost++});
 }
 function thumbFire(img){
   if(!img||img.dataset.l!=='0')return;
@@ -729,7 +809,10 @@ function thumbScan(muts){
    6.1's arming — `thumbImg` is still born with no `src` — and because it is an
    attribute of the element it survives every `src` swap the fallback makes, so
    a card that ends up on `hqdefault` decodes that one asynchronously too. */
-const thumbImg=id=>'<img alt="" data-id="'+esc(id)+'" data-q="0" data-l="0" decoding="async" onload="THOK(this)" onerror="TH(this)">';
+/* `data-fd="0"` is 6.7's state: the picture is held at `opacity:0` until the
+   engine has decoded it. An element without the attribute is drawn as before,
+   so every `<img>` in this file that is not a thumbnail is untouched. */
+const thumbImg=id=>'<img alt="" data-id="'+esc(id)+'" data-q="0" data-l="0" data-fd="0" decoding="async" onload="THOK(this)" onerror="TH(this)">';
 /* Read-only census for tools/lazy-thumb-check.js: how many thumbnails are armed
    and still waiting, and whether an observer exists at all. It reads state the
    app already holds and writes nothing, on the same terms as `__ltSurfaces`. */
@@ -737,7 +820,8 @@ window.__ltThumbs=()=>({live:THUMB_LIVE.size,io:!!THUMB_IO,ahead:THUMB_AHEAD,
   urls:THUMB_RES.size,max:THUMB_MAX,hit:THUMB_ST.hit,miss:THUMB_ST.miss,repick:THUMB_ST.repick,evict:THUMB_ST.evict,
   fail:THUMB_FAIL.size,fmax:THUMB_FAIL_MAX,fttl:THUMB_FAIL_TTL,
   mark1:THUMB_FST.mark1,mark2:THUMB_FST.mark2,skip:THUMB_FST.skip,start:THUMB_FST.start,expire:THUMB_FST.expire,
-  dens:THUMB_DS.set,dclear:THUMB_DS.clear});
+  dens:THUMB_DS.set,dclear:THUMB_DS.clear,
+  fade:THUMB_FD.reveal,fask:THUMB_FD.ask,finstant:THUMB_FD.instant,flost:THUMB_FD.lost});
 
 /* ---------- surfaces, and the listeners that belong to them (item 4.3) ----------
    The app is one document with three tab pages that are never rebuilt and four
@@ -3291,6 +3375,27 @@ const SC=[
     const cleared=!b.hasAttribute('srcset')&&!b.hasAttribute('sizes')&&/\/hqdefault\.jpg$/.test(b.getAttribute('src')||'');
     THUMB_RES.delete(id);THUMB_FAIL.delete(id);
     return up&&all&&none&&noSizes&&cleared&&THUMB_LADDER.length===4}],
+  /* a picture is shown only once it is decoded (6.7): a thumbnail is born hidden,
+     an ask that the engine cannot decode reveals it at once (the build before the
+     item), and an ask the engine *can* decode leaves it hidden until the promise
+     settles — which is the whole point, so the probe resolves it by hand. The
+     reveal is idempotent, and the element it uses is a throwaway that is never
+     inserted, so the document and every map are left exactly as they were. */
+  ['thumbfade',()=>{const id='__sc_w',a=document.createElement('img'),b=document.createElement('img');
+    a.dataset.id=id;a.dataset.fd='0';b.dataset.id=id;b.dataset.fd='0';
+    const born=thumbImg(id).indexOf('data-fd="0"')>0;
+    let res=null;
+    a.decode=undefined;                                     /* an engine with no `decode` at all */
+    b.decode=function(){return {then:function(f){res=f}}};   /* a decode that is still pending */
+    thumbAsk(b,id,THUMB_BASE+id+'/hqdefault.jpg');
+    const held=b.dataset.fd==='0'&&typeof res==='function';
+    if(res)res();
+    const shown=b.dataset.fd==='1';
+    thumbFade(a);
+    const instant=a.dataset.fd==='1';
+    thumbShow(a);
+    THUMB_RES.delete(id);THUMB_FAIL.delete(id);
+    return born&&held&&shown&&instant&&THUMB_FD.ask>0}],
   /* the two origins the first screen needs are still warmed before it paints */
   ['preconnect',()=>qsa('link[rel="preconnect"]').length>=2],
   ['doc',()=>document.documentElement.lang==='en'&&!!qs('meta[name="viewport"]')],
@@ -4232,6 +4337,15 @@ render(true);
 #feed,#subfeed,#chlist,#animefeed,#cartoonfeed,#moviesfeed,#results,#ex{perspective:1500px;perspective-origin:50% 40%}
 .thumb img{transform:scale(1.14);transition:transform .12s linear}
 html[data-parallax=off] .thumb img{transform:none!important;transition:none}
+/* 6.7: a thumbnail is held at `opacity:0` until the engine has decoded it, then
+   fades in. `opacity` only — no width, no height, no layout — so the reserved
+   box never moves and the tilt layer's own transform transition is carried
+   beside it, unchanged. An element with no `data-fd` is drawn exactly as before,
+   which is every `<img>` in this file that is not a thumbnail. With parallax off
+   the transform transition is still suppressed; only the opacity one is kept. */
+.thumb img[data-fd="0"]{opacity:0}
+.thumb img[data-fd="1"]{opacity:1;transition:transform .12s linear,opacity .26s ease}
+html[data-parallax=off] .thumb img[data-fd="1"]{transition:opacity .26s ease}
 /* will-change is a promise about the near future, and a promise kept costs a
    compositor layer for as long as it is kept: a feed card and its thumbnail are
    each a full-size texture (412x287 at 2x), so a feed of two dozen held ~50 of

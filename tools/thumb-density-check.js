@@ -216,7 +216,7 @@ async function boot(file) {
    `srcset` — and with the attributes that are the picture's state rather than the
    card's, so the "nothing visible moved" half of the rule is a real diff and not
    a memory of a screenshot. Same walk as tools/thumb-url-cache-check.js. */
-const SKIP_ATTR = ['src', 'loading', 'data-l', 'decoding', 'sizes', 'srcset'];
+const SKIP_ATTR = ['src', 'loading', 'data-l', 'decoding', 'sizes', 'srcset', 'data-fd'];
 function treeOf(doc) {
   return [...doc.querySelectorAll('#feed .card')].map(c => {
     const walk = (el, out) => {

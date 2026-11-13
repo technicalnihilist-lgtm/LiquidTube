@@ -185,7 +185,8 @@ const num = (line, k) => +new RegExp(k + '=(\\d+)').exec(line)[1];
 /* The healthy set, named here so a probe cannot vanish quietly. Order-free. */
 const PROBES = ['shell', 'timeline', 'marks', 'codec', 'reqcache', 'vmap', 'chmap', 'avatars',
   'library', 'errors', 'retry', 'shape', 'async', 'global', 'quota', 'surfaces', 'selectors',
-  'escape', 'numbers', 'thumbs', 'thumbsize', 'thumburls', 'thumbfail', 'thumbdensity', 'preconnect', 'doc', 'state', 'booted'];
+  'escape', 'numbers', 'thumbs', 'thumbsize', 'thumburls', 'thumbfail', 'thumbdensity', 'thumbfade',
+  'preconnect', 'doc', 'state', 'booted'];
 
 async function boot(dbg) {
   const env = open(dbg);

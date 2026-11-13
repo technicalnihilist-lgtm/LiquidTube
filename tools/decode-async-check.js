@@ -174,7 +174,7 @@ const look = env => cardsOf(env).map(c => {
       if (n.nodeType === 3) { const t = n.textContent.trim(); if (t) out.push('#' + t); continue; }
       if (n.nodeType !== 1) continue;
       const attrs = [...n.attributes]
-        .filter(a => !['src', 'loading', 'data-l', 'decoding'].includes(a.name))
+        .filter(a => !['src', 'loading', 'data-l', 'decoding', 'data-fd'].includes(a.name))
         .map(a => a.name + '=' + a.value).sort().join(';');
       out.push('<' + n.tagName + ' ' + attrs);
       walk(n, out);
