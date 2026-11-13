@@ -110,6 +110,23 @@ img{opacity:0;scale:1.12;transition:opacity .45s ease,scale .9s var(--bounce)}
 img.ld{opacity:1;scale:1}
 .thumb iframe{position:absolute;inset:0;width:100%;height:100%;border:0;opacity:0;scale:.92;transition:opacity .45s ease,scale .9s var(--bounce)}
 .thumb iframe.ld{opacity:1;scale:1}
+/* ---- 6.8: a picture box is reserved before its file arrives ----
+   `.thumb` (16:9) and `.big` (4:4.3) take their height from `aspect-ratio` in the
+   deferred sheet. An engine without `aspect-ratio` — Chromium before 88, which
+   is what an un-updated Android WebView on this app's minSdk 21 device is — has
+   no height for either box, so the picture is drawn into 0 px and a card is a
+   meta row with nothing above it. These rules are the same geometry written as
+   padding, and they exist only where `aspect-ratio` does not, so the CSSOM of
+   every current engine is untouched: the height is the width times the ratio,
+   and the picture sits absolutely inside it, exactly as the modern engine draws
+   it. Kept in the critical sheet because it is a reservation, not a decoration:
+   it must hold in the first frame, whichever sheet has landed. */
+@supports not (aspect-ratio:16/9){
+  .thumb{position:relative;padding-top:56.25%}
+  .thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+  .big{position:relative;overflow:hidden;padding-top:107.5%}
+  .big img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+}
 .art{background:rgba(0,0,0,.28)}
 .skl{animation:rise .85s var(--bounce) backwards,skl 1.2s linear infinite}
 .skl:nth-child(2){animation-delay:.08s,0s}.skl:nth-child(3){animation-delay:.16s,0s}
@@ -812,7 +829,24 @@ function thumbScan(muts){
 /* `data-fd="0"` is 6.7's state: the picture is held at `opacity:0` until the
    engine has decoded it. An element without the attribute is drawn as before,
    so every `<img>` in this file that is not a thumbnail is untouched. */
-const thumbImg=id=>'<img alt="" data-id="'+esc(id)+'" data-q="0" data-l="0" data-fd="0" decoding="async" onload="THOK(this)" onerror="TH(this)">';
+/* ---------- 6.8: the box exists before the picture does ----------
+   Every image the app writes now carries its intrinsic size in the markup as
+   `width`/`height`. Nothing draws differently — the stylesheet already sizes
+   every one of these pictures (`width:100%;height:100%;object-fit:cover` inside
+   a box the CSS owns), and an element whose CSS sets both axes ignores the
+   attributes — but the *ratio* is then known from the HTML itself, in the frame
+   the card is parsed, before any stylesheet, any layout and any byte of the
+   file. That is what makes a picture that arrives late, or never, a picture
+   that cannot move the card: the UA derives `aspect-ratio` from the two
+   attributes, so the box is the size the final picture will be.
+
+   The numbers are the real ones: a thumbnail is `mqdefault` 320x180 (the
+   smallest rung of 6.3's ladder — the ratio is what matters, and all four rungs
+   are 16:9), a shelf card is `maxresdefault` 1280x720, and an avatar is the
+   square the stylesheet gives it (36 px in a feed card's meta row, 58 px in the
+   channel row, 62 px in the channel header), so the file's ratio and the box's
+   agree. */
+const thumbImg=id=>'<img alt="" width="320" height="180" data-id="'+esc(id)+'" data-q="0" data-l="0" data-fd="0" decoding="async" onload="THOK(this)" onerror="TH(this)">';
 /* Read-only census for tools/lazy-thumb-check.js: how many thumbnails are armed
    and still waiting, and whether an observer exists at all. It reads state the
    app already holds and writes nothing, on the same terms as `__ltSurfaces`. */
@@ -2611,7 +2645,7 @@ const meta=v=>[v.views?num(v.views)+' views':'',v.pub?ago(v.pub):''].filter(Bool
 /* avatar for a card: the live channel object, else the avatar kept in the feed cache */
 const chAv=id=>((CH[id]&&CH[id].av)||CAV[id]||'');
 const cardOf=(v,i)=>'<button class="card" style="--i:'+Math.min(i||0,8)+'" data-v="'+esc(v.id)+'"><div class="thumb">'+thumbImg(v.id)+(v.views?'<u>'+num(v.views)+' views</u>':'')+'</div>'+
-  '<div class="meta">'+(v.ch&&chAv(v.ch)?'<img class="av" src="'+esc(chAv(v.ch))+'" alt="" onerror="this.style.visibility=\'hidden\'">':'<div class="av" style="background:'+g(hash(v.id))+'"></div>')+
+  '<div class="meta">'+(v.ch&&chAv(v.ch)?'<img class="av" width="36" height="36" src="'+esc(chAv(v.ch))+'" alt="" onerror="this.style.visibility=\'hidden\'">':'<div class="av" style="background:'+g(hash(v.id))+'"></div>')+
   '<div><b>'+esc(v.t)+'</b><span>'+esc(v.c)+(v.views?' · '+num(v.views)+' views':'')+(v.pub?' · '+ago(v.pub):'')+'</span></div></div></button>';
 /* A render can move geometry without scrolling, so it owes the depth/parallax
    pass one forced frame, 60 ms later, once the new cards have been laid out. It
@@ -2753,7 +2787,7 @@ const SHELF_BUSY=new Set();
 function fillShelf(sh,list){
   const el=document.getElementById('car-'+sh.id);
   if(!el)return;
-  el.innerHTML=list.slice(0,6).map(v=>'<div class="big" data-v="'+esc(v.id)+'"><img src="'+thumbHQ(esc(v.id))+'" alt="" decoding="async"><div><b>'+esc(v.t)+'</b><small>'+esc(v.c)+'</small></div><button class="play glass" data-v="'+esc(v.id)+'">'+PLAY_IC+'Play</button></div>').join('');
+  el.innerHTML=list.slice(0,6).map(v=>'<div class="big" data-v="'+esc(v.id)+'"><img width="1280" height="720" src="'+thumbHQ(esc(v.id))+'" alt="" decoding="async"><div><b>'+esc(v.t)+'</b><small>'+esc(v.c)+'</small></div><button class="play glass" data-v="'+esc(v.id)+'">'+PLAY_IC+'Play</button></div>').join('');
 }
 function paintShelf(sh){
   if(SHELF_BUSY.has(sh.id))return;           /* already on the wire: it fills itself */
@@ -2889,7 +2923,7 @@ async function renderSection(name){
 let selCh=null;
 function renderSubs(){
   const chs=[...new Set(feed().map(v=>v.ch).filter(Boolean))].slice(0,10);
-  $('sg').innerHTML=chs.map(id=>{const c=CH[id]||{};return '<button data-ch="'+esc(id)+'">'+(c.av?'<img src="'+esc(c.av)+'" alt="">':'<i style="background:'+g(hash(id))+'"></i>')+esc((c.title||'Channel').split(' ')[0])+'</button>'}).join('');
+  $('sg').innerHTML=chs.map(id=>{const c=CH[id]||{};return '<button data-ch="'+esc(id)+'">'+(c.av?'<img width="58" height="58" src="'+esc(c.av)+'" alt="">':'<i style="background:'+g(hash(id))+'"></i>')+esc((c.title||'Channel').split(' ')[0])+'</button>'}).join('');
   subs();
 }
 function subs(){
@@ -3011,7 +3045,7 @@ function openChannel(id){
     const jd=c.joined?dfmt(new Date(c.joined)):'';
     const subbed=S.subs.includes(c.id);
     $('sht').textContent=c.title;
-    $('shb').innerHTML='<div class="chh">'+(c.av?'<img src="'+esc(c.av)+'" alt="">':'<div class="av" style="background:'+g(hash(c.id))+'"></div>')+
+    $('shb').innerHTML='<div class="chh">'+(c.av?'<img width="62" height="62" src="'+esc(c.av)+'" alt="">':'<div class="av" style="background:'+g(hash(c.id))+'"></div>')+
       '<div><b>'+esc(c.handle)+'</b><div class="mt2">'+esc(st)+'</div></div></div>'+
       '<button class="opt glass" data-chsub="'+esc(c.id)+'">'+(subbed?'Subscribed':'Subscribe')+'</button>'+
       '<div class="about">'+(jd?'<div><span>Joined</span><b>'+esc(jd)+'</b></div>':'')+(c.country?'<div><span>Country</span><b>'+esc(cname(c.country))+'</b></div>':'')+
@@ -3472,8 +3506,19 @@ window.__ltFirstFrame=firstFrame;
    request comes back, so the first frame is the shell and the splash never sits
    on the network. It starts no request of its own. */
 const SK3='<div class="skl"></div><div class="skl"></div><div class="skl"></div>';
+/* 6.8: the deferred sheet, asked for by name. At parse time the sheet's applier
+   does not exist yet — its block is the last thing in the document — so a boot
+   that is about to paint real cards leaves a request here that the applier
+   honours the moment it is defined: the same parse pass, therefore the same
+   frame. A boot that paints skeletons asks for nothing, so 1.2's first frame
+   still carries only the critical sheet. */
+function restWant(){
+  if(window.__ltRestNow)window.__ltRestNow();
+  else window.__ltRestWant=1;
+}
 function paintSkeleton(){
   if(feed().length){                           /* last feed known: real cards, no request */
+    restWant();                                /* 6.8: the sheet that sizes the cards, before they are drawn */
     renderChips();
     list(feed(),$('feed'));
     mark('cache');
@@ -3506,7 +3551,7 @@ function retryFeed(){
   const f=$('feed');if(!f)return;
   f.innerHTML=LDR+SK3;                         /* the boot's skeleton: no new loading state */
   asGuard('feed.retry',()=>loadTrending().then(()=>{
-    if(window.__ltRestNow)window.__ltRestNow();
+    restWant();
     try{paintShell()}catch(e){asSafe('feed.retry.paint',e)}   /* the skeleton stays painted: nothing blanks */
   }));
 }
@@ -4493,7 +4538,12 @@ s.textContent=src.textContent;(document.head||document.documentElement).appendCh
 window.__ltRestNow=apply;
 function idle(){if(window.requestIdleCallback)requestIdleCallback(apply,{timeout:800});
 else setTimeout(apply,60);}
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',idle,{once:true});
+/* 6.8: a boot that painted real cards from the cache asked for this sheet during
+   the parse (`restWant`), so it is applied here — same pass, same frame — and no
+   card is ever drawn before the rules that size it. A boot that painted
+   skeletons asked for nothing and keeps the idle slot it had. */
+if(window.__ltRestWant)apply();
+else if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',idle,{once:true});
 else idle();setTimeout(apply,3000);})();
 </script>
 </body></html>

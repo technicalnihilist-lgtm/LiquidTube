@@ -401,13 +401,17 @@ function treeOf(doc) {
   {
     const img = thumbsOf(env)[15];
     const styleBefore = img.getAttribute('style');
+    /* 6.8 writes the intrinsic size into the markup, at birth: what this asserts
+       is that the density declaration changes neither it nor anything else. */
+    const whBefore = img.getAttribute('width') + 'x' + img.getAttribute('height');
     const attrsBefore = [...img.attributes].map(a => a.name).filter(n => n !== 'src' && n !== 'sizes' && n !== 'srcset').sort().join(',');
     size(img, 300, 2, true);
     fire(env, img);
     const attrsAfter = [...img.attributes].map(a => a.name).filter(n => n !== 'src' && n !== 'sizes' && n !== 'srcset').sort().join(',');
     ok('ui: the declaration writes its two attributes and nothing else', attrsAfter === attrsBefore, attrsBefore + ' / ' + attrsAfter);
     ok('ui: no size, no style, no new element',
-      img.getAttribute('style') === styleBefore && !img.hasAttribute('width') && !img.hasAttribute('height'));
+      img.getAttribute('style') === styleBefore &&
+      img.getAttribute('width') + 'x' + img.getAttribute('height') === whBefore);
     ok('ui: the hooks the tilt layer and the fallbacks read are untouched',
       img.dataset.q === '0' && img.dataset.l === '1' && img.getAttribute('decoding') === 'async' &&
       img.getAttribute('onload') === 'THOK(this)' && img.getAttribute('onerror') === 'TH(this)');

@@ -301,11 +301,16 @@ async function boot() {
       .filter(n => n !== 'src' && n !== 'sizes' && n !== 'srcset').sort().join(',');
     const before = names();
     const styleBefore = img.getAttribute('style');
+    /* 6.8 gives the element its intrinsic size in the markup, at birth, so the
+       question this asks is not "does it have width/height" but "did the pick
+       change them" — the picker must still write the `src` and nothing else. */
+    const whBefore = img.getAttribute('width') + 'x' + img.getAttribute('height');
     size(img, 170, 3, true);
     fire(env, img);
     ok('ui: the pick writes the src and nothing else', names() === before, before + ' / ' + names());
     ok('ui: it added no size and changed no style',
-      img.getAttribute('style') === styleBefore && !img.hasAttribute('width') && !img.hasAttribute('height'),
+      img.getAttribute('style') === styleBefore &&
+      img.getAttribute('width') + 'x' + img.getAttribute('height') === whBefore,
       img.getAttribute('style'));
     ok('ui: the box is still the stylesheet\'s 16:9 thumb',
       img.parentElement.classList.contains('thumb') &&
