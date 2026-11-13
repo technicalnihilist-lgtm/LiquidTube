@@ -260,17 +260,17 @@ const QUAL=['maxresdefault','sddefault','hqdefault','mqdefault','default'];
 window.THOK=function(img){
   if(img.dataset.f)return;
   if(img.naturalWidth<=121){
+    thumbFailSet(img.dataset.id,1,thumbRung(img.src));   /* this rung is not on the CDN (6.5) */
     img.dataset.f='1';
     img.src=thumbHQ(img.dataset.id);
   }
 };
 window.TH=function(img){
   if(img.dataset.f){                       // second failure: keep a tidy card, never a broken icon
-    img.style.display='none';
-    const p=img.parentElement;
-    if(p)p.style.background='linear-gradient(135deg,#23262f,#3d4256)';
+    thumbFailSet(img.dataset.id,2);        /* both sizes are gone: remember that too (6.5) */
+    thumbDead(img);
     return;
-  }img.dataset.f='1';img.src=thumbHQ(img.dataset.id);};
+  }thumbFailSet(img.dataset.id,1,thumbRung(img.src));img.dataset.f='1';img.src=thumbHQ(img.dataset.id);};
 /* ---------- thumbnails: one observer for the whole app (item 6.1) ----------
    A card used to be born with its picture already asked for: `thumbImg` wrote the
    `src` into the markup and left the fetching to the WebView's own
@@ -437,12 +437,116 @@ function thumbURL(img){return thumbMemo(img.dataset.id||'',thumbPixels(img))}
    placeholder, `TH` for a first failure. Same string as the two literals it
    replaces, built in one place. */
 function thumbHQ(id){return THUMB_BASE+id+'/hqdefault.jpg'}
+/* ---------- thumbnails: a picture that failed is not asked for again (item 6.5)
+   A card that has no picture is the expensive case, because nothing about it is
+   remembered. `THOK` swaps a grey 120x90 placeholder for `hqdefault` and `TH`
+   swaps a first failure for `hqdefault`; when that one fails as well the image is
+   hidden and the box is left with the app's own gradient. Both paths end the
+   element — but only the element. The next render builds a *new* `<img>` from
+   `cardOf`, that image knows nothing, and it starts the whole ladder again: the
+   picked size, the grey placeholder or the 404, then `hqdefault`, then the
+   gradient. A deleted video, a private one, a region-blocked one, an upload with
+   no `sddefault` and a tunnel that dropped are all permanent or near-permanent,
+   and every chip switch, every `lt_feed` repaint, every return to a tab and every
+   scroll back up paid for them again — two requests per dead card per render,
+   on the same connection the live thumbnails are queueing on.
+
+   So the failure is remembered per video id, at one of two levels:
+     1  a named rung of the ladder is not there — the size this card asked for;
+        `hqdefault` is the fallback (`THOK`'s grey placeholder, or `TH`'s first
+        failure)
+     2  `hqdefault` is not there either; the card is the tidy gradient
+   `thumbFire` reads it before it asks for anything. Level 1 remembers *which*
+   rung failed, not just that something did, because the rungs are not
+   interchangeable: `sddefault` is missing on many uploads while `maxresdefault`
+   exists, so a card that failed at 481 px must not make the 700 px card that
+   follows it settle for `hqdefault` — the sharpness 6.3 exists to protect. The
+   remembered rung is compared with the rung this card's own box resolves to (one
+   `thumbURL` lookup, 6.4's memo) and only an exact match skips the request. A
+   match fires straight at `hqdefault` — the same file the element would have
+   reached after one failed request — and marks the image `data-f="1"`, so a
+   `hqdefault` that then fails is the second failure and gets the gradient,
+   exactly as today. Level 2 asks for nothing at all and applies the gradient to
+   the box the card is drawn in. What ends up on screen is the picture the build
+   before this item ended up with; what is gone is the round trip that
+   discovered it.
+
+   The visible state is not new code: `thumbDead` is `TH`'s own second-failure
+   body, lifted out so the fire path and the error path leave a card in the same
+   shape — image hidden, box gradient, nothing shifted (`.thumb` is
+   `aspect-ratio:16/9`, 6.8). No attribute the rest of the app reads changes:
+   `data-id`, `data-q`, `data-l` and `data-f` mean what they meant, and the
+   self-check's `thumbs` probe still sees the same markup out of `thumbImg`.
+
+   Bounded, and it expires. `THUMB_FAIL_MAX` ids, oldest insertion out, on the
+   same terms as `THUMB_RES`: an entry is a 4-byte number and a timestamp, so the
+   ceiling is a few tens of KB. An entry is dropped after `THUMB_FAIL_TTL`, ten
+   minutes, because level 1 is sometimes a lie — a tunnel that dropped, a CDN
+   having a bad minute — and a session-long memory would turn one bad minute into
+   a feed with no pictures until the app is restarted. Ten minutes is long enough
+   that a session of scrolling pays once per dead video instead of once per
+   render, and short enough that a recovered connection is noticed by itself. The
+   expiry is checked on read, so nothing has to sweep the map.
+
+   The worst case is the build before the item: an empty map resolves every fire
+   exactly as it did, and every entry expires, so no failure is permanent. */
+const THUMB_FAIL_MAX=400;        /* ids remembered; one entry is a level and a timestamp */
+const THUMB_FAIL_TTL=600000;     /* a remembered failure is re-tested after ten minutes */
+const THUMB_FAIL=new Map();      /* id -> {lv, rung, ts}; insertion order is the recency order */
+const THUMB_FST={mark1:0,mark2:0,skip:0,start:0,expire:0};
+/* The rung a thumbnail URL names — `mqdefault`, `hqdefault`, … — or '' if the
+   string is not one of them. The URL is the app's own, so this is a slice, not a
+   parse. */
+function thumbRung(url){
+  const s=String(url||''),i=s.lastIndexOf('/');
+  return i<0?'':s.slice(i+1).replace(/\.jpg$/,'');
+}
+/* Raise the level for an id, never lower it, and never record the same level and
+   rung twice. A level-1 entry is re-recorded when a *different* rung fails, so
+   the map holds one answer per id and the answer is the last rung to fail. */
+function thumbFailSet(id,level,rung){
+  if(!id)return;
+  const had=THUMB_FAIL.get(id);
+  const r=String(rung||'');
+  if(had){
+    if(had.lv>level)return;
+    if(had.lv===level&&had.rung===r)return;
+    THUMB_FAIL.delete(id);        /* re-inserted, so the map keeps one answer per id */
+  }
+  THUMB_FAIL.set(id,{lv:level,rung:r,ts:Date.now()});
+  if(level===1)THUMB_FST.mark1++;else THUMB_FST.mark2++;
+  if(THUMB_FAIL.size>THUMB_FAIL_MAX)THUMB_FAIL.delete(THUMB_FAIL.keys().next().value);
+}
+/* The entry for an id, or null. An entry past its ten minutes is dropped here. */
+function thumbFailGet(id){
+  if(!id)return null;
+  const e=THUMB_FAIL.get(id);
+  if(!e)return null;
+  if(Date.now()-e.ts>=THUMB_FAIL_TTL){THUMB_FAIL.delete(id);THUMB_FST.expire++;return null}
+  return e;
+}
+/* `TH`'s second failure, in one place: hide the image, give the box the gradient.
+   The card keeps its size and its layout; only the picture is gone. */
+function thumbDead(img){
+  img.style.display='none';
+  const p=img.parentElement;
+  if(p)p.style.background='linear-gradient(135deg,#23262f,#3d4256)';
+}
 function thumbFire(img){
   if(!img||img.dataset.l!=='0')return;
   img.dataset.l='1';
   THUMB_LIVE.delete(img);
   if(THUMB_IO)THUMB_IO.unobserve(img);
-  img.src=thumbURL(img);
+  const id=img.dataset.id||'';
+  const bad=thumbFailGet(id);
+  if(bad&&bad.lv>=2){THUMB_FST.skip++;thumbDead(img);return}   /* known dead: ask for nothing */
+  const url=thumbURL(img);                 /* 6.4's memo: the rung this box resolves to */
+  if(bad&&bad.rung===thumbRung(url)){      /* this exact rung is the one that failed */
+    THUMB_FST.start++;
+    if(bad.rung==='hqdefault'){thumbDead(img);return}   /* the fallback is gone too */
+    img.dataset.f='1';img.src=thumbHQ(id);return
+  }
+  img.src=url;
 }
 function thumbSeen(ents){
   for(let i=0;i<ents.length;i++){const e=ents[i];if(e.isIntersecting)thumbFire(e.target)}
@@ -524,7 +628,9 @@ const thumbImg=id=>'<img alt="" data-id="'+esc(id)+'" data-q="0" data-l="0" deco
    and still waiting, and whether an observer exists at all. It reads state the
    app already holds and writes nothing, on the same terms as `__ltSurfaces`. */
 window.__ltThumbs=()=>({live:THUMB_LIVE.size,io:!!THUMB_IO,ahead:THUMB_AHEAD,
-  urls:THUMB_RES.size,max:THUMB_MAX,hit:THUMB_ST.hit,miss:THUMB_ST.miss,repick:THUMB_ST.repick,evict:THUMB_ST.evict});
+  urls:THUMB_RES.size,max:THUMB_MAX,hit:THUMB_ST.hit,miss:THUMB_ST.miss,repick:THUMB_ST.repick,evict:THUMB_ST.evict,
+  fail:THUMB_FAIL.size,fmax:THUMB_FAIL_MAX,fttl:THUMB_FAIL_TTL,
+  mark1:THUMB_FST.mark1,mark2:THUMB_FST.mark2,skip:THUMB_FST.skip,start:THUMB_FST.start,expire:THUMB_FST.expire});
 
 /* ---------- surfaces, and the listeners that belong to them (item 4.3) ----------
    The app is one document with three tab pages that are never rebuilt and four
@@ -3028,6 +3134,35 @@ const SC=[
     const u1=thumbURL(a),u2=thumbURL(a),v1=thumbURL(b);
     return u1===u2&&u1!==v1&&u1.indexOf('__sc_a')>0&&/maxresdefault\.jpg$/.test(u1)&&
       THUMB_RES.size<=THUMB_MAX&&THUMB_MAX>0&&THUMB_ST.hit>0}],
+  /* a picture that failed is not asked for again (6.5): a rung that failed
+     fires the next card straight at hqdefault with the fallback flag already
+     set, a video whose fallback failed too is not asked for at all and ends up
+     in the same tidy box, a level is never lowered, a *different* rung is still
+     asked for, and a cleared entry asks for the picked size again. Throwaway
+     elements that are never inserted, and an id cleared at the end, so the probe
+     leaves the document and the map exactly as it found them. */
+  ['thumbfail',()=>{const id='__sc_f',a=document.createElement('img'),b=document.createElement('img'),c=document.createElement('img'),d=document.createElement('img');
+    a.dataset.id=id;b.dataset.id=id;c.dataset.id=id;d.dataset.id=id;
+    a.dataset.l='0';b.dataset.l='0';c.dataset.l='0';d.dataset.l='0';
+    thumbFailSet(id,1,'maxresdefault');
+    thumbFire(a);
+    const lvl1=a.dataset.f==='1'&&/hqdefault\.jpg$/.test(a.src||'');
+    thumbFailSet(id,2);
+    const g1=thumbFailGet(id);
+    const notLowered=!!g1&&g1.lv===2;
+    thumbFire(b);
+    const lvl2=!b.getAttribute('src')&&b.style.display==='none';
+    thumbFailSet(id,1,'mqdefault');
+    const g2=thumbFailGet(id);
+    const keptHigh=!!g2&&g2.lv===2;
+    THUMB_FAIL.delete(id);
+    thumbFire(c);
+    const cleared=/maxresdefault\.jpg$/.test(c.src||'');
+    thumbFailSet(id,1,'mqdefault');
+    thumbFire(d);
+    const otherRung=/maxresdefault\.jpg$/.test(d.src||'')&&d.dataset.f!=='1';
+    THUMB_FAIL.delete(id);
+    return lvl1&&notLowered&&lvl2&&keptHigh&&cleared&&otherRung&&THUMB_FAIL.size<=THUMB_FAIL_MAX&&THUMB_FAIL_TTL>0&&thumbRung('x/sddefault.jpg')==='sddefault'&&thumbRung('')===''}],
   /* the two origins the first screen needs are still warmed before it paints */
   ['preconnect',()=>qsa('link[rel="preconnect"]').length>=2],
   ['doc',()=>document.documentElement.lang==='en'&&!!qs('meta[name="viewport"]')],
