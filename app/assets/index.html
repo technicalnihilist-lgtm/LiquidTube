@@ -3360,6 +3360,73 @@ function closeS(){if(focusT){clearTimeout(focusT);focusT=0}$('search').classList
 $('cancel').onclick=closeS;
 $('sug').innerHTML=['lofi','AI music','calm piano','telugu songs','apple event'].map(s=>'<button class="glass">'+s+'</button>').join('');
 $('sug').onclick=e=>{const b=e.target.closest('button');if(b){qi.value=b.textContent;find()}};
+/* ---------- the answer is filtered before a single card is built (item 7.4) ----------
+   A search answer is a page of twenty items, and the panel used to build a card
+   for every one of them and then keep whatever survived `dropShorts`. Two kinds
+   of item were never going to be a card the app could stand behind:
+
+     · no id — an entry the endpoint described but cannot be opened. The card
+       was drawn anyway, and its tap called play(undefined), so the tap did
+       nothing at all: a dead rectangle in the middle of a page of results.
+     · no title — `esc(v.t)` of nothing is the word "undefined", which was
+       printed under the thumbnail in the place a video's name belongs.
+
+   And a third kind cost the page a slot without being wrong: a search does
+   return the same video twice, most often when a channel has uploaded it
+   twice or a duplicate was indexed, and the panel drew two identical cards for
+   it — two thumbs, two avatars, two taps to the same video — while a real
+   result went unseen further down. The Explore and section paths already
+   de-duplicate by id (`seen` in loadSection); the panel did not.
+
+   So the answer is now cleaned once, locally, between the response and the
+   render: nothing without an id, nothing without a title, and one card per
+   video id (the first, which is the most relevant one — the endpoint's own
+   order). `seaClean` is the whole rule, and it runs *before* anything is built:
+   before `cardOf`, so no card node exists for an item that is dropped; before
+   `loadChannels`, so no avatar is bought for a channel only a dropped item
+   named; and before `dropShorts`' `videos` call, so the duration request asks
+   for fewer ids. What is dropped is dropped for good — the kept answer (7.3)
+   and the launch blob (7.2) both store the cleaned list, so a paint from cache
+   and a paint from the network agree.
+
+   Nothing that used to be on screen is gone: an item with an id and a title is
+   drawn exactly as it was, in the same order, by the same `cardOf`, and an
+   answer that was already clean comes out of `seaClean` unchanged, item for
+   item. What disappears is a card that could not be tapped and a card that had
+   no name — and a duplicate of a card already on the page.
+
+   The second half of the item is the paint itself. Every write to #results used
+   to replace the whole list, so asking the same question again — a chip tapped
+   twice, a retry pressed after the first answer landed, the kept answer of 7.3
+   painted over the identical cards of the live search — destroyed and rebuilt
+   twenty cards, twenty `<img>` elements and their decode-fade state, for a
+   picture that was already correct. There is one writer now (`seaShow`), and it
+   writes only when the markup it is about to put there differs from the markup
+   already there: same string, same cards, no work. The element that stays is the
+   element that was there, so nothing a card had loaded is thrown away. */
+const SEA_F={raw:0,kept:0,void:0,dup:0,paint:0,same:0};   /* what the filter and the painter did, for the log and the self-check */
+function seaClean(list){
+  const out=[],seen=new Set();
+  (list||[]).forEach(v=>{
+    SEA_F.raw++;
+    if(!v||typeof v.id!=='string'||!v.id){SEA_F.void++;return}       /* nothing to open: not a card */
+    if(!String(v.t==null?'':v.t).trim()){SEA_F.void++;return}        /* nothing to call it: not a card */
+    if(seen.has(v.id)){SEA_F.dup++;return}                           /* the same video again: one card */
+    seen.add(v.id);out.push(v);
+  });
+  SEA_F.kept+=out.length;
+  return out;
+}
+const seaCards=list=>list&&list.length?list.map(cardOf).join(''):'<div class="empty">No videos match that.</div>';
+let seaLast='';                            /* the markup #results was last given, by any of the six writes */
+function seaShow(html){
+  const el=$('results');
+  if(seaLast===html&&el.firstChild){SEA_F.same++;return false}    /* the same picture: no node rebuilt */
+  seaLast=html;
+  el.innerHTML=html;
+  SEA_F.paint++;
+  return true;
+}
 /* ---------- the last search, kept for the next open (item 7.2) ----------
    Closing the panel never lost the query or the cards — the field and #results
    were left exactly as they were — but a *launch* did: the panel came up empty,
@@ -3406,16 +3473,17 @@ function paintSearchCache(){
     const c=readSearchCache();seaOnce=1;
     if(!c)return;
     for(const k in c.chav)cavSet(k,c.chav[k]);
-    const list=c.items.map(o=>vObj(o.id,o));
+    const list=seaClean(c.items.map(o=>vObj(o.id,o)));   /* the blob is cleaned too: an old one can hold a dup (7.4) */
     qi.value=c.q;
     $('sug').style.display='none';              /* a field with a query hides the row, as find() does */
-    $('results').innerHTML=list.map(cardOf).join('');
+    seaShow(seaCards(list));
     listKick();                                 /* a render owes the depth pass one frame */
   }catch(e){asSafe('search.cache',e)}            /* a restore that fails leaves the panel empty */
 }
 window.__ltSearchCache=()=>({once:seaOnce,key:SEA_KEY,ver:SEA_VER,max:SEA_MAX,ttl:SEA_TTL,qmax:SEA_QMAX,
   bytes:(()=>{try{return (localStorage.getItem(SEA_KEY)||'').length}catch(e){return -1}})(),
   queries:SEA_Q.size,hit:SEA_ST.hit,miss:SEA_ST.miss,evict:SEA_ST.evict,stale:SEA_ST.stale,saved:SEA_ST.saved,
+  filter:{raw:SEA_F.raw,kept:SEA_F.kept,void:SEA_F.void,dup:SEA_F.dup,paint:SEA_F.paint,same:SEA_F.same},
   keys:()=>Array.from(SEA_Q.keys()),
   age:q=>{const e=SEA_Q.get(seaQKey(q));return e?Date.now()-e.at:null},
   cached:(()=>{const c=readSearchCache();return c?{q:c.q,items:c.items.length,at:c.at}:null})()});
@@ -3477,8 +3545,8 @@ function seaQPut(q,list,now){
    screen: avatars first (the kept card needs its channel's), then the cards. */
 function seaQPaint(e){
   for(const k in e.chav)cavSet(k,e.chav[k]);
-  const list=e.items.map(o=>vObj(o.id,o));
-  $('results').innerHTML=list.length?list.map(cardOf).join(''):'<div class="empty">No videos match that.</div>';
+  const list=seaClean(e.items.map(o=>vObj(o.id,o)));    /* one rule for both painters (7.4) */
+  seaShow(seaCards(list));
   return list;
 }
 /* Item 7.1 — one search per pause, and the superseded one is cancelled.
@@ -3522,7 +3590,7 @@ async function find(){
   seaOnce=1;                               /* this session has searched: the panel is its own source of truth (7.2) */
   const t=qi.value.trim();
   $('sug').style.display=t?'none':'flex';
-  if(!t){$('results').innerHTML='';if(findAC){findAC.abort();findAC=null}seq++;return}
+  if(!t){seaShow('');if(findAC){findAC.abort();findAC=null}seq++;return}
   const id=++seq;
   /* An answer to this exact question, still fresh (item 7.3): paint it and send
      nothing. Nothing on the wire is wanted any more — this *is* the answer to
@@ -3544,16 +3612,17 @@ async function find(){
   findQ=t;
   const ac=RQ_ABORT?new AbortController():null;
   findAC=ac;
-  $('results').innerHTML=LDR+'<div class="skl"></div><div class="skl"></div>';
+  seaShow(LDR+'<div class="skl"></div><div class="skl"></div>');
   try{
     const j=await yt('search',{part:'snippet',type:'video',maxResults:20,q:t},null,ac?ac.signal:null);
     if(id!==seq)return;
     let list=(j.items||[]).filter(it=>it.id&&it.id.videoId).map(it=>vObj(it.id.videoId,
       {t:dec(it.snippet.title),c:dec(it.snippet.channelTitle),ch:it.snippet.channelId,pub:it.snippet.publishedAt,cat:'Result'}));
+    list=seaClean(list);                     /* before the durations, the avatars and the cards (7.4) */
     list=await dropShorts(list);
     await loadChannels(list.map(v=>v.ch));
     if(id!==seq)return;
-    $('results').innerHTML=list.length?list.map(cardOf).join(''):'<div class="empty">No videos match that.</div>';
+    seaShow(seaCards(list));
     if(list.length)saveSearchCache(t,list);  /* kept for the next open, at no further cost (item 7.2) */
     seaQPut(t,list,Date.now());              /* and for the next half hour, at no further cost (item 7.3) */
   }catch(e){
@@ -3561,7 +3630,7 @@ async function find(){
     asSafe('search.find',e);                 /* the panel answers for itself below */
     const q=ekKind(e)==='quota';             /* the failure's class, not its wording (item 5.2) */
     rtySet('find',find);                     /* the same query, asked again */
-    $('results').innerHTML='<div class="empty">'+(q?"YouTube's daily search limit is used up.":'Search failed. '+esc(ekText(e)))+rtyBtn('find',e)+'</div>';   /* our sentence, not the API's (item 5.3) */
+    seaShow('<div class="empty">'+(q?"YouTube's daily search limit is used up.":'Search failed. '+esc(ekText(e)))+rtyBtn('find',e)+'</div>');   /* our sentence, not the API's (item 5.3) */
   }finally{
     if(findAC===ac)findAC=null;              /* settled: no handle left to abort */
   }
@@ -3824,6 +3893,21 @@ const SC=[
     const table=IMG_EST.hqdefault>IMG_EST.mqdefault&&IMG_EST.maxresdefault>IMG_EST.sddefault&&IMG_BPP>0;
     return counted&&sums&&rungs&&hosts&&table}],
   /* the two origins the first screen needs are still warmed before it paints */
+  /* the search panel's answer is filtered before a card is built (7.4): one card
+     per video id, nothing without an id, nothing without a name, and an answer
+     that was already clean comes out of the filter item for item, in order. The
+     counters are put back afterwards, so a probe is not a search in the numbers. */
+  ['searchfilter',()=>{
+    const had=JSON.stringify(SEA_F);
+    try{
+      const a=seaClean([{id:'a',t:'A'},{id:'a',t:'A'},{id:'b',t:'  '},{id:'',t:'x'},{id:'c',t:'C'}]);
+      const clean=[{id:'d',t:'D'},{id:'e',t:'E'}];
+      const b=seaClean(clean);
+      return a.length===2&&a[0].id==='a'&&a[1].id==='c'&&
+        b.length===2&&b[0]===clean[0]&&b[1]===clean[1]&&
+        typeof seaShow==='function'&&seaCards([]).indexOf('No videos match that')>0;
+    }finally{Object.assign(SEA_F,JSON.parse(had))}
+  }],
   ['preconnect',()=>qsa('link[rel="preconnect"]').length>=2],
   ['doc',()=>document.documentElement.lang==='en'&&!!qs('meta[name="viewport"]')],
   /* the settings object a render reads is shaped as every render assumes */

@@ -186,7 +186,7 @@ const num = (line, k) => +new RegExp(k + '=(\\d+)').exec(line)[1];
 const PROBES = ['shell', 'timeline', 'marks', 'codec', 'reqcache', 'vmap', 'chmap', 'avatars',
   'library', 'errors', 'retry', 'shape', 'async', 'global', 'quota', 'surfaces', 'selectors',
   'escape', 'numbers', 'thumbs', 'thumbsize', 'thumburls', 'thumbfail', 'thumbdensity', 'thumbfade',
-  'imgbytes', 'preconnect', 'doc', 'state', 'booted'];
+  'imgbytes', 'searchfilter', 'preconnect', 'doc', 'state', 'booted'];
 
 async function boot(dbg) {
   const env = open(dbg);
