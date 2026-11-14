@@ -3349,12 +3349,73 @@ function openS(){
   $('search').classList.add('on');slideHint();
   if(focusT)clearTimeout(focusT);
   focusT=setTimeout(()=>{focusT=0;if($('search').classList.contains('on'))qi.focus()},250);
+  /* the last answer, if this launch has not shown one yet (item 7.2). Deferred
+     by one microtask so a caller that opens the panel for its own query — a
+     shelf's View All sets the field and calls find() in the same task — has
+     already done so, and the cached answer is never painted over it. */
+  if(!seaOnce)Promise.resolve().then(paintSearchCache).catch(()=>{});
 }
 $('sopen').onclick=openS;
 function closeS(){if(focusT){clearTimeout(focusT);focusT=0}$('search').classList.remove('on');qi.blur();slideHint();findStop()}
 $('cancel').onclick=closeS;
 $('sug').innerHTML=['lofi','AI music','calm piano','telugu songs','apple event'].map(s=>'<button class="glass">'+s+'</button>').join('');
 $('sug').onclick=e=>{const b=e.target.closest('button');if(b){qi.value=b.textContent;find()}};
+/* ---------- the last search, kept for the next open (item 7.2) ----------
+   Closing the panel never lost the query or the cards — the field and #results
+   were left exactly as they were — but a *launch* did: the panel came up empty,
+   so the same word had to be typed and bought again, and a search is a hundred
+   quota units. A hundred of those is the whole day.
+
+   The answer is now written once, when it is painted, and read back the first
+   time the panel is opened in a launch that has not searched yet: same query in
+   the field, same cards, no request and no unit. It is a paint source only, in
+   the same way FEED.cached is (1.9): nothing here is consulted by find(), so a
+   restored panel behaves exactly like a typed one from that point on.
+
+   Restoring is strictly a fill of an empty panel. `seaOnce` is set as soon as a
+   search runs in this session, so a query the user cleared or replaced is never
+   resurrected from storage over their own work; a shelf's View All, which sets
+   the field in the same task, wins because the paint waits a microtask. An empty
+   answer is not kept (there are no cards to draw, and a stale "no videos match"
+   is a claim the app should not make for a query it has not asked today), and
+   the entry is versioned and shape-checked, so a blob from another build or a
+   half-written one is simply ignored — the panel then opens empty, as before. */
+const SEA_KEY='lt_search',SEA_VER=1,SEA_MAX=50;   /* SEA_MAX: a page is 20, so this never trims what was drawn */
+let seaOnce=0;                                    /* this launch has had its one look at storage */
+function readSearchCache(){
+  try{
+    const raw=localStorage.getItem(SEA_KEY);if(!raw)return null;
+    const c=loadJSON(raw,null);
+    if(!c||c.v!==SEA_VER||typeof c.q!=='string'||!c.q||!Array.isArray(c.items))return null;
+    const items=c.items.filter(o=>o&&typeof o.id==='string'&&o.id).slice(0,SEA_MAX);
+    return items.length?{at:+c.at||0,q:c.q,items,chav:c.chav||{}}:null;
+  }catch(e){return null}                        /* no storage, or not ours: no cache, no failure */
+}
+function saveSearchCache(q,list){
+  try{
+    const chav={};
+    (list||[]).forEach(v=>{const av=v&&v.ch&&chAv(v.ch);if(av)chav[v.ch]=av});
+    localStorage.setItem(SEA_KEY,storeJSON({v:SEA_VER,at:Date.now(),q,chav,
+      items:(list||[]).slice(0,SEA_MAX).map(v=>({id:v.id,t:v.t,c:v.c,ch:v.ch,views:v.views,pub:v.pub,cat:v.cat,dur:v.dur}))}));
+  }catch(e){}                                   /* quota or private mode: nothing kept, nothing broken */
+}
+function paintSearchCache(){
+  if(seaOnce)return;
+  if(qi.value||$('results').firstChild)return;  /* the panel already has an answer of its own */
+  try{
+    const c=readSearchCache();seaOnce=1;
+    if(!c)return;
+    for(const k in c.chav)cavSet(k,c.chav[k]);
+    const list=c.items.map(o=>vObj(o.id,o));
+    qi.value=c.q;
+    $('sug').style.display='none';              /* a field with a query hides the row, as find() does */
+    $('results').innerHTML=list.map(cardOf).join('');
+    listKick();                                 /* a render owes the depth pass one frame */
+  }catch(e){asSafe('search.cache',e)}            /* a restore that fails leaves the panel empty */
+}
+window.__ltSearchCache=()=>({once:seaOnce,key:SEA_KEY,ver:SEA_VER,max:SEA_MAX,
+  bytes:(()=>{try{return (localStorage.getItem(SEA_KEY)||'').length}catch(e){return -1}})(),
+  cached:(()=>{const c=readSearchCache();return c?{q:c.q,items:c.items.length,at:c.at}:null})()});
 /* Item 7.1 — one search per pause, and the superseded one is cancelled.
 
    `qi.oninput` used to call find() directly, so the word "lofi" cost four
@@ -3393,6 +3454,7 @@ function findStop(){                       /* the panel closed: nothing queued, 
 }
 async function find(){
   if(findT){clearTimeout(findT);findT=0}   /* asked outright: the pause is over */
+  seaOnce=1;                               /* this session has searched: the panel is its own source of truth (7.2) */
   const t=qi.value.trim();
   $('sug').style.display=t?'none':'flex';
   if(!t){$('results').innerHTML='';if(findAC){findAC.abort();findAC=null}seq++;return}
@@ -3415,6 +3477,7 @@ async function find(){
     await loadChannels(list.map(v=>v.ch));
     if(id!==seq)return;
     $('results').innerHTML=list.length?list.map(cardOf).join(''):'<div class="empty">No videos match that.</div>';
+    if(list.length)saveSearchCache(t,list);  /* kept for the next open, at no further cost (item 7.2) */
   }catch(e){
     if(id!==seq||ekKind(e)==='aborted')return;   /* superseded or cancelled: not this search's answer to paint */
     asSafe('search.find',e);                 /* the panel answers for itself below */
