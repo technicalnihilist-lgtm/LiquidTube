@@ -269,7 +269,15 @@ async function boot(file) {
       img.dataset.fd === '1', img.dataset.fd);
   }
 
-  /* ---- 5. the fade is the stylesheet's ---- */
+  /* ---- 5. the fade is the stylesheet's ----
+     6.9 moved the tilt layer's declarations behind `html[data-parallax=on]`, so
+     the transform transition the fade used to carry is now written in a rule of
+     its own, scoped to the state that draws the tilt layer. The claims are the
+     same ones: `data-fd="1"` is `opacity:1` with an opacity transition, the
+     picture's own `.12s` transform transition rides beside it while there is a
+     tilt layer to carry, and with parallax off only the opacity transition is
+     left — which now needs no cancellation rule, because there is nothing left
+     to cancel (see tools/parallax-scale-check.js). */
   {
     const sheets = [...env.d.querySelectorAll('style')].map(s => s.textContent).join('\n');
     ok('css: data-fd="0" is held at opacity:0',
@@ -277,13 +285,14 @@ async function boot(file) {
     const shown = /\.thumb img\[data-fd="1"\]\s*\{([^}]*)\}/.exec(sheets);
     ok('css: data-fd="1" is opacity:1 with an opacity transition',
       !!shown && /opacity:1/.test(shown[1]) && /opacity \.26s ease/.test(shown[1]), shown ? shown[1] : 'missing');
-    ok('css: and it carries the element\'s own transform transition beside it',
-      !!shown && /transform \.12s linear/.test(shown[1]));
-    const off = /html\[data-parallax=off\] \.thumb img\[data-fd="1"\]\s*\{([^}]*)\}/.exec(sheets);
+    ok('css: and the transform transition is not on that rule — it is the tilt layer\'s, not the fade\'s',
+      !!shown && !/transform \.12s linear/.test(shown[1]));
+    const tilt = /html\[data-parallax=on\] \.thumb img\[data-fd="1"\]\s*\{([^}]*)\}/.exec(sheets);
+    ok('css: with parallax on it carries the element\'s own transform transition beside the fade',
+      !!tilt && /transform \.12s linear/.test(tilt[1]) && /opacity \.26s ease/.test(tilt[1]), tilt ? tilt[1] : 'missing');
     ok('css: with parallax off the transform transition stays suppressed and the fade is kept',
-      !!off && /opacity \.26s ease/.test(off[1]) && !/transform \.12s/.test(off[1]), off ? off[1] : 'missing');
-    ok('css: the base rules still suppress the transform transition with parallax off',
-      /html\[data-parallax=off\] \.thumb img\{transform:none!important;transition:none\}/.test(sheets));
+      !/html\[data-parallax=off\] \.thumb img/.test(sheets) &&
+      !!shown && /transition:opacity \.26s ease/.test(shown[1]) && !/transform \.12s/.test(shown[1]), shown ? shown[1] : 'missing');
     ok('css: an img with no data-fd matches neither fade rule',
       /\.thumb img\[data-fd="0"\]/.test(sheets) && !/\.thumb img\s*\{\s*opacity:0/.test(sheets));
     ok('css: the box is still the stylesheet\'s aspect-ratio (6.8)',

@@ -4111,7 +4111,7 @@ function thumbQueue(k){
     const rel=F_REL[i];
     if(rel===null)continue;
     const y=(-rel*7*k)+gyroY*2.5*k;
-    wPush(F_IMG[i],`translate3d(${x.toFixed(2)}%,${y.toFixed(2)}%,0) scale(1.14)`,null,null);
+    wPush(F_IMG[i],`translate3d(${x.toFixed(2)}%,${y.toFixed(2)}%,0) scale(${THUMB_TILT})`,null,null);
   }
 }
 /* cards recede slightly as they move away from the centre of the screen. The
@@ -4380,17 +4380,33 @@ render(true);
    frame callback never runs. */
 
 #feed,#subfeed,#chlist,#animefeed,#cartoonfeed,#moviesfeed,#results,#ex{perspective:1500px;perspective-origin:50% 40%}
-.thumb img{transform:scale(1.14);transition:transform .12s linear}
-html[data-parallax=off] .thumb img{transform:none!important;transition:none}
+/* 6.9: the tilt layer's `scale(1.14)` is declared only while there is a tilt
+   layer to draw. `transform` is not a free property: an element with any value
+   other than `none` becomes a composited layer of its own — a full-size texture
+   (412x287 at 2x for a feed card) that the compositor keeps and recomposites,
+   and a containing block for everything inside it — so declaring it on every
+   thumbnail and then cancelling it with `!important` from a second rule left the
+   off state paying for the property it was hiding, and left two rules that had
+   to be kept in step by hand. Scoped to `html[data-parallax=on]` (the attribute
+   `applyParallax` writes on boot and on every change of the setting) the off
+   state now carries no `transform` and no transform transition at all, and the
+   on state is the same declaration it always was. Nothing on screen changes:
+   with parallax on the picture is still scaled 1.14 and still eases over .12 s,
+   and with parallax off it is still the plain, unscaled, un-eased box. */
+html[data-parallax=on] .thumb img{transform:scale(1.14);transition:transform .12s linear}
 /* 6.7: a thumbnail is held at `opacity:0` until the engine has decoded it, then
    fades in. `opacity` only — no width, no height, no layout — so the reserved
    box never moves and the tilt layer's own transform transition is carried
    beside it, unchanged. An element with no `data-fd` is drawn exactly as before,
    which is every `<img>` in this file that is not a thumbnail. With parallax off
-   the transform transition is still suppressed; only the opacity one is kept. */
+   the transform transition is still suppressed; only the opacity one is kept —
+   and since 6.9 that is the rule the base one is written with: the faded element
+   is given the opacity transition and the transform transition is added back
+   beside it only while the tilt layer exists, so there is no `!important` and no
+   second rule cancelling the first. */
 .thumb img[data-fd="0"]{opacity:0}
-.thumb img[data-fd="1"]{opacity:1;transition:transform .12s linear,opacity .26s ease}
-html[data-parallax=off] .thumb img[data-fd="1"]{transition:opacity .26s ease}
+.thumb img[data-fd="1"]{opacity:1;transition:opacity .26s ease}
+html[data-parallax=on] .thumb img[data-fd="1"]{transition:transform .12s linear,opacity .26s ease}
 /* will-change is a promise about the near future, and a promise kept costs a
    compositor layer for as long as it is kept: a feed card and its thumbnail are
    each a full-size texture (412x287 at 2x), so a feed of two dozen held ~50 of
@@ -4400,8 +4416,18 @@ html[data-parallax=off] .thumb img[data-fd="1"]{transition:opacity .26s ease}
    it writes transforms and dropped ANIM_IDLE_MS after the last one (see
    `animHint`). At rest the app holds no such layers at all; while a scroll, a
    fling or a phone being tilted is writing transforms they are promoted exactly
-   as before. */
-html[data-anim=on] .card,html[data-anim=on] .thumb img{will-change:transform}
+   as before.
+   6.9: a thumbnail is only ever moved by the tilt layer, so with parallax off it
+   is not one of the elements the frame is about and it is not promoted. The hint
+   was keyed on `data-anim` alone, and `data-anim` is set by any frame that writes
+   — the depth pass writes every scroll whether or not parallax is on — so a feed
+   scrolled with parallax off promoted every thumbnail on screen to hold a
+   texture the frame would never touch. `data-parallax=on` beside it is the exact
+   condition under which `thumbQueue` writes a thumbnail, so the promise is now
+   only made where it is kept. Cards are unchanged: the depth pass moves them in
+   both states. */
+html[data-anim=on] .card{will-change:transform}
+html[data-anim=on][data-parallax=on] .thumb img{will-change:transform}
 /* Cards are tall and a feed holds dozens of them, so only the handful near the
    viewport are worth laying out and painting. `content-visibility:auto` lets the
    browser skip the rest: an off-screen card keeps its box and is measured (the
