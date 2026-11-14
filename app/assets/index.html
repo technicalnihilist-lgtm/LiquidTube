@@ -275,6 +275,7 @@ const isDark=()=>{const t=document.documentElement.dataset.theme;if(t)return t==
 const pic=id=>THUMB_BASE+id+'/maxresdefault.jpg';
 const QUAL=['maxresdefault','sddefault','hqdefault','mqdefault','default'];
 window.THOK=function(img){
+  imgBytesNote('ok',img);                  /* the pixels this file drew, for the byte meter (6.10) */
   if(img.dataset.f)return;
   if(img.naturalWidth<=121){
     thumbFailSet(img.dataset.id,1,thumbRung(img.src));   /* this rung is not on the CDN (6.5) */
@@ -283,6 +284,7 @@ window.THOK=function(img){
   }
 };
 window.TH=function(img){
+  imgBytesNote('fail',img);                /* asked for and not delivered: counted, not sized (6.10) */
   if(img.dataset.f){                       // second failure: keep a tidy card, never a broken icon
     thumbFailSet(img.dataset.id,2);        /* both sizes are gone: remember that too (6.5) */
     thumbDead(img);
@@ -645,6 +647,7 @@ function thumbAsk(img,id,url){
     THUMB_DS.set++;
   }
   img.src=url;
+  imgBytesNote('ask',img);                 /* one picture asked for (6.10) */
   thumbFade(img);
 }
 /* A fallback is one file, so the candidates have to come off first: while a
@@ -655,6 +658,7 @@ function thumbHQSet(img,id){
     THUMB_DS.clear++;
   }
   img.src=thumbHQ(id);
+  imgBytesNote('ask',img);                 /* the fallback is a request too (6.10) */
   thumbFade(img);
 }
 /* ---------- thumbnails: a picture is shown only once it is decoded (item 6.7) ----------
@@ -856,6 +860,169 @@ window.__ltThumbs=()=>({live:THUMB_LIVE.size,io:!!THUMB_IO,ahead:THUMB_AHEAD,
   mark1:THUMB_FST.mark1,mark2:THUMB_FST.mark2,skip:THUMB_FST.skip,start:THUMB_FST.start,expire:THUMB_FST.expire,
   dens:THUMB_DS.set,dclear:THUMB_DS.clear,
   fade:THUMB_FD.reveal,fask:THUMB_FD.ask,finstant:THUMB_FD.instant,flost:THUMB_FD.lost});
+
+/* ---------- thumbnails: what the pictures cost, in bytes (item 6.10) ----------
+   Items 6.1 to 6.9 each removed a category of image work — cards asked for too
+   early, at too large a size, twice, for files that do not exist, at a density
+   nobody declared — and none of them could be added up. The number the whole
+   image story is judged by is one number: how many bytes of picture a session
+   downloads. This item measures it and changes nothing else.
+
+   Two sources, because neither is complete on its own.
+
+   The first is the engine's own Resource Timing buffer, and it is the one that
+   matters: `performance.getEntriesByType('resource')` carries one entry per
+   fetch the document made, with `transferSize` (the bytes that came over the
+   network, headers included) and `encodedBodySize` (the bytes of the file
+   itself). It sees every picture the app draws — thumbnails, the 24-40 px
+   channel avatars, a channel banner — including the ones no app code asks for
+   directly, which is why the meter hooks nothing at the avatar call sites. An
+   entry is attributed to the pictures by its host: `i.ytimg.com` for every
+   thumbnail rung, `yt3.ggpht.com` and the two googleusercontent hosts for the
+   avatars and banners, and nothing else in this document is an image.
+
+   The second is the elements themselves, and it covers what the buffer cannot
+   say. A cross-origin response without `Timing-Allow-Origin` reports a
+   `transferSize` of 0 — the browser will not tell a page how big someone else's
+   file was — and so does a file served entirely from the HTTP cache. So every
+   load the app already handles (`THOK`) also reports the pixels it drew, and a
+   file with no size in the timing entry is estimated from those pixels; when
+   even that is unknown the rung's measured average is used. Every figure the
+   census returns says how much of itself is estimated (`est`) rather than
+   measured (`meas`), so the number is never a guess dressed up as a measurement.
+
+   The averages are real ones: the four rungs were measured against i.ytimg.com
+   on 14 Nov 2026 and average 19.0 KB, 37.5 KB, 52.2 KB and 85.9 KB over five
+   videos each — 320x180 up to 1280x720, which is the ladder 6.3 walks.
+
+   The cost of the meter is the point of the item, so: nothing here runs per
+   frame, per scroll or per render. The drain is one pass over the timing buffer,
+   deduplicated by URL through a Set that is capped at `IMG_MAXU`, and it runs in
+   an idle slot (`requestIdleCallback`, coalesced by `IMG_ST.pend`, so a burst of
+   twenty cards is one drain) and never on a timer — an engine with no idle
+   callback drains synchronously instead of arming one. A URL is counted once:
+   the second load of the same file is a cache hit, not new bytes, which is
+   exactly the thing 6.4's memo made common. The per-element side is two
+   increments and, on a load, one integer multiplication.
+
+   Nothing visible changes: no element is created, no attribute is written, no
+   style is touched. `window.__ltImgBytes()` is the census and nothing on screen
+   reads it, and the only output the item adds is one `lt-imgbytes` line on
+   `pagehide` — the only event that reliably precedes a teardown — which
+   `adb logcat -s LiquidTube` shows beside the startup timeline and the
+   self-check. tools/image-bytes-check.js reads the same census. */
+const IMG_HOSTS=['i.ytimg.com','yt3.ggpht.com','yt3.googleusercontent.com','lh3.googleusercontent.com'];
+const IMG_LADDER=new Set(['mqdefault','hqdefault','sddefault','maxresdefault']);
+/* The measured averages, for a file whose timing entry carries no size. */
+const IMG_EST={mqdefault:19000,hqdefault:37500,sddefault:52000,maxresdefault:86000,other:8000};
+const IMG_BPP=0.2;                       /* bytes per decoded pixel, when only the pixels are known */
+const IMG_MAXU=512;                      /* ceiling on the seen set, so a long session cannot grow it */
+const IMG_ST={ask:0,ok:0,fail:0,bytes:0,meas:0,est:0,cached:0,px:0,skip:0,drain:0,pend:0,unsup:0};
+const IMG_URL=new Set();                 /* names already counted: a repeat load is a cache hit */
+const IMG_PX=new Map();                  /* name -> the pixels the element drew, for the estimate */
+const IMG_RUNG={mqdefault:0,hqdefault:0,sddefault:0,maxresdefault:0,other:0};
+let IMG_LOGGED=0;
+/* The self-check's probes build throwaway cards and fire them at the fallbacks.
+   Those are not pictures the session downloaded, so while the check runs the
+   meter counts nothing and books nothing: `IMG_QUIET` is the one flag that says
+   so, and it is off for the whole of the rest of the session. */
+let IMG_QUIET=0;
+/* The rung a URL is, or 'other' — an avatar, a banner, anything not on the ladder. */
+function imgRungOf(name){
+  const m=/\/([a-z]+)\.(?:jpe?g|webp|png)(?:\?|$)/i.exec(name||'');
+  return m&&IMG_LADDER.has(m[1])?m[1]:'other';
+}
+/* Is this one of the app's own picture hosts? A prefix test, not a URL parse:
+   this runs once per timing entry and the buffer can be a few hundred deep. */
+function imgIsHost(name){
+  if(typeof name!=='string'||!name)return false;
+  for(let i=0;i<IMG_HOSTS.length;i++)if(name.indexOf('://'+IMG_HOSTS[i]+'/')>0)return true;
+  return false;
+}
+/* One pass over the timing buffer. Everything the app already fetched is in it
+   already, so this reads and writes no DOM and allocates one entry at a time. */
+function imgBytesDrain(){
+  IMG_ST.drain++;
+  let list=null;
+  try{list=typeof performance.getEntriesByType==='function'?performance.getEntriesByType('resource'):null}catch(e){list=null}
+  if(!list||typeof list.length!=='number'){IMG_ST.unsup++;return IMG_ST}
+  for(let i=0;i<list.length;i++){
+    const e=list[i];
+    if(!e)continue;
+    const name=e.name;
+    if(!imgIsHost(name))continue;            /* every picture the app draws, and nothing else */
+    if(IMG_URL.has(name))continue;           /* counted once: this load is a cache hit */
+    if(IMG_URL.size>=IMG_MAXU){IMG_ST.skip++;continue}
+    IMG_URL.add(name);
+    const rung=imgRungOf(name);
+    IMG_RUNG[rung]++;
+    let n=e.transferSize||0;
+    if(!n)n=e.encodedBodySize||0;
+    if(n>0){
+      IMG_ST.bytes+=n;IMG_ST.meas++;
+      if(!e.transferSize)IMG_ST.cached++;    /* served from cache: the file's size, no bytes over the wire */
+      continue;
+    }
+    /* No size at all: an opaque cross-origin entry, or a cache hit on an engine
+       that zeroes both fields. Estimate, and say so in `est`. */
+    IMG_ST.cached++;
+    const px=IMG_PX.get(name)||0;
+    IMG_ST.bytes+=px>0?Math.round(px*IMG_BPP):(IMG_EST[rung]||IMG_EST.other);
+    IMG_ST.est++;
+  }
+  return IMG_ST;
+}
+/* Coalesced into one idle slot: a feed that asks for twenty pictures in a frame
+   is one drain, not twenty, and nothing is ever armed on a timer. */
+function imgBytesSoon(){
+  if(IMG_ST.pend||IMG_QUIET)return;
+  IMG_ST.pend=1;
+  const go=()=>{IMG_ST.pend=0;try{imgBytesDrain()}catch(e){}};
+  try{
+    if(typeof requestIdleCallback==='function'){requestIdleCallback(go,{timeout:2000});return}
+  }catch(e){}
+  go();                                      /* no idle slot here: drain now, no timer */
+}
+/* The element side: a thumbnail asked for, one that arrived (with the pixels it
+   drew), one that failed. Called from the paths the app already runs. */
+function imgBytesNote(kind,img){
+  if(IMG_QUIET)return;                        /* the self-check's throwaway cards are not traffic */
+  if(kind==='ask'){IMG_ST.ask++;imgBytesSoon();return}
+  if(kind==='fail'){IMG_ST.fail++;return}
+  IMG_ST.ok++;
+  const w=img.naturalWidth|0,h=img.naturalHeight|0;
+  if(w>0&&h>0){
+    IMG_ST.px+=w*h;
+    const u=img.currentSrc||img.src||'';     /* the candidate the engine actually chose (6.6) */
+    if(u&&IMG_PX.size<IMG_MAXU)IMG_PX.set(u,w*h);
+  }
+  imgBytesSoon();
+}
+/* The session's number, for tools/ and for the one logcat line. Read-only. */
+window.__ltImgBytes=()=>{
+  try{imgBytesDrain()}catch(e){}
+  const req=IMG_ST.meas+IMG_ST.est;
+  return {ask:IMG_ST.ask,ok:IMG_ST.ok,fail:IMG_ST.fail,
+    req:req,bytes:IMG_ST.bytes,kb:Math.round(IMG_ST.bytes/102.4)/10,
+    avg:req?Math.round(IMG_ST.bytes/req):0,
+    meas:IMG_ST.meas,est:IMG_ST.est,cached:IMG_ST.cached,px:IMG_ST.px,
+    rung:Object.assign({},IMG_RUNG),seen:IMG_URL.size,max:IMG_MAXU,skip:IMG_ST.skip,
+    drain:IMG_ST.drain,unsup:IMG_ST.unsup,bpp:IMG_BPP};
+};
+/* One line per session, on the event that precedes a teardown. Idempotent, so a
+   page that hides twice logs once, and caught, so a console that is gone costs
+   the teardown nothing. */
+function imgBytesLog(){
+  if(IMG_LOGGED)return;
+  IMG_LOGGED=1;
+  try{
+    const r=window.__ltImgBytes();
+    console.info('lt-imgbytes kb='+r.kb+' req='+r.req+' meas='+r.meas+' est='+r.est+
+      ' cached='+r.cached+' px='+r.px+' ask='+r.ask+' ok='+r.ok+' fail='+r.fail+
+      ' rung='+r.rung.mqdefault+'/'+r.rung.hqdefault+'/'+r.rung.sddefault+'/'+r.rung.maxresdefault+'/'+r.rung.other);
+  }catch(e){}
+}
+try{window.addEventListener('pagehide',imgBytesLog)}catch(e){}
 
 /* ---------- surfaces, and the listeners that belong to them (item 4.3) ----------
    The app is one document with three tab pages that are never rebuilt and four
@@ -3430,6 +3597,32 @@ const SC=[
     thumbShow(a);
     THUMB_RES.delete(id);THUMB_FAIL.delete(id);
     return born&&held&&shown&&instant&&THUMB_FD.ask>0}],
+  /* the picture bytes a session downloads are measured (6.10): a picture asked
+     for and one that failed are counted, the rung of a URL is read from the
+     ladder and anything else is 'other', only the app's own picture hosts are
+     attributed, the census adds up (bytes are the sum of what was measured and
+     what was estimated), and every map it keeps is under its ceiling. Two
+     throwaway elements that are never inserted and no URL left in any set, so
+     the probe leaves the document and the maps as it found them. */
+  ['imgbytes',()=>{const a=document.createElement('img'),b=document.createElement('img');
+    const ask=IMG_ST.ask,fail=IMG_ST.fail;
+    /* the scheduler is held for the length of the probe, so the ask it makes is
+       counted without booking an idle slot the boot never booked — the same
+       coalescing guard a real burst of asks goes through */
+    const pend=IMG_ST.pend,quiet=IMG_QUIET;IMG_ST.pend=1;IMG_QUIET=0;
+    imgBytesNote('ask',a);imgBytesNote('fail',b);
+    IMG_ST.pend=pend;IMG_QUIET=quiet;
+    const counted=IMG_ST.ask===ask+1&&IMG_ST.fail===fail+1;
+    const r=window.__ltImgBytes();
+    const sums=r.bytes>=0&&r.req===r.meas+r.est&&r.seen===IMG_URL.size&&r.max===IMG_MAXU&&
+      IMG_URL.size<=IMG_MAXU&&IMG_PX.size<=IMG_MAXU&&r.avg>=0;
+    const rungs=imgRungOf('https://i.ytimg.com/vi/x/hqdefault.jpg')==='hqdefault'&&
+      imgRungOf('https://i.ytimg.com/vi/x/nosuchrung.jpg')==='other'&&
+      imgRungOf('https://yt3.ggpht.com/av1.jpg')==='other'&&imgRungOf('')==='other';
+    const hosts=imgIsHost('https://i.ytimg.com/vi/x/mqdefault.jpg')&&
+      imgIsHost('https://yt3.ggpht.com/av1.jpg')&&!imgIsHost('https://example.com/a.jpg')&&!imgIsHost('');
+    const table=IMG_EST.hqdefault>IMG_EST.mqdefault&&IMG_EST.maxresdefault>IMG_EST.sddefault&&IMG_BPP>0;
+    return counted&&sums&&rungs&&hosts&&table}],
   /* the two origins the first screen needs are still warmed before it paints */
   ['preconnect',()=>qsa('link[rel="preconnect"]').length>=2],
   ['doc',()=>document.documentElement.lang==='en'&&!!qs('meta[name="viewport"]')],
@@ -3443,11 +3636,13 @@ const SC=[
 function scRun(){
   const t0=rqNow();
   let ok=0,fail=0;const bad=[];
+  IMG_QUIET=1;                              /* the probes' throwaway pictures are not the session's (6.10) */
   for(let i=0;i<SC.length;i++){
     let good=0;
     try{good=SC[i][1]()?1:0}catch(e){good=0}
     if(good)ok++;else{fail++;if(bad.length<SC_MAXL)bad.push(SC[i][0])}
   }
+  IMG_QUIET=0;
   SC_ST.runs++;SC_ST.ok=ok;SC_ST.fail=fail;SC_ST.fails=bad;
   SC_ST.ms=Math.round(rqNow()-t0);SC_ST.at=Math.round(performance.now());
   SC_ST.last='lt-selfcheck on='+DBG+' ok='+ok+' fail='+fail+' n='+SC.length+' ms='+SC_ST.ms
