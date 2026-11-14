@@ -446,9 +446,10 @@ async function bounded(file) {
   const qi = env.d.getElementById('q');
   for (let i = 0; i < 25; i++) {
     env.queue = [{ status: 200, body: {} }];
+    const bad0 = env.w.__ltShape().bad;
     qi.value = 'query number ' + i;
-    qi.dispatchEvent(new env.w.Event('input'));
-    await sleep(45);
+    env.w.find();                    /* item 7.1: the keystroke path is debounced, so ask outright */
+    await waitFor(() => env.w.__ltShape().bad > bad0, 4000);   /* and let it land before the next one cancels it */
   }
   await sleep(300);
   const S = env.w.__ltShape(), lines = shapeLines(env);

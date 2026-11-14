@@ -186,8 +186,11 @@ async function driveSurfaces(file) {
   out.boot = { chips: snap(env, '#chips'), feed: snap(env, '#feed .card', 1), ex: snap(env, '#ex'), subs: snap(env, '#sg') };
   out.afterBoot = env.reqs.length;
 
-  // a user typing and then correcting: with no debounce yet (item 7.1) every
-  // keystroke is a search call, so this is where the cache earns most
+  // a user typing and then correcting: every keystroke left to settle into a
+  // search, which is where the cache earns most. Since item 7.1 the box waits
+  // 300 ms after the last keystroke, so each prefix is given that pause here —
+  // otherwise the later keystrokes cancel the earlier ones and there is nothing
+  // left to compare. What this half measures is the cache, not the pause.
   env.d.getElementById('sopen').click();
   await sleep(120);
   const qi = env.d.getElementById('q');
@@ -196,6 +199,7 @@ async function driveSurfaces(file) {
   for (const t of typed) {
     qi.value = t;
     qi.dispatchEvent(new env.w.Event('input'));
+    await sleep(360);                             /* the debounce, then the round trip */
     await waitFor(() => env.d.querySelectorAll('#results .card').length > 0);
     await sleep(100);
     out.typing.push(snap(env, '#results .card', 1));
@@ -211,6 +215,7 @@ async function driveSurfaces(file) {
     const q = env.d.getElementById('q');
     q.value = 'lofi & chill';
     q.dispatchEvent(new env.w.Event('input'));
+    await sleep(360);                             /* item 7.1: the pause, then the call */
     await waitFor(() => env.d.querySelectorAll('#results .card').length > 0);
     await sleep(120);
     return snap(env, '#results .card', 1);

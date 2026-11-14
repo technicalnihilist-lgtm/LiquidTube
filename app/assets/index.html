@@ -2435,14 +2435,14 @@ async function rqFetch(ck,path,params,q,now,sig){
   }
 }
 let tlReq=0;                                /* first request of the boot, marked once */
-async function yt(path,params,own){
+async function yt(path,params,own,sig){
   if(!tlReq){tlReq=1;mark('req')}            /* separates JS work from network in the timeline */
   const ck=rqKey(path,params),now=Date.now();
   const hit=rqGet(ck,now);
   if(hit){RQ_ST.hit++;return hit}
   if(RQ_ABORT&&own&&!want.has(own))throw rqAbort();   /* that page is not on screen: do not even ask */
   const flying=RQI.get(ck);
-  if(flying){                                /* already on the wire: share it, send nothing */
+  if(flying&&!rqDead(flying)){               /* already on the wire: share it, send nothing */
     RQ_ST.join++;
     if(flying.own){                          /* who else is waiting decides whether it can be abandoned */
       if(own)flying.own.add(own);            /* a second page now needs it too */
@@ -2454,12 +2454,24 @@ async function yt(path,params,own){
   const q=new URLSearchParams(params||{});
   q.set('key',APIKEY);                      // the key is one constant, appended here only
   const ac=own&&RQ_ABORT?new AbortController():null;
-  const p=rqFetch(ck,path,params,q,now,ac?ac.signal:null);
-  RQI.set(ck,{p,ac,own:own?new Set([own]):null});
-  const clear=()=>{RQI.delete(ck)};          /* settled, either way: no stale slot, no retry blocked */
+  /* `sig` is a caller's own cancel handle, used when the request belongs to no
+     page: the search box cancels the query it has just superseded (item 7.1).
+     A tagged request keeps its page's controller, so rqAbandon still governs it. */
+  const p=rqFetch(ck,path,params,q,now,ac?ac.signal:(sig||null));
+  const ent={p,ac,sg:sig||null,own:own?new Set([own]):null};
+  RQI.set(ck,ent);
+  const clear=()=>{if(RQI.get(ck)===ent)RQI.delete(ck)};   /* settled, either way: no stale slot, no retry blocked */
   p.then(clear,clear);
   return p;
 }
+/* An entry whose caller has already cancelled is not joined. Its promise is
+   about to reject with AbortError — the connection is closing, the body is never
+   parsed, nothing is cached — so a second caller for the same query would be
+   handed a failure nobody is waiting for instead of its own request. The slot is
+   still on the map for one microtask, which is exactly the window in which a
+   double tap on a suggestion chip lands, so it is checked here rather than
+   assumed gone. */
+const rqDead=f=>!!(f&&((f.sg&&f.sg.aborted)||(f.ac&&f.ac.signal.aborted)));
 const cdn=u=>String(u||'').replace('//yt3.ggpht.com/','//yt3.googleusercontent.com/');
 function cObj(c){
   const sn=c.snippet||{},st=c.statistics||{},cd=c.contentDetails||{},br=c.brandingSettings||{};
@@ -3339,19 +3351,63 @@ function openS(){
   focusT=setTimeout(()=>{focusT=0;if($('search').classList.contains('on'))qi.focus()},250);
 }
 $('sopen').onclick=openS;
-function closeS(){if(focusT){clearTimeout(focusT);focusT=0}$('search').classList.remove('on');qi.blur();slideHint()}
+function closeS(){if(focusT){clearTimeout(focusT);focusT=0}$('search').classList.remove('on');qi.blur();slideHint();findStop()}
 $('cancel').onclick=closeS;
 $('sug').innerHTML=['lofi','AI music','calm piano','telugu songs','apple event'].map(s=>'<button class="glass">'+s+'</button>').join('');
 $('sug').onclick=e=>{const b=e.target.closest('button');if(b){qi.value=b.textContent;find()}};
-let seq=0;
+/* Item 7.1 — one search per pause, and the superseded one is cancelled.
+
+   `qi.oninput` used to call find() directly, so the word "lofi" cost four
+   searches: four keystrokes, four requests, and the first three answers parsed
+   and thrown away unread by the `seq` guard below. A search is a hundred quota
+   units — a hundred of them is the whole day — so typing a query could spend
+   the day's allowance on prefixes nobody ever saw.
+
+   The box now waits SEARCH_MS after the last keystroke and asks once. Everything
+   that already means "this query, now" still calls find() and skips the wait —
+   a suggestion chip, a shelf's View All, the retry button — and the suggestions
+   row still hides on the keystroke itself rather than 300 ms later, so what is
+   on screen and when it changes is exactly what it was.
+
+   A superseded search is aborted, not merely ignored: the answer to "lof" is not
+   wanted the moment "lofi" is asked, so its controller is aborted, the
+   connection closes and the body is never parsed. The `seq` guard stays as the
+   backstop for a build without AbortController and for an answer that was
+   already parsed when the newer one arrived. Closing the panel does both — the
+   pending keystroke is cancelled and anything on the wire is abandoned — so a
+   closed panel can neither spend a unit nor paint a result into a panel nobody
+   is looking at. */
+const SEARCH_MS=300;
+let seq=0,findT=0,findAC=null,findQ='';   /* findQ: the query the live controller belongs to */
+function findSoon(){                       /* what a keystroke asks for: a search, after the pause */
+  const t=qi.value.trim();
+  $('sug').style.display=t?'none':'flex';  /* the row answers the keystroke, not the request */
+  if(findT){clearTimeout(findT);findT=0}
+  if(!t){find();return}                    /* cleared field: nothing to wait for, nothing to send */
+  findT=setTimeout(()=>{findT=0;find()},SEARCH_MS);
+}
+function findStop(){                       /* the panel closed: nothing queued, nothing on the wire */
+  if(findT){clearTimeout(findT);findT=0}
+  if(findAC){findAC.abort();findAC=null}
+  seq++;                                   /* and an answer already parsed is stale */
+}
 async function find(){
+  if(findT){clearTimeout(findT);findT=0}   /* asked outright: the pause is over */
   const t=qi.value.trim();
   $('sug').style.display=t?'none':'flex';
-  if(!t){$('results').innerHTML='';return}
+  if(!t){$('results').innerHTML='';if(findAC){findAC.abort();findAC=null}seq++;return}
   const id=++seq;
+  /* Only a *different* question cancels the one on the wire. Asking the same one
+     again — a chip tapped twice, a retry pressed while the first is still
+     flying — joins the request already out (item 2.2) instead of abandoning it
+     and sending a second copy of the same search. */
+  if(findAC&&findQ!==t){findAC.abort();findAC=null}
+  findQ=t;
+  const ac=RQ_ABORT?new AbortController():null;
+  findAC=ac;
   $('results').innerHTML=LDR+'<div class="skl"></div><div class="skl"></div>';
   try{
-    const j=await yt('search',{part:'snippet',type:'video',maxResults:20,q:t});
+    const j=await yt('search',{part:'snippet',type:'video',maxResults:20,q:t},null,ac?ac.signal:null);
     if(id!==seq)return;
     let list=(j.items||[]).filter(it=>it.id&&it.id.videoId).map(it=>vObj(it.id.videoId,
       {t:dec(it.snippet.title),c:dec(it.snippet.channelTitle),ch:it.snippet.channelId,pub:it.snippet.publishedAt,cat:'Result'}));
@@ -3360,13 +3416,16 @@ async function find(){
     if(id!==seq)return;
     $('results').innerHTML=list.length?list.map(cardOf).join(''):'<div class="empty">No videos match that.</div>';
   }catch(e){
+    if(id!==seq||ekKind(e)==='aborted')return;   /* superseded or cancelled: not this search's answer to paint */
     asSafe('search.find',e);                 /* the panel answers for itself below */
     const q=ekKind(e)==='quota';             /* the failure's class, not its wording (item 5.2) */
     rtySet('find',find);                     /* the same query, asked again */
     $('results').innerHTML='<div class="empty">'+(q?"YouTube's daily search limit is used up.":'Search failed. '+esc(ekText(e)))+rtyBtn('find',e)+'</div>';   /* our sentence, not the API's (item 5.3) */
+  }finally{
+    if(findAC===ac)findAC=null;              /* settled: no handle left to abort */
   }
 }
-qi.oninput=find;
+qi.oninput=findSoon;
 
 /* ---------- global taps ---------- */
 document.addEventListener('click',e=>{
@@ -4441,6 +4500,7 @@ else scheduleInput();
      listT       60 ms render → depth pass   cleared before re-arm in listKick
      chipT       140 ms chip swap render     cleared before re-arm in chip
      focusT      250 ms search caret         cleared in closeS
+     findT       300 ms search debounce      cleared before re-arm in findSoon, in find, and in findStop
      tiltT       260 ms card release         cleared before re-arm in tiltStart/tiltEnd
      flingTimer  fling gate idle (repeats)   cleared in flingTrack and on hidden
      tt          toast dismiss               cleared before re-arm in toast

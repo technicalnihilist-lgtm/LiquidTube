@@ -307,7 +307,12 @@ async function drive(file) {
   qi.value = 'lofi';
   qi.dispatchEvent(new env.w.Event('input'));
   qi.dispatchEvent(new env.w.Event('input'));
+  /* since item 7.1 the box waits 300 ms after the last keystroke, so the answer
+     lands later than it used to: wait out the pause, then for the panel to
+     settle, or the two builds are photographed at different moments */
+  await sleep(360);
   await waitFor(() => env.d.querySelectorAll('#results .card').length > 0);
+  await waitFor(() => !env.d.querySelector('#results .skl'));
   await sleep(400);
   out.typeDouble = snap(env, '#results .card', 1);
   out.typeDoubleReqs = env.reqs.length - b3;
