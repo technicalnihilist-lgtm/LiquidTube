@@ -3413,9 +3413,74 @@ function paintSearchCache(){
     listKick();                                 /* a render owes the depth pass one frame */
   }catch(e){asSafe('search.cache',e)}            /* a restore that fails leaves the panel empty */
 }
-window.__ltSearchCache=()=>({once:seaOnce,key:SEA_KEY,ver:SEA_VER,max:SEA_MAX,
+window.__ltSearchCache=()=>({once:seaOnce,key:SEA_KEY,ver:SEA_VER,max:SEA_MAX,ttl:SEA_TTL,qmax:SEA_QMAX,
   bytes:(()=>{try{return (localStorage.getItem(SEA_KEY)||'').length}catch(e){return -1}})(),
+  queries:SEA_Q.size,hit:SEA_ST.hit,miss:SEA_ST.miss,evict:SEA_ST.evict,stale:SEA_ST.stale,saved:SEA_ST.saved,
+  keys:()=>Array.from(SEA_Q.keys()),
+  age:q=>{const e=SEA_Q.get(seaQKey(q));return e?Date.now()-e.at:null},
   cached:(()=>{const c=readSearchCache();return c?{q:c.q,items:c.items.length,at:c.at}:null})()});
+/* ---------- search answers, kept for half an hour (item 7.3) ----------
+   A search is the most expensive thing this app asks for: a hundred quota units,
+   against one for a video, a channel or an upload list. The request cache (2.1)
+   already answered a repeat inside ten minutes from memory, but it is one map
+   shared by every endpoint and bounded at 48 entries, oldest insertion out — so
+   forty cheap channel and duration lookups during a session could push a
+   hundred-unit search answer out of it, and the same word then cost the day
+   again. It also caches the *response*: the panel still paid to map it, to ask
+   `videos` for the durations of everything without one, and to look up six
+   channel avatars, every time.
+
+   So the panel keeps its own answers, for thirty minutes, keyed by the query
+   itself. A hit is painted straight from the kept list — the cards are the ones
+   the app drew, avatar URLs included — with **no request, no quota unit and no
+   skeleton**: the answer is already here, so there is nothing to wait for. A
+   miss searches exactly as it did before.
+
+   The key is the query, trimmed, with runs of whitespace collapsed and
+   case-folded, so "lofi", "Lofi" and "  lofi  " are one answer. Entries are
+   bounded at SEA_QMAX queries (the oldest *used* goes first, so a query asked
+   again stays), each holding at most SEA_MAX cards — the panel's page size — so
+   the whole cache is a few hundred small objects, not a growing session log.
+   Only a successful search is kept: a failure, a quota refusal or an aborted
+   request leaves nothing, so a retry still asks. An empty answer is kept, and
+   costs nothing to repeat — within half an hour the same query has the same
+   answer, and saying so is cheaper than buying it again.
+
+   This is memory only, and only for this launch. It is deliberately not the
+   launch-to-launch blob above (7.2): that one is a paint source with no age, so
+   it is never consulted by find(), while everything here carries a timestamp
+   and expires on read. A cached paint is identical to a live one — same
+   `vObj`/`cardOf` path, same markup — so nothing on screen changes. */
+const SEA_TTL=18e5,SEA_QMAX=12,SEA_QKEY=64;   /* 30 minutes, twelve queries, a sane key length */
+const SEA_Q=new Map(),SEA_ST={hit:0,miss:0,evict:0,stale:0,saved:0};
+const seaQKey=q=>String(q==null?'':q).trim().replace(/\s+/g,' ').toLowerCase().slice(0,SEA_QKEY);
+function seaQGet(q,now){
+  const k=seaQKey(q);
+  if(!k)return null;
+  const e=SEA_Q.get(k);
+  if(!e)return null;
+  if(now-e.at>=SEA_TTL){SEA_Q.delete(k);SEA_ST.stale++;return null}   /* expired: dropped on read, no timer */
+  SEA_Q.delete(k);SEA_Q.set(k,e);      /* a hit is the newest use, so the eviction order is recency, not age */
+  return e;
+}
+function seaQPut(q,list,now){
+  const k=seaQKey(q);
+  if(!k)return;
+  const chav={};
+  (list||[]).forEach(v=>{const av=v&&v.ch&&chAv(v.ch);if(av)chav[v.ch]=av});
+  const items=(list||[]).slice(0,SEA_MAX).map(v=>({id:v.id,t:v.t,c:v.c,ch:v.ch,views:v.views,pub:v.pub,cat:v.cat,dur:v.dur}));
+  SEA_Q.delete(k);SEA_Q.set(k,{at:now,items,chav});
+  SEA_ST.saved++;
+  while(SEA_Q.size>SEA_QMAX){const o=SEA_Q.keys().next();if(o.done)break;SEA_Q.delete(o.value);SEA_ST.evict++}
+}
+/* the one painter, so a kept answer and a fresh one put the same markup on
+   screen: avatars first (the kept card needs its channel's), then the cards. */
+function seaQPaint(e){
+  for(const k in e.chav)cavSet(k,e.chav[k]);
+  const list=e.items.map(o=>vObj(o.id,o));
+  $('results').innerHTML=list.length?list.map(cardOf).join(''):'<div class="empty">No videos match that.</div>';
+  return list;
+}
 /* Item 7.1 — one search per pause, and the superseded one is cancelled.
 
    `qi.oninput` used to call find() directly, so the word "lofi" cost four
@@ -3459,6 +3524,18 @@ async function find(){
   $('sug').style.display=t?'none':'flex';
   if(!t){$('results').innerHTML='';if(findAC){findAC.abort();findAC=null}seq++;return}
   const id=++seq;
+  /* An answer to this exact question, still fresh (item 7.3): paint it and send
+     nothing. Nothing on the wire is wanted any more — this *is* the answer to
+     what the field says — so a query still flying is abandoned here, and the
+     seq bump above already makes any answer that lands later stale. */
+  const kept=seaQGet(t,Date.now());
+  if(kept){
+    if(findAC){findAC.abort();findAC=null}
+    findQ=t;SEA_ST.hit++;
+    seaQPaint(kept);
+    return;
+  }
+  SEA_ST.miss++;
   /* Only a *different* question cancels the one on the wire. Asking the same one
      again — a chip tapped twice, a retry pressed while the first is still
      flying — joins the request already out (item 2.2) instead of abandoning it
@@ -3478,6 +3555,7 @@ async function find(){
     if(id!==seq)return;
     $('results').innerHTML=list.length?list.map(cardOf).join(''):'<div class="empty">No videos match that.</div>';
     if(list.length)saveSearchCache(t,list);  /* kept for the next open, at no further cost (item 7.2) */
+    seaQPut(t,list,Date.now());              /* and for the next half hour, at no further cost (item 7.3) */
   }catch(e){
     if(id!==seq||ekKind(e)==='aborted')return;   /* superseded or cancelled: not this search's answer to paint */
     asSafe('search.find',e);                 /* the panel answers for itself below */
