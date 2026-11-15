@@ -3496,15 +3496,47 @@ function seaClean(list){
   return out;
 }
 const seaCards=list=>list&&list.length?list.map(cardOf).join(''):'<div class="empty">No videos match that.</div>';
-let seaLast='';                            /* the markup #results was last given, by any of the six writes */
+/* Item 7.7 — the panel's loading state, written once and shared by every painter.
+
+   A search is asked for 300 ms after the last keystroke (7.1), and the skeleton
+   used to be painted only when that pause was over and the request went out. In
+   between — the whole pause, which is the part the user is watching, because
+   they have just typed — #results held nothing, and the suggestions row had
+   already hidden itself on the keystroke, so the panel was a blank sheet under
+   a filled field: a flash of empty content with no shape to it. The skeleton is
+   now painted on the keystroke itself, so the panel answers the key with the
+   shape of an answer.
+
+   Two rules keep that honest and free. It is painted only when the panel has no
+   card to keep — an empty panel, or one holding the "no videos match" sentence
+   of the query before this one; a page of cards from the last query is never
+   thrown away to show a placeholder for a query that may still be being typed
+   (it is replaced by the skeleton at the pause's end, exactly as before). And
+   the markup is one constant, so `seaShow` recognises it: the pause's end, a
+   resumed search, a chip tapped twice — every write of the skeleton while the
+   skeleton is already there is the same string, so nothing is rebuilt and the
+   shimmer does not restart mid-wait.
+
+   The other half is that a skeleton means work is running. Closing the panel
+   abandons the search (7.1), so `findStop` takes the skeleton with it: a panel
+   that opens again holds the query in its field and no placeholder pretending a
+   request is out. */
+const SEA_SKEL=LDR+'<div class="skl"></div><div class="skl"></div>';   /* the one search loading state */
+let seaLast='';                            /* the markup #results was last given, by any of the writes */
+let seaSkel=0;                             /* what is in #results is the loading state, not an answer */
+let seaHave=0;                             /* what is in #results is an answer: cards worth keeping */
 function seaShow(html){
   const el=$('results');
   if(seaLast===html&&el.firstChild){SEA_F.same++;return false}    /* the same picture: no node rebuilt */
-  seaLast=html;
+  seaLast=html;seaSkel=html===SEA_SKEL?1:0;seaHave=html.indexOf('class="card"')>=0?1:0;
   el.innerHTML=html;
   SEA_F.paint++;
   return true;
 }
+/* Nothing in the panel worth keeping while the next query is typed. `seaShow` is
+   the only writer of #results (7.4), so what it last painted is what is there,
+   and the keystroke costs a boolean rather than a query. */
+const seaBare=()=>!seaHave;
 /* ---------- the last search, kept for the next open (item 7.2) ----------
    Closing the panel never lost the query or the cards — the field and #results
    were left exactly as they were — but a *launch* did: the panel came up empty,
@@ -3656,12 +3688,14 @@ function findSoon(){                       /* what a keystroke asks for: a searc
   $('sug').style.display=t?'none':'flex';  /* the row answers the keystroke, not the request */
   if(findT){clearTimeout(findT);findT=0}
   if(!t){find();return}                    /* cleared field: nothing to wait for, nothing to send */
+  if(seaBare())seaShow(SEA_SKEL);          /* the shape of an answer, not a blank sheet, for the pause (7.7) */
   findT=setTimeout(()=>{findT=0;find()},SEARCH_MS);
 }
 function findStop(){                       /* the panel closed: nothing queued, nothing on the wire */
   if(findT){clearTimeout(findT);findT=0}
   if(findAC){findAC.abort();findAC=null}
   seq++;                                   /* and an answer already parsed is stale */
+  if(seaSkel)seaShow('');                  /* the search it stood for is abandoned, so the skeleton goes too (7.7) */
 }
 async function find(){
   if(findT){clearTimeout(findT);findT=0}   /* asked outright: the pause is over */
@@ -3690,7 +3724,7 @@ async function find(){
   findQ=t;
   const ac=RQ_ABORT?new AbortController():null;
   findAC=ac;
-  seaShow(LDR+'<div class="skl"></div><div class="skl"></div>');
+  seaShow(SEA_SKEL);
   try{
     const j=await yt('search',{part:'snippet',type:'video',maxResults:20,q:t},null,ac?ac.signal:null);
     if(id!==seq)return;
