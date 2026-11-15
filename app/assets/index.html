@@ -3594,9 +3594,62 @@ window.__ltSearchCache=()=>({once:seaOnce,key:SEA_KEY,ver:SEA_VER,max:SEA_MAX,tt
   bytes:(()=>{try{return (localStorage.getItem(SEA_KEY)||'').length}catch(e){return -1}})(),
   queries:SEA_Q.size,hit:SEA_ST.hit,miss:SEA_ST.miss,evict:SEA_ST.evict,stale:SEA_ST.stale,saved:SEA_ST.saved,
   filter:{raw:SEA_F.raw,kept:SEA_F.kept,void:SEA_F.void,dup:SEA_F.dup,paint:SEA_F.paint,same:SEA_F.same},
+  norm:{ask:SEA_N.ask,fix:SEA_N.fix,q:seaNorm},   /* item 7.8: searches asked for, and how many needed the rule */
   keys:()=>Array.from(SEA_Q.keys()),
   age:q=>{const e=SEA_Q.get(seaQKey(q));return e?Date.now()-e.at:null},
   cached:(()=>{const c=readSearchCache();return c?{q:c.q,items:c.items.length,at:c.at}:null})()});
+/* ---------- one query, one spelling, before it is one search (item 7.8) ----------
+   The panel sent whatever bytes were in the field. A Devanagari query is the one
+   place in this app where the same word has several spellings that are not the
+   same string, and every one of them was a different query:
+
+     · a nukta can be precomposed (क़ U+0958) or a base letter plus U+093C, and
+       the two keyboards that produce them disagree;
+     · a title copied off a card carries the zero-width joiner/non-joiner
+       (U+200D/U+200C) that the web page used to shape a conjunct — marks no
+       keyboard types and no search box needs;
+     · text pasted from another app keeps the space its layout had between a
+       letter and its matra — "क ि" where the user means "कि" — and no search
+       endpoint can match that;
+     · a sentence ends with a danda (।), a digit is ०-९ on one keyboard and 0-9 on
+       the next, and the space between two words is U+00A0 or U+3000 as often as
+       it is U+0020.
+
+   So "राम।", "राम" and "राम" with a stray joiner in it were three searches at a
+   hundred quota units each (7.1), three entries in the kept answers of 7.3, and
+   three keys in the request cache of 2.1 — the second and third not answered
+   from the first even though they are the same question. `seaNorm` is the one
+   rule, applied where a query becomes a query: Unicode NFC first (which, because
+   the nukta letters are composition exclusions, turns क़ into क + ़ — both
+   spellings now agree), then the zero-width marks out, then any whitespace that
+   sits in front of a combining mark out, then Devanagari digits folded to ASCII,
+   then danda and double danda to a space, then every run of whitespace to one
+   ASCII space, trimmed.
+
+   Two things it deliberately does not do. It does not touch what the field
+   holds: the text the user typed is never rewritten under them, and the field
+   restored from 7.2 shows their own spelling — only the string that is *asked
+   for* is normalised. And it does not merge sounds that are spelled differently
+   on purpose: अनुस्वार and अनुनासिक (हिंदी / हिन्दी) are two real spellings of two
+   real words, and folding one into the other would be the app deciding which
+   word the user meant. A Latin query comes out of `seaNorm` exactly as it went
+   in, apart from interior whitespace runs collapsing to one space, which 7.1's
+   key already did. */
+const SEA_MK='\\u0900-\\u0903\\u093A-\\u094F\\u0951-\\u0957\\u0962\\u0963';   /* the Devanagari combining marks: matras, nukta, virama, anusvara, candrabindu, visarga */
+const SEA_ZW=/[\u00AD\u200B-\u200D\u2060\uFEFF]/g;      /* soft hyphen, zero-width space/joiner/non-joiner, word joiner, BOM */
+const SEA_GAP=new RegExp('\\s+(?=['+SEA_MK+'])','g');      /* a space where a layout put one: between a letter and its matra */
+const SEA_DAN=/[\u0964\u0965\u0970]/g;                  /* danda, double danda, abbreviation sign: punctuation, not a word */
+const SEA_DIG=/[\u0966-\u096F]/g;                       /* ०-९ → 0-9, so one number is one query */
+const SEA_TAIL=new RegExp('['+SEA_MK+'\\u200D]+$');       /* what a capped key must not end on: a lone matra */
+const SEA_N={ask:0,fix:0};                              /* searches asked for, and how many of them needed the rule */
+function seaNorm(q){
+  let s=String(q==null?'':q);
+  if(!s)return '';
+  try{if(s.normalize)s=s.normalize('NFC')}catch(e){}   /* no normalize on an old WebView: the rest of the rule still runs */
+  s=s.replace(SEA_ZW,'').replace(SEA_GAP,'').replace(SEA_DIG,c=>String(c.charCodeAt(0)-0x966)).replace(SEA_DAN,' ');
+  return s.replace(/\s+/g,' ').trim();
+}
+
 /* ---------- search answers, kept for half an hour (item 7.3) ----------
    A search is the most expensive thing this app asks for: a hundred quota units,
    against one for a video, a channel or an upload list. The request cache (2.1)
@@ -3631,7 +3684,14 @@ window.__ltSearchCache=()=>({once:seaOnce,key:SEA_KEY,ver:SEA_VER,max:SEA_MAX,tt
    `vObj`/`cardOf` path, same markup — so nothing on screen changes. */
 const SEA_TTL=18e5,SEA_QMAX=12,SEA_QKEY=64;   /* 30 minutes, twelve queries, a sane key length */
 const SEA_Q=new Map(),SEA_ST={hit:0,miss:0,evict:0,stale:0,saved:0};
-const seaQKey=q=>String(q==null?'':q).trim().replace(/\s+/g,' ').toLowerCase().slice(0,SEA_QKEY);
+/* The key of a kept answer is the normalised query (7.8), so two spellings of
+   one question share the one answer. The cap is applied on a cluster boundary:
+   a 64-character slice that lands inside a Devanagari cluster leaves a lone
+   matra behind, and that key is a key no query can ever produce again. */
+const seaQKey=q=>{
+  const k=seaNorm(q).toLowerCase();
+  return k.length>SEA_QKEY?k.slice(0,SEA_QKEY).replace(SEA_TAIL,''):k;
+};
 function seaQGet(q,now){
   const k=seaQKey(q);
   if(!k)return null;
@@ -3684,10 +3744,10 @@ function seaQPaint(e){
 const SEARCH_MS=300;
 let seq=0,findT=0,findAC=null,findQ='';   /* findQ: the query the live controller belongs to */
 function findSoon(){                       /* what a keystroke asks for: a search, after the pause */
-  const t=qi.value.trim();
+  const t=qi.value.trim(),nq=seaNorm(t);   /* the field as typed, and the query it stands for (7.8) */
   $('sug').style.display=t?'none':'flex';  /* the row answers the keystroke, not the request */
   if(findT){clearTimeout(findT);findT=0}
-  if(!t){find();return}                    /* cleared field: nothing to wait for, nothing to send */
+  if(!nq){find();return}                   /* cleared field — or one holding nothing but invisible marks: nothing to wait for, nothing to send */
   if(seaBare())seaShow(SEA_SKEL);          /* the shape of an answer, not a blank sheet, for the pause (7.7) */
   findT=setTimeout(()=>{findT=0;find()},SEARCH_MS);
 }
@@ -3700,8 +3760,10 @@ function findStop(){                       /* the panel closed: nothing queued, 
 async function find(){
   if(findT){clearTimeout(findT);findT=0}   /* asked outright: the pause is over */
   seaOnce=1;                               /* this session has searched: the panel is its own source of truth (7.2) */
-  const t=qi.value.trim();
-  $('sug').style.display=t?'none':'flex';
+  const raw=qi.value.trim();               /* what the field says, and what the field keeps: never rewritten (7.8) */
+  const t=seaNorm(raw);                    /* what is asked for: one spelling per query (7.8) */
+  SEA_N.ask++;if(t!==raw)SEA_N.fix++;      /* for the log: how many searches the rule had to fix */
+  $('sug').style.display=raw?'none':'flex';
   if(!t){seaShow('');if(findAC){findAC.abort();findAC=null}seq++;return}
   const id=++seq;
   /* An answer to this exact question, still fresh (item 7.3): paint it and send
@@ -3735,7 +3797,7 @@ async function find(){
     await loadChannels(list.map(v=>v.ch));
     if(id!==seq)return;
     seaShow(seaCards(list));
-    if(list.length)saveSearchCache(t,list);  /* kept for the next open, at no further cost (item 7.2) */
+    if(list.length)saveSearchCache(raw,list);/* kept for the next open, at no further cost (item 7.2) — the field gets the user's own spelling back */
     seaQPut(t,list,Date.now());              /* and for the next half hour, at no further cost (item 7.3) */
   }catch(e){
     if(id!==seq||ekKind(e)==='aborted')return;   /* superseded or cancelled: not this search's answer to paint */
