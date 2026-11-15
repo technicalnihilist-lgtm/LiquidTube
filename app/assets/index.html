@@ -2845,6 +2845,44 @@ const list=(arr,el)=>{el.innerHTML=arr&&arr.length?arr.map(cardOf).join(''):'<di
 let cat='All';
 let secPending=null;   /* a chip section whose load was abandoned by a page switch */
 let chipT=0;           /* the 140 ms chip swap below, cleared by the next swap */
+/* ---------- per-chip scroll memory (item 7.6) ----------
+   A chip swaps the contents of #feed inside the one Home page, so the page
+   scroller kept whatever offset it happened to hold. Tapping a chip with fewer
+   cards clamped that offset, and coming back to the chip the user had actually
+   been reading landed them at the top of it — the list was rebuilt correctly and
+   then thrown away by the position. Nothing remembered where a chip was left, so
+   the only cheap chip in the row was one nobody had scrolled.
+   Each chip now keeps the offset it was left at, and the swap puts it back once
+   the new list is on screen (never before: the offset is clamped against the
+   height of whatever is in #feed, and the list is what gives it that height).
+   `chipShown` is the chip whose list is actually on #feed — not the chip that is
+   lit. A second tap inside the 140 ms fade leaves the *previous* chip's list in
+   the DOM, so saving on the tap alone would file one chip's offset under another;
+   only a chip that has painted saves, and a tap that never painted saves nothing.
+   The memory is per chip and per session: it is a scroll position, not state the
+   user would expect to survive a relaunch. */
+const CHIP_ST=Object.create(null);
+let chipShown='';
+function chipStSave(){
+  if(!chipShown||chipShown!==cat)return;      /* this chip's list is not the one on screen */
+  const pg=$('p-home');
+  if(!pg)return;
+  const y=pg.scrollTop;
+  if(y>0)CHIP_ST[cat]=y; else delete CHIP_ST[cat];   /* left at the top: nothing to remember */
+}
+function chipStRestore(n){
+  const pg=$('p-home');
+  if(!pg)return;
+  /* A chip that was never scrolled starts at its own top — the offset that was
+     there belonged to the chip the user left, and carrying it over is the same
+     bug in the other direction. */
+  const y=CHIP_ST[n]||0;
+  if(pg.scrollTop===y)return;
+  /* A chip that cannot hold the remembered offset (fewer cards than it had when
+     it was left) clamps here on its own, and the memory keeps the number it was
+     left at, so the chip that can hold it still lands where the user left it. */
+  pg.scrollTop=y;
+}
 function homeResume(){  /* entering Home again: re-run it, on the skeletons already on screen */
   const n=secPending;
   if(!n||cat!==n)return;
@@ -2877,11 +2915,12 @@ function catPaint(f){
   f=f||$('feed');
   const all=feed();
   if(!all.length){
-    if(FEED.error){f.innerHTML='<div class="empty">Could not load videos.<br>'+esc(ekText(FEED.error))+rtyBtn('feed',FEED.error)+'</div>';return}
+    if(FEED.error){chipShown=cat;f.innerHTML='<div class="empty">Could not load videos.<br>'+esc(ekText(FEED.error))+rtyBtn('feed',FEED.error)+'</div>';return}
     f.innerHTML=LDR+SK3;                     /* still loading: the boot's own skeletons */
     return;
   }
   const items=cat==='All'?all:all.filter(v=>v.cat===cat);
+  chipShown=cat;                             /* #feed now belongs to this chip (7.6) */
   if(!items.length){f.innerHTML='<div class="empty">Nothing in '+esc(cat)+' right now.</div>';return}
   list(items,f);
 }
@@ -2890,6 +2929,11 @@ function catPaint(f){
    the boot's paint must leave the feed alone. */
 const customCat=()=>CUSTOM.find(c=>c[0]===cat)||null;
 function chip(n){
+  /* Where the chip being left was, before anything of the new one is written.
+     Saved here rather than on scroll: the page fires a scroll event for every
+     other scroller too, and a section chip drops the feed to skeletons while it
+     loads, which would clamp the offset to 0 and file that under the chip. */
+  if(cat!==n)chipStSave();
   cat=n;
   qsa('.chip','chips').forEach(b=>b.classList.toggle('on',b.textContent===n));
   const f=$('feed');
@@ -2907,7 +2951,9 @@ function chip(n){
     loadSection(custom[1]).then(items=>{
       if(secPending===n)secPending=null;
       if(cat!==n)return;                        // user moved on
+      chipShown=n;                              /* the section is #feed's now (7.6) */
       list(items,f);
+      chipStRestore(n);
       if(!items.length){rtySet('chip',()=>{secForget(custom[1]);chip(n)});   /* an empty section gets the same way out as a failed one */
         f.innerHTML='<div class="empty">Could not load '+esc(n)+' videos right now.'+rtyBtn('chip',null)+'</div>';}
     }).catch(e=>{
@@ -2937,6 +2983,7 @@ function chip(n){
   chipT=setTimeout(()=>{
     chipT=0;
     catPaint(f);                                   /* the one painter, so a failed feed keeps its retry button */
+    chipStRestore(n);                              /* the list is in place, so the offset can be held (7.6) */
     f.style.opacity=1;
   },140);
 }
@@ -4031,6 +4078,11 @@ function paintSkeleton(){
     restWant();                                /* 6.8: the sheet that sizes the cards, before they are drawn */
     renderChips();
     list(feed(),$('feed'));
+    /* The cached feed is the whole list, which is exactly what the All chip
+       shows, so #feed belongs to All from here until something else paints it —
+       otherwise a warm launch that is tapped before the network answer lands has
+       no chip to file the offset under and loses it (item 7.6). */
+    if(cat==='All')chipShown=cat;
     mark('cache');
   }else{
     $('chips').innerHTML=CHIPS_BASE.map(c=>'<button class="chip glass'+(c===cat?' on':'')+'">'+c+'</button>').join('');
