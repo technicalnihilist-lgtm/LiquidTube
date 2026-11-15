@@ -2862,10 +2862,42 @@ function renderChips(){
   if(!CATS.includes(cat))cat='All';
   $('chips').innerHTML=CATS.map(c=>'<button class="chip glass'+(c===cat?' on':'')+'">'+c+'</button>').join('');
 }
+/* ---------- what the feed shows for the selected chip (item 7.5) ---------- */
+/* One painter for the feed's list, and every path that puts cards on it goes
+   through it: the chip swap, the boot's paintShell, the feed's own retry. Before
+   this, paintShell drew `feed()` whole and never looked at `cat`, so a chip
+   tapped while the feed was still in flight lit up, the skeletons stayed, and the
+   feed then landed as an *All* list under a "Music" chip — the highlight was a
+   lie until the next tap. The same painter keeps the two settled states honest:
+   an empty category says its own sentence, and a feed that failed keeps the error
+   box and its retry button. The chip path used to fall through to "Nothing in X
+   right now." whenever the launch had failed (an empty list is falsy, an error is
+   not an empty list), which removed the only way out of the empty state. */
+function catPaint(f){
+  f=f||$('feed');
+  const all=feed();
+  if(!all.length){
+    if(FEED.error){f.innerHTML='<div class="empty">Could not load videos.<br>'+esc(ekText(FEED.error))+rtyBtn('feed',FEED.error)+'</div>';return}
+    f.innerHTML=LDR+SK3;                     /* still loading: the boot's own skeletons */
+    return;
+  }
+  const items=cat==='All'?all:all.filter(v=>v.cat===cat);
+  if(!items.length){f.innerHTML='<div class="empty">Nothing in '+esc(cat)+' right now.</div>';return}
+  list(items,f);
+}
+/* the chip that owns #feed with a section of its own (Anime / Cartoon / Movies),
+   or null. While one is selected the trending list is not what #feed shows, so
+   the boot's paint must leave the feed alone. */
+const customCat=()=>CUSTOM.find(c=>c[0]===cat)||null;
 function chip(n){
   cat=n;
   qsa('.chip','chips').forEach(b=>b.classList.toggle('on',b.textContent===n));
   const f=$('feed');
+  /* a swap still inside its 140 ms fade belongs to the chip the user just left:
+     dropped here, or it would paint that category's list — or its empty sentence —
+     over the section the new chip is loading, and over the cards the boot is about
+     to draw. */
+  if(chipT){clearTimeout(chipT);chipT=0}
   const custom=CUSTOM.find(c=>c[0]===n);
   if(custom){                                  // Anime / Cartoon / Movies live in the top chips
     f.style.opacity=0;
@@ -2890,8 +2922,9 @@ function chip(n){
     });
     return;
   }
-  if(!FEED.trending&&!FEED.cached&&!FEED.error){   // nothing to show yet: keep the skeletons
+  if(!FEED.trending&&!FEED.cached&&!FEED.error){   // nothing to show yet: keep the skeletons — the paint that lands filters to this chip
     f.innerHTML=LDR+SK3;
+    f.style.opacity=1;                             /* a swap dropped above may have left the feed mid-fade */
     return;
   }
   f.style.opacity=0;
@@ -2903,9 +2936,7 @@ function chip(n){
   if(chipT)clearTimeout(chipT);
   chipT=setTimeout(()=>{
     chipT=0;
-    const items=cat==='All'?feed():feed().filter(v=>v.cat===cat);
-    list(items,f);
-    if(!items.length)f.innerHTML='<div class="empty">Nothing in '+esc(cat)+' right now.</div>';
+    catPaint(f);                                   /* the one painter, so a failed feed keeps its retry button */
     f.style.opacity=1;
   },140);
 }
@@ -4010,8 +4041,11 @@ function paintSkeleton(){
 }
 function paintShell(){
   renderChips();
-  list(feed(),$('feed'));
-  if(!feed().length&&FEED.error)$('feed').innerHTML='<div class="empty">Could not load videos.<br>'+esc(ekText(FEED.error))+rtyBtn('feed',FEED.error)+'</div>';   /* our sentence, not the API's (item 5.3) */
+  /* the feed's own painter, so the list that lands matches the chip that is lit —
+     a chip tapped while the boot was still waiting is honoured here instead of
+     being overwritten by an unfiltered All list (item 7.5). A section chip owns
+     #feed while it is selected, so the trending list is not drawn over it. */
+  if(!customCat())catPaint($('feed'));   /* our sentence, not the API's (item 5.3) */
   renderExplore();
   renderSubs();
 }
