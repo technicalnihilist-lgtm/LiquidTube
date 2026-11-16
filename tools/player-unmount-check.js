@@ -132,7 +132,7 @@ async function boot(browser, file) {
   const embed = [];
   page.on('pageerror', e => errors.push(String(e.message || e)));
   page.on('console', m => {
-    if (m.type() === 'error' && !/ytimg|ggpht|net::ERR|youtube-nocookie|about:blank/.test(m.text())) errors.push(m.text());
+    if (m.type() === 'error' && !/ytimg|ggpht|net::ERR|youtube-nocookie|about:blank|Permissions policy violation/.test(m.text())) errors.push(m.text());
   });
   await page.setRequestInterception(true);
   page.on('request', req => {
@@ -194,22 +194,26 @@ async function run(browser, file) {
   out.close = { iframesOpen: open.iframes, childFramesOpen: await childFrames(page), embedOnOpen: open.embed.slice() };
   /* Watch the iframe's own `src` while it goes: attribute records are delivered
      even for a node that is removed in the same task. */
-  out.close.srcAtTeardown = await ev(() => {
-    const seen = [];
+  /* Since item 8.2 the close pauses the frame first and takes it down on the
+     next tick (a message posted to a frame detached in the same task is
+     dropped), so the `about:blank` record arrives a task later than the tap: the
+     observer stays connected across the close instead of being drained
+     synchronously. */
+  await ev(() => {
+    window.__ltSrc = [];
     const art = document.querySelector('#pl .art');
-    const mo = new MutationObserver(ms => {
-      for (const m of ms) if (m.type === 'attributes' && m.attributeName === 'src') seen.push(m.target.getAttribute('src'));
+    window.__ltMo = new MutationObserver(ms => {
+      for (const m of ms)
+        if (m.type === 'attributes' && m.attributeName === 'src') window.__ltSrc.push(m.target.getAttribute('src'));
     });
-    mo.observe(art, { subtree: true, attributes: true, attributeFilter: ['src'] });
+    window.__ltMo.observe(art, { subtree: true, attributes: true, attributeFilter: ['src'] });
     document.getElementById('pclose').click();
-    /* `takeRecords()` and not `disconnect()`: the records of a node removed in
-       this same task are only queued for the microtask checkpoint, and a
-       disconnect would throw them away. */
-    for (const m of mo.takeRecords()) if (m.type === 'attributes' && m.attributeName === 'src') seen.push(m.target.getAttribute('src'));
-    mo.disconnect();
-    return seen;
   });
   await sleep(300);
+  out.close.srcAtTeardown = await ev(() => {
+    window.__ltMo.disconnect();
+    return window.__ltSrc;
+  });
   const closed = await state();
   out.close.iframesClosed = closed.iframes;
   out.close.artChildrenClosed = closed.artChildren;
@@ -299,12 +303,15 @@ async function run(browser, file) {
     /* A closed player has no bridge and no `cur`: the same message must not
        bring a frame back. */
     msg();
-    r.iframesAfterCloseMsg = document.querySelectorAll('#pl .art iframe').length;
+    return r;
+  });
+  await sleep(300);                             /* the close lands on the next tick (item 8.2) */
+  out.loop.iframesAfterCloseMsg = await ev(() => document.querySelectorAll('#pl .art iframe').length);
+  await ev(() => {
     document.querySelector('[data-do="you"]').click();
     document.querySelector('[data-lib="settings"]').click();
     document.querySelector('[data-opt="loop"]').click(); // loop back off
     document.getElementById('scrim').click();
-    return r;
   });
   await sleep(300);
 
@@ -318,10 +325,10 @@ async function run(browser, file) {
       playerWasOpen: before,
       playerClosed: !document.getElementById('pl').classList.contains('on'),
       sheetOpen: document.getElementById('sheet').classList.contains('on'),
-      iframes: document.querySelectorAll('#pl .art iframe').length,
     };
   });
   await sleep(600);
+  out.channel.iframes = await ev(() => document.querySelectorAll('#pl .art iframe').length);
   out.channel.title = await ev(() => document.getElementById('sht').textContent);
   await ev(() => document.getElementById('scrim').click());
   await sleep(200);
