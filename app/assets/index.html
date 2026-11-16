@@ -3482,7 +3482,7 @@ $('sug').onclick=e=>{const b=e.target.closest('button');if(b){qi.value=b.textCon
    writes only when the markup it is about to put there differs from the markup
    already there: same string, same cards, no work. The element that stays is the
    element that was there, so nothing a card had loaded is thrown away. */
-const SEA_F={raw:0,kept:0,void:0,dup:0,paint:0,same:0};   /* what the filter and the painter did, for the log and the self-check */
+const SEA_F={raw:0,kept:0,void:0,dup:0,paint:0,same:0,floor:0};   /* what the filter and the painter did, for the log and the self-check */
 function seaClean(list){
   const out=[],seen=new Set();
   (list||[]).forEach(v=>{
@@ -3525,11 +3525,86 @@ const SEA_SKEL=LDR+'<div class="skl"></div><div class="skl"></div>';   /* the on
 let seaLast='';                            /* the markup #results was last given, by any of the writes */
 let seaSkel=0;                             /* what is in #results is the loading state, not an answer */
 let seaHave=0;                             /* what is in #results is an answer: cards worth keeping */
+/* ---------- item 7.9: an empty answer lands in the box it replaced ----------
+   Every write to #results was a bare `innerHTML`: the answer's own height was
+   whatever the markup happened to be, so the panel's content box was 348 px
+   while the skeleton stood there (the loader and two shimmer blocks) and 96 px
+   the moment "No videos match that." replaced them. Nothing sat below the box to
+   move, which is why that collapse went unnoticed — but the panel is a scroller
+   (`#search{overflow:auto}`) and the box is what a running fling is measured
+   against, and a 96 px answer under a finger is a box that can be dragged to
+   nothing. Measured in Chromium at 412x892 with the API mocked: the skeleton
+   stood at y=60 with a 348 px box, the empty answer landed at the same y=60 with
+   a 96 px box — a 252 px collapse in the frame the answer arrived.
+
+   So the writer commits the answer instead of just writing it. It reads the
+   panel's state once before touching the DOM (1.8: reads and writes in separate
+   passes), writes the answer, and then leaves the panel in the geometry the
+   answer should have: content that holds no card — the empty sentence, the error
+   surface, the loading state — is held at the panel's own height, so the box is
+   never the 96 px sliver the markup happens to be and there is never a void to
+   scroll into; and a scroll offset written in the same task as the content, so
+   an answer is never painted outside the viewport and the offset the panel lands
+   at is the app's, not whatever the browser's clamp and scroll anchoring decide
+   between them. `room` is what keeps this free: it is the space between the box's
+   top and the panel's content bottom, so a filled answer makes the panel exactly
+   unscrollable and nothing more, and an answer taller than the panel clears the
+   floor and is its own height again.
+
+   An answer of cards is deliberately left at its own height: #results carries
+   the `perspective` the cards are tilted in, and its own height is part of that
+   geometry (`perspective-origin:50% 40%` is a percentage of it), so a floor
+   there would move the tilt of every card in the answer. Measured: a one-card
+   answer held at the panel's height moved 2,394 pixels of the card's meta by a
+   sub-pixel — which is exactly the kind of change this schedule does not make.
+
+   No pixel changes either way: #results has no background of its own and #search
+   paints `var(--bg)` behind it, so the space a short answer reserves is the space
+   that was already painted behind it, and the answer's own element is untouched —
+   same `.empty`, same 96 px, same place (A/B: identical bytes). Nothing is
+   stored, nothing is sent, and the floor is dropped on every resize (the WebView
+   survives rotation), so it can never describe a panel that no longer exists. */
+let seaFloor=0;                            /* px #results is currently held at, 0 when it is its own height */
+let seaRoomPx=0,seaRoomKey='';             /* the panel's usable height, cached per panel geometry */
+function seaRoom(){
+  const sc=$('search'),el=$('results');
+  const key=sc.clientWidth+'x'+sc.clientHeight+'x'+el.offsetTop;
+  if(key===seaRoomKey&&seaRoomPx>0)return seaRoomPx;   /* same panel, same answer room: no style read */
+  const cs=getComputedStyle(sc);
+  seaRoomKey=key;
+  seaRoomPx=Math.max(0,sc.clientHeight-(parseFloat(cs.paddingBottom)||0)-el.offsetTop);
+  return seaRoomPx;
+}
+function seaFloorSet(px){
+  if(px===seaFloor)return;                 /* already there: no write, no relayout */
+  seaFloor=px;
+  $('results').style.minHeight=px?px+'px':'';
+}
+/* A rotated panel is a different panel: the floor was measured against the old
+   one, so it goes with it. The next answer measures its own. */
+function seaFloorReset(){seaRoomKey='';seaRoomPx=0;seaFloorSet(0)}
 function seaShow(html){
-  const el=$('results');
+  const el=$('results'),sc=$('search');
   if(seaLast===html&&el.firstChild){SEA_F.same++;return false}    /* the same picture: no node rebuilt */
+  const was=sc.scrollTop;                       /* one read pass, before any write */
   seaLast=html;seaSkel=html===SEA_SKEL?1:0;seaHave=html.indexOf('class="card"')>=0?1:0;
+  seaFloorSet(0);                          /* the answer is measured at its own height, not the last one's */
   el.innerHTML=html;
+  const now=el.offsetHeight;
+  /* Content with no card in it is committed at the panel's height — not at
+     whatever the markup happens to be, which is what made the box collapse. A
+     cleared panel is not an answer (it hands the box back to the suggestions row
+     above it, and a floor there would leave the panel scrollable over nothing),
+     and an answer of cards keeps its own height because the box is the
+     perspective the cards are tilted in (see above). */
+  const room=(html&&!seaHave)?seaRoom():0;
+  if(now<room){seaFloorSet(Math.round(room));SEA_F.floor++}else seaFloorSet(0);
+  /* The offset this answer leaves the panel at, written here rather than left to
+     the clamp: 0 for anything that fits (which is every empty and short answer),
+     and never past the end for anything that does not. */
+  const max=sc.scrollHeight-sc.clientHeight;
+  if(max<=0){if(was)sc.scrollTop=0}
+  else if(sc.scrollTop>max)sc.scrollTop=max;
   SEA_F.paint++;
   return true;
 }
@@ -3593,7 +3668,8 @@ function paintSearchCache(){
 window.__ltSearchCache=()=>({once:seaOnce,key:SEA_KEY,ver:SEA_VER,max:SEA_MAX,ttl:SEA_TTL,qmax:SEA_QMAX,
   bytes:(()=>{try{return (localStorage.getItem(SEA_KEY)||'').length}catch(e){return -1}})(),
   queries:SEA_Q.size,hit:SEA_ST.hit,miss:SEA_ST.miss,evict:SEA_ST.evict,stale:SEA_ST.stale,saved:SEA_ST.saved,
-  filter:{raw:SEA_F.raw,kept:SEA_F.kept,void:SEA_F.void,dup:SEA_F.dup,paint:SEA_F.paint,same:SEA_F.same},
+  filter:{raw:SEA_F.raw,kept:SEA_F.kept,void:SEA_F.void,dup:SEA_F.dup,paint:SEA_F.paint,same:SEA_F.same,floor:SEA_F.floor},
+  box:{floor:()=>seaFloor,room:seaRoom,reset:seaFloorReset},   /* item 7.9: what the answer box is held at */
   norm:{ask:SEA_N.ask,fix:SEA_N.fix,q:seaNorm},   /* item 7.8: searches asked for, and how many needed the rule */
   keys:()=>Array.from(SEA_Q.keys()),
   age:q=>{const e=SEA_Q.get(seaQKey(q));return e?Date.now()-e.at:null},
@@ -5031,7 +5107,7 @@ function go(n){pos=n;render(true)}
    resize and `render()` bumps `layoutEpoch`, which is what the signatures are
    keyed on — so the second listener bindInput used to attach, `depthKick`,
    only ever added the frame request. It does that here now. */
-addEventListener('resize',()=>{geomEpoch++;render(true);depthKick()});
+addEventListener('resize',()=>{geomEpoch++;render(true);depthKick();seaFloorReset()});
 render(true);
 </script><script type="text/css" id="lt-css-deferred">
 /* Deferred sheet: everything that cannot be on screen before the first frame
