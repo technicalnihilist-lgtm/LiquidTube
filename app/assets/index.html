@@ -3220,12 +3220,67 @@ function loopGuardOff(){if(loopGuard){clearTimeout(loopGuard);loopGuard=0}}
    helper because there are two ways a frame goes: `mount()` replaces it when the
    video changes, `closeAll()` closes the player (item 4.4). */
 function dropFrame(){
+  pauseFrame();                            /* silence first, unload second (item 8.2) */
   frameKey='';loopGuardOff();
   const a=qs('.art','pl');
   const f=a&&qs('iframe',a);
   if(f){try{f.src='about:blank'}catch(e){}}
   if(a)a.innerHTML='';
   return a;
+}
+/* One command channel to the live frame. The player is driven by JSON posts to
+   its window (`enablejsapi=1`), which is what the loop wrap already used; every
+   command in the app now goes through this one guarded post, so a frame that has
+   been navigated away answers false instead of throwing out of a gesture. */
+function cmdFrame(f,func,args){
+  if(!f)return false;
+  try{f.contentWindow.postMessage(JSON.stringify({event:'command',func,args:args||[]}),'*');return true}catch(e){return false}
+}
+/* Stopping the player is not the same as taking its frame down (item 8.2).
+   Detaching the frame frees the pipeline, but only once the `about:blank`
+   navigation commits — until then the <video> inside keeps its audio route and
+   its playing state, so a video was still heard for a moment after the panel had
+   slid away. Worse, there is a second way the player loses the screen that never
+   took the frame down at all: the top-bar avatar and the dock sit above the
+   player, so opening the library (or Notifications, or Create) raised a sheet
+   over a video that went on playing behind it — sound with nothing on screen to
+   pause it, and the sheet's own close (`closeAll`) then destroyed the player the
+   user could no longer see. `pauseFrame` posts `mute` then `pauseVideo` to the
+   live frame, so the player is silent in the same task as the gesture: mute
+   first, because a player still initialising can drop a command and silence is
+   the part that matters, and pause second, because that is the state the frame
+   is left in. The navigation in `dropFrame` remains the backstop, not the
+   mechanism. */
+function pauseFrame(){
+  const a=qs('.art','pl');
+  const f=a&&qs('iframe',a);
+  if(!f)return false;
+  cmdFrame(f,'mute',[]);
+  return cmdFrame(f,'pauseVideo',[]);
+}
+/* Closing the player is two ticks, not one (item 8.2). The pause is a message to
+   the frame, and a message posted to a frame that is navigated away and detached
+   in the same task is dropped — which is why the close used to be silent only by
+   virtue of the teardown, and why it is now paused first and taken down on the
+   next tick. 60 ms is a fifteenth of the panel's .9 s slide, so the frame is gone
+   long before it could be seen, and the teardown is unconditional: it never waits
+   for the player to acknowledge the pause, so a frame that never answers is still
+   released (item 4.4 holds). `stopSeq` is the guard for a play that lands inside
+   that window: mounting anything takes ownership of the player and cancels the
+   pending stop, and the captured frame is checked again before it goes. */
+let stopT=0,stopSeq=0;
+function stopFrame(){
+  const a=qs('.art','pl');
+  const f=a&&qs('iframe',a);
+  if(!f){dropFrame();return}          /* nothing to silence: drop what is there */
+  pauseFrame();
+  const seq=stopSeq;
+  clearTimeout(stopT);
+  stopT=setTimeout(()=>{
+    stopT=0;
+    if(seq!==stopSeq)return;          /* a play landed in between: it owns the player now */
+    if(a&&qs('iframe',a)===f)dropFrame();
+  },60);
 }
 /* The player's two listeners belong to the player and are taken off with it:
    `ltOff('pl')` runs at the top of every mount (so a play, a replay or a loop
@@ -3243,6 +3298,7 @@ function wireFrame(f){
    `force` is for the one caller that wants the opposite — the loop fallback
    below, which rebuilds a frame the player has stopped answering. */
 function mount(id,title,force){
+  stopSeq++;                          /* this mount owns the player (item 8.2) */
   ltOff('pl');
   const key=frameKeyOf(id);
   const a=qs('.art','pl');
@@ -3250,6 +3306,13 @@ function mount(id,title,force){
   if(!force&&live&&frameKey===key){
     if(title)live.title=title;              /* an a11y label, not a visual change */
     wireFrame(live);
+    /* A reused frame is asked to play (item 8.2). It normally already is — but
+       a sheet raised over the player pauses it, and playing the same video again
+       from a card in that sheet lands here with the frame kept, so without this
+       the user's play would leave a paused, muted player on screen. Asking a
+       player that is already playing costs nothing. */
+    cmdFrame(live,'unMute',[]);
+    cmdFrame(live,'playVideo',[]);
     return;
   }
   const box=dropFrame();
@@ -3268,15 +3331,14 @@ function mount(id,title,force){
 function loopWrap(id,title){
   const a=qs('.art','pl');
   const f=a&&qs('iframe',a);
-  if(f&&frameKey===frameKeyOf(id)){
-    try{
-      const w=f.contentWindow;
-      w.postMessage(JSON.stringify({event:'command',func:'seekTo',args:[0,true]}),'*');
-      w.postMessage(JSON.stringify({event:'command',func:'playVideo',args:[]}),'*');
-      loopGuardOff();
-      loopGuard=setTimeout(()=>{loopGuard=0;if(cur&&cur.id===id)mount(id,title,true)},1800);
-      return;
-    }catch(e){asSafe('player.loop',e)}
+  if(f&&frameKey===frameKeyOf(id)&&cmdFrame(f,'seekTo',[0,true])){
+    /* The wrap also unmutes: a frame that was paused by a sheet over the player
+       was muted with it (item 8.2), and a wrap is a play. */
+    cmdFrame(f,'unMute',[]);
+    cmdFrame(f,'playVideo',[]);
+    loopGuardOff();
+    loopGuard=setTimeout(()=>{loopGuard=0;if(cur&&cur.id===id)mount(id,title,true)},1800);
+    return;
   }
   mount(id,title);
 }
@@ -3431,6 +3493,13 @@ $('sheet').addEventListener('click',e=>{
 let shGen=0;
 function sheet(t,h,inp){
   shGen++;
+  /* A sheet is raised over whatever is on screen, and the player can be under
+     it: the top-bar avatar and the dock both sit above the player panel, so the
+     library, Notifications and Create all open over a playing video. Pausing
+     here is what stops the sound of a video the sheet has just covered (item
+     8.2); a play into the open player asks its frame to play again, and every
+     close takes the frame down, so nothing is left paused-but-live. */
+  pauseFrame();
   $('sht').textContent=t;$('shb').innerHTML=h;$('shi').classList.toggle('on',!!inp);
   $('sheet').classList.add('on');$('scrim').classList.add('on');slideHint();
 }
@@ -3451,7 +3520,7 @@ function slideHint(){
    released, not just detached) and drops `cur` with it: the Like, Save, Channel
    and Comments buttons all guard on `cur`, so a closed player can no longer be
    acted on, and nothing in the app still holds the video it was showing. */
-function closeAll(){ltOff('pl');shGen++;['sheet','pl'].forEach(i=>$(i).classList.remove('on'));$('scrim').classList.remove('on');dropFrame();cur=null;slideHint()}
+function closeAll(){ltOff('pl');shGen++;['sheet','pl'].forEach(i=>$(i).classList.remove('on'));$('scrim').classList.remove('on');stopFrame();cur=null;slideHint()}
 $('scrim').onclick=closeAll;
 $('shb').addEventListener('click',e=>{
   const s=e.target.closest('[data-chsub]');
