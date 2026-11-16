@@ -3671,6 +3671,7 @@ window.__ltSearchCache=()=>({once:seaOnce,key:SEA_KEY,ver:SEA_VER,max:SEA_MAX,tt
   filter:{raw:SEA_F.raw,kept:SEA_F.kept,void:SEA_F.void,dup:SEA_F.dup,paint:SEA_F.paint,same:SEA_F.same,floor:SEA_F.floor},
   box:{floor:()=>seaFloor,room:seaRoom,reset:seaFloorReset},   /* item 7.9: what the answer box is held at */
   norm:{ask:SEA_N.ask,fix:SEA_N.fix,q:seaNorm},   /* item 7.8: searches asked for, and how many needed the rule */
+  lat:window.__ltSearch(),                       /* item 7.10: what the searches cost, in ms */
   keys:()=>Array.from(SEA_Q.keys()),
   age:q=>{const e=SEA_Q.get(seaQKey(q));return e?Date.now()-e.at:null},
   cached:(()=>{const c=readSearchCache();return c?{q:c.q,items:c.items.length,at:c.at}:null})()});
@@ -3787,6 +3788,74 @@ function seaQPut(q,list,now){
   SEA_ST.saved++;
   while(SEA_Q.size>SEA_QMAX){const o=SEA_Q.keys().next();if(o.done)break;SEA_Q.delete(o.value);SEA_ST.evict++}
 }
+/* ---------- item 7.10: what a search cost, in milliseconds ----------
+   Everything above this item made the panel faster and nothing said so out
+   loud. The startup timeline (1.1) reports the boot; a search — the panel's
+   whole reason to exist, and the most expensive thing the app asks for — had
+   no number at all. A pause of 300 ms (7.1) that turned into a second of
+   waiting on a bad network, a kept answer (7.3) that should paint at once but
+   did not, the durations and avatars (7.4, 6.x) that sit between the response
+   and the first card: none of it was visible in logcat, so a regression could
+   only be felt, never read.
+
+   So every search that reaches the panel now leaves one line, under the same
+   `lt-` prefix MainActivity forwards:
+
+     lt-search ms=612 net=298 wait=300 res=20 src=net ok=1 n=1
+
+     ms    what the user waited: the keystroke (or the tap) that asked → the
+           answer on screen, including the 300 ms pause and everything the
+           answer still owes before a card exists (durations, avatars).
+     net   the request leg alone: sent → painted. ms-net-wait is the local work.
+     wait  ask → request out: the debounce, and nothing else.
+     res   cards the answer put on screen.
+     src   net (a request was made) or keep (a kept answer, 7.3: no request).
+     ok    0 for a failure, with kind= the class the panel already names (5.2).
+     n     searches logged so far in this launch.
+
+   The numbers are read from `performance.now()` at four points — the ask, the
+   send, the response and the paint — and nothing else is measured: no DOM
+   read, no storage, no timer, no request. The ask is the keystroke that
+   started the pause (`findSoon`), so the debounce is in `wait` where it
+   belongs rather than hidden inside `net`; a query asked outright (a chip, a
+   shelf's View All, the retry button) has no pause to wait for, so its ask is
+   the call itself. An ask older than SEA_ASK_MAX is not this search's ask — a
+   keystroke the user abandoned — and is not counted against it.
+
+   Nothing here can flood logcat or grow: the samples are a fixed ring of
+   SEA_LAT_CAP (the last few, for `window.__ltSearch()`), and only the first
+   SEA_LAT_LINES searches of a launch print, after which `dropped` counts what
+   was not printed while the counters keep counting. A superseded or abandoned
+   search is not a latency: it is counted as `abort` and never logged, exactly
+   as AbortError is not a failure in 5.1.
+
+   No pixel changes: nothing on screen reads any of this, no element is added,
+   and the line goes to the console (logcat), never to the DOM. */
+const SEA_LAT_CAP=12,SEA_LAT_LINES=24,SEA_ASK_MAX=2e3;
+const SEA_LAT={n:0,ok:0,fail:0,keep:0,abort:0,lines:0,dropped:0,s:[]};
+let seaAsk=0;                                  /* when the user last asked for what the field says */
+function seaLat(src,ms,net,wait,res,ok,kind){
+  const s={src,ms:Math.max(0,Math.round(ms)),net:Math.max(0,Math.round(net)),
+    wait:Math.max(0,Math.round(wait)),res:res|0,ok:ok?1:0};
+  SEA_LAT.n++;if(ok)SEA_LAT.ok++;else SEA_LAT.fail++;if(src==='keep')SEA_LAT.keep++;
+  SEA_LAT.s.push(s);if(SEA_LAT.s.length>SEA_LAT_CAP)SEA_LAT.s.shift();   /* bounded: the last few, for the census */
+  if(SEA_LAT.lines>=SEA_LAT_LINES){SEA_LAT.dropped++;return s}          /* logcat stays bounded, the counters do not */
+  SEA_LAT.lines++;
+  try{console.info('lt-search ms='+s.ms+' net='+s.net+' wait='+s.wait+' res='+s.res
+    +' src='+src+' ok='+s.ok+(ok?'':' kind='+kind)+' n='+SEA_LAT.n)}catch(e){}
+  return s;
+}
+/* the census: the counters, the last samples and the median of them, which is
+   what tools/search-latency-check.js reads and what a later item can build on.
+   Pure reads of state the app already holds — no DOM, no storage, no timer. */
+window.__ltSearch=()=>{
+  const ms=SEA_LAT.s.map(x=>x.ms).sort((a,b)=>a-b),m=ms.length;
+  const pct=p=>m?(ms[Math.min(m-1,Math.floor(p*(m-1)))]):0;
+  return {n:SEA_LAT.n,ok:SEA_LAT.ok,fail:SEA_LAT.fail,keep:SEA_LAT.keep,abort:SEA_LAT.abort,
+    lines:SEA_LAT.lines,dropped:SEA_LAT.dropped,cap:SEA_LAT_CAP,lineCap:SEA_LAT_LINES,
+    p50:pct(0.5),max:m?ms[m-1]:0,last:m?SEA_LAT.s[SEA_LAT.s.length-1]:null,
+    samples:SEA_LAT.s.map(x=>({src:x.src,ms:x.ms,net:x.net,wait:x.wait,res:x.res,ok:x.ok}))};
+};
 /* the one painter, so a kept answer and a fresh one put the same markup on
    screen: avatars first (the kept card needs its channel's), then the cards. */
 function seaQPaint(e){
@@ -3820,6 +3889,7 @@ function seaQPaint(e){
 const SEARCH_MS=300;
 let seq=0,findT=0,findAC=null,findQ='';   /* findQ: the query the live controller belongs to */
 function findSoon(){                       /* what a keystroke asks for: a search, after the pause */
+  seaAsk=performance.now();                /* the ask the pause is measured from (7.10) */
   const t=qi.value.trim(),nq=seaNorm(t);   /* the field as typed, and the query it stands for (7.8) */
   $('sug').style.display=t?'none':'flex';  /* the row answers the keystroke, not the request */
   if(findT){clearTimeout(findT);findT=0}
@@ -3828,6 +3898,7 @@ function findSoon(){                       /* what a keystroke asks for: a searc
   findT=setTimeout(()=>{findT=0;find()},SEARCH_MS);
 }
 function findStop(){                       /* the panel closed: nothing queued, nothing on the wire */
+  seaAsk=0;                                /* the ask went with the panel (7.10) */
   if(findT){clearTimeout(findT);findT=0}
   if(findAC){findAC.abort();findAC=null}
   seq++;                                   /* and an answer already parsed is stale */
@@ -3835,6 +3906,11 @@ function findStop(){                       /* the panel closed: nothing queued, 
 }
 async function find(){
   if(findT){clearTimeout(findT);findT=0}   /* asked outright: the pause is over */
+  /* the ask this search is timed from (7.10): the keystroke that started the
+     pause when there is one still open, otherwise this call itself. */
+  const askT=performance.now();
+  const asked=(seaAsk&&askT-seaAsk<SEA_ASK_MAX)?seaAsk:askT;
+  seaAsk=0;
   seaOnce=1;                               /* this session has searched: the panel is its own source of truth (7.2) */
   const raw=qi.value.trim();               /* what the field says, and what the field keeps: never rewritten (7.8) */
   const t=seaNorm(raw);                    /* what is asked for: one spelling per query (7.8) */
@@ -3850,7 +3926,9 @@ async function find(){
   if(kept){
     if(findAC){findAC.abort();findAC=null}
     findQ=t;SEA_ST.hit++;
-    seaQPaint(kept);
+    const painted=seaQPaint(kept);
+    /* a kept answer has no request leg: ms is the whole wait, net is nothing (7.10) */
+    seaLat('keep',performance.now()-asked,0,performance.now()-asked,painted.length,1);
     return;
   }
   SEA_ST.miss++;
@@ -3863,6 +3941,7 @@ async function find(){
   const ac=RQ_ABORT?new AbortController():null;
   findAC=ac;
   seaShow(SEA_SKEL);
+  const sent=performance.now();            /* the request leaves here: the `net` leg starts (7.10) */
   try{
     const j=await yt('search',{part:'snippet',type:'video',maxResults:20,q:t},null,ac?ac.signal:null);
     if(id!==seq)return;
@@ -3873,12 +3952,18 @@ async function find(){
     await loadChannels(list.map(v=>v.ch));
     if(id!==seq)return;
     seaShow(seaCards(list));
+    /* the answer is on screen: one line, ask → paint, with the leg split out (7.10) */
+    const done=performance.now();
+    seaLat('net',done-asked,done-sent,sent-asked,list.length,1);
     if(list.length)saveSearchCache(raw,list);/* kept for the next open, at no further cost (item 7.2) — the field gets the user's own spelling back */
     seaQPut(t,list,Date.now());              /* and for the next half hour, at no further cost (item 7.3) */
   }catch(e){
-    if(id!==seq||ekKind(e)==='aborted')return;   /* superseded or cancelled: not this search's answer to paint */
+    if(id!==seq||ekKind(e)==='aborted'){SEA_LAT.abort++;return}   /* superseded or cancelled: not this search's answer to paint, and not a latency (7.10) */
     asSafe('search.find',e);                 /* the panel answers for itself below */
     const q=ekKind(e)==='quota';             /* the failure's class, not its wording (item 5.2) */
+    /* a failed search is a wait too, and the class is what it failed as (7.10) */
+    const failed=performance.now();
+    seaLat('net',failed-asked,failed-sent,sent-asked,0,0,ekKind(e));
     rtySet('find',find);                     /* the same query, asked again */
     seaShow('<div class="empty">'+(q?"YouTube's daily search limit is used up.":'Search failed. '+esc(ekText(e)))+rtyBtn('find',e)+'</div>');   /* our sentence, not the API's (item 5.3) */
   }finally{
@@ -4017,6 +4102,11 @@ const SC=[
   /* every endpoint that is validated has a validator */
   ['shape',()=>Object.keys(SH_SPEC).length>=5&&Object.keys(SH_SPEC).every(k=>typeof SH_SPEC[k]==='function')],
   ['async',()=>typeof asGuard==='function'&&typeof asSafe==='function'&&typeof asWatch==='function'&&AS_MAXW>0],
+  /* a search leaves one readable number (7.10): the ring is inside its bound,
+     every search that finished is counted once, and the median is a sample */
+  ['searchlat',()=>{const s=window.__ltSearch();
+    return typeof seaLat==='function'&&s.cap===SEA_LAT_CAP&&s.lineCap===SEA_LAT_LINES&&
+      s.samples.length<=SEA_LAT_CAP&&s.n===SEA_LAT.ok+SEA_LAT.fail&&s.p50<=s.max&&s.p50>=0}],
   /* the global net is installed and can still take the splash down */
   ['global',()=>typeof glHandle==='function'&&typeof glRescue==='function'&&GL_ST.n>=0],
   /* the meter is inside its own limit and knows which day it is on */
