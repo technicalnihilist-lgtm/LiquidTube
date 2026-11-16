@@ -9,7 +9,7 @@
  * them or from `document`, so a tab switch adds no listener at all. What did not
  * hold is the player — the one surface that builds DOM per use. `mount()` attached
  * a `load` listener to the iframe it had just created and never removed it, and
- * `mount()` runs again on every play and every loop wrap, so N plays left N
+ * `mount()` runs again on every play, so N plays left N
  * handlers on N detached iframes; and the window `message` bridge behind Loop was
  * registered at parse time and parsed every message any frame ever posted, even
  * when no player had been opened. The sheet had the sibling problem without a
@@ -28,7 +28,8 @@
  *   remount     eleven plays into an open player: iframes in the player and
  *               registry live count — two listeners, not 2N
  *   loop        Loop still works after the bridge moved: a synthetic
- *               onStateChange(0) from an allowed origin re-mounts the player
+ *               onStateChange(0) from an allowed origin restarts the frame that is
+ *               already playing (item 8.1 keeps it and seeks it back to 0)
  *   sheetLate   a channel opened and replaced by Library while its uploads
  *               request is still on the wire: what the sheet says once that
  *               answer lands, and whether a pageerror was thrown at a `#chlist`
@@ -268,6 +269,12 @@ async function run(browser, file) {
     document.getElementById('pclose').click();
     document.querySelectorAll('#feed .card')[0].click();
     const first = document.querySelector('#pl .art iframe');
+    const cmds = [];
+    if (first)
+      Object.defineProperty(first, 'contentWindow', {
+        configurable: true,
+        get: () => ({ postMessage: m => cmds.push(String(m)) }),
+      });
     window.dispatchEvent(
       new MessageEvent('message', {
         origin: 'https://www.youtube-nocookie.com',
@@ -275,7 +282,12 @@ async function run(browser, file) {
       })
     );
     const second = document.querySelector('#pl .art iframe');
-    const r = { remounted: !!first && !!second && first !== second, iframes: document.querySelectorAll('#pl .art iframe').length };
+    const r = {
+      /* Item 8.1: the wrap keeps the frame it has and restarts it. */
+      reused: !!first && first === second,
+      restart: cmds.some(m => m.indexOf('"seekTo"') !== -1),
+      iframes: document.querySelectorAll('#pl .art iframe').length,
+    };
     document.getElementById('pclose').click();
     r.liveClosed = window.__ltSurfaces ? window.__ltSurfaces().live : null;
     return r;
@@ -333,7 +345,8 @@ async function run(browser, file) {
   ok(out.playClose.documentListeners.after === out.playClose.documentListeners.before, 'playClose: document listeners did not grow');
   ok(out.remount.iframes === 1 && out.remount.live === 2, 'remount: two listeners after eleven plays');
   ok(out.remount.liveClosed === 0, 'remount: none left after close');
-  ok(out.loop.remounted, 'loop: the moved bridge still re-mounts the player');
+  ok(out.loop.reused, 'loop: the moved bridge still wraps, and keeps the frame that is playing (item 8.1)');
+  ok(out.loop.restart, 'loop: the wrap seeks the live frame back to 0');
   ok(out.loop.iframes === 1 && out.loop.liveClosed === 0, 'loop: one iframe, nothing left behind');
   ok(out.sheetLate.title === 'You', 'sheetLate: the late channel answer did not rename the sheet');
   ok(out.sheetLate.libraryRows > 0 && out.sheetLate.channelHeader === 0, 'sheetLate: the library sheet is intact');

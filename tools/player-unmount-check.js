@@ -26,8 +26,11 @@
  *   cycles     twenty play/close cycles: iframes and child frames left behind
  *   remount    eleven plays into an open player: one iframe, and every one of
  *              the ten it replaced was sent to `about:blank` first
- *   loop       Loop still re-mounts while open, and does not re-mount a player
- *              that has been closed
+ *   loop       Loop still wraps while open — since item 8.1 it restarts the live
+ *              frame through the jsapi channel instead of rebuilding it, so what
+ *              is asserted is that the frame is kept and that the restart
+ *              commands went out — and a closed player is still not re-mounted by
+ *              a late message
  *   channel    the Channel button still opens the right channel after the close
  *              (the id is read before `closeAll` drops `cur`)
  *   end        iframes, child frames and page errors after the whole run
@@ -269,6 +272,15 @@ async function run(browser, file) {
     const cards = [...document.querySelectorAll('#feed .card')];
     cards[0].click();
     const first = document.querySelector('#pl .art iframe');
+    /* The wrap is a message to the frame, so what it sends is what is watched:
+       the frame's `contentWindow` is replaced with a recorder for this step, and
+       every command the app posts is kept. */
+    const cmds = [];
+    if (first)
+      Object.defineProperty(first, 'contentWindow', {
+        configurable: true,
+        get: () => ({ postMessage: m => cmds.push(String(m)) }),
+      });
     const msg = () =>
       window.dispatchEvent(
         new MessageEvent('message', {
@@ -279,7 +291,8 @@ async function run(browser, file) {
     msg();
     const second = document.querySelector('#pl .art iframe');
     const r = {
-      remounted: !!first && !!second && first !== second,
+      reused: !!first && first === second,
+      restartCmds: cmds.filter(m => m.indexOf('"command"') !== -1).map(m => JSON.parse(m).func),
       iframes: document.querySelectorAll('#pl .art iframe').length,
     };
     document.getElementById('pclose').click();
@@ -337,7 +350,11 @@ async function run(browser, file) {
   ok(out.remount.iframes === 1, 'remount: eleven plays leave one iframe');
   ok(out.remount.blanked === 10, 'remount: every replaced frame was sent to about:blank first');
   ok(out.remount.childFramesClosed === 0, 'remount: no child frame survives the close');
-  ok(out.loop.remounted && out.loop.iframes === 1, 'loop: the bridge still re-mounts the player');
+  ok(out.loop.reused && out.loop.iframes === 1, 'loop: the wrap keeps the frame that is already playing (item 8.1)');
+  ok(
+    out.loop.restartCmds.includes('seekTo') && out.loop.restartCmds.includes('playVideo'),
+    'loop: the wrap restarts it through the jsapi channel (seekTo 0, playVideo)'
+  );
   ok(out.loop.iframesAfterCloseMsg === 0, 'loop: a closed player is not re-mounted by a late message');
   ok(out.channel.playerWasOpen && out.channel.playerClosed && out.channel.sheetOpen, 'channel: the Channel button still closes the player and opens the sheet');
   ok(out.channel.iframes === 0, 'channel: the frame went with the player');
