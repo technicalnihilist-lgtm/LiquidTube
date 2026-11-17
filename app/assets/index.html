@@ -1371,7 +1371,7 @@ window.__ltRecover=()=>({reads:REC_ST.reads,damaged:REC_ST.damaged,salvaged:REC_
 /* ---------- persisted state ---------- */
 const SKEY='lt';
 const S_DEF={cc:0,loop:0,auto:1,fill:0,cmt:1,ds:1,sg:1,depth:1,parallax:1,pdepth:65,glass:45,layout:'phone'};
-let S={liked:[],subs:[],later:[],hist:[],vd:{},pl:{},cats:{},opt:Object.assign({},S_DEF)};
+let S={liked:[],subs:[],later:[],hist:[],vd:{},pl:{},cats:{},pos:{},opt:Object.assign({},S_DEF)};
 /* The state is read through `readKey` (item 5.6): a blob that will not parse is
    backed up and salvaged instead of being dropped, and each field is taken only
    in the shape its readers expect, so a field that came back wrong is the
@@ -1384,6 +1384,10 @@ try{
   if(S_OBJ(p.vd))S.vd=p.vd;
   if(S_OBJ(p.pl))S.pl=p.pl;
   if(S_OBJ(p.cats))S.cats=p.cats;
+  /* the resume map (item 8.3) is taken in the one shape its readers use: whole,
+     finite, non-negative seconds per id. A value that came back as a string or a
+     NaN is dropped rather than handed to the embed as a `start` parameter. */
+  if(S_OBJ(p.pos))for(const k in p.pos){const v=p.pos[k];if(typeof v==='number'&&isFinite(v)&&v>=0)S.pos[k]=Math.floor(v)}
   if(S_OBJ(p.opt))for(const k in S_DEF){const v=p.opt[k];if(typeof v===typeof S_DEF[k])S.opt[k]=v}
 }catch(e){}
 /* ---------- the saved library, bounded (item 4.5) ----------
@@ -3209,6 +3213,60 @@ let frameKey='';
    still gets a fresh frame. */
 let loopGuard=0;
 function frameKeyOf(id){return id+'|'+(S.opt.cc?'1':'0')}
+/* ---------- resume position (item 8.3) ----------
+   Closing the player and opening the same video again started it from 0, so a
+   half-watched video had to be scrubbed back by hand every time: the position
+   lived in the frame that the close had just navigated away (4.4). It is taken
+   from the player's own `infoDelivery` reports — the jsapi channel the loop
+   already listens on, which is what the `enablejsapi=1` URL and the `listening`
+   handshake in `wireFrame` buy — held in memory while the video plays, and
+   written to `S.pos` only when the frame goes away or the video reaches its end,
+   never per tick, so a playing video costs no storage writes. The map is bounded
+   (POS_MAX, oldest dropped first) and holds whole seconds; a position inside the
+   last POS_END seconds of a video is dropped instead of stored, so a finished
+   video opens at the start rather than a second before its credits. A frame
+   built for a stored position carries `start=` in its URL, which the embed
+   applies before its first frame: no seek after load, and a video never opened
+   before carries no parameter and opens exactly as it did. */
+const POS_MAX=60,POS_MIN=5,POS_END=15;
+let posLive=null;                     /* {id,t}: where the live frame last said it was */
+function posTrim(){
+  const k=Object.keys(S.pos);
+  if(k.length>POS_MAX)for(let i=0;i<k.length-POS_MAX;i++)delete S.pos[k[i]];
+  return S.pos;
+}
+function posOf(id){const v=S.pos[id];return typeof v==='number'&&isFinite(v)&&v>=POS_MIN?v:0}
+function posClear(id){
+  if(!id||S.pos[id]==null)return false;
+  delete S.pos[id];save();return true;
+}
+function posPut(id,t){
+  if(!id)return false;
+  if(!(t>=POS_MIN))return posClear(id);   /* too near the start to be worth keeping */
+  const v=Math.floor(t);
+  if(S.pos[id]===v)return false;          /* already what is stored: no write */
+  S.pos[id]=v;posTrim();save();return true;
+}
+/* A video that reached its end has nothing to resume, and the live position has
+   to go with the stored one: otherwise the flush on the way out would write the
+   very position that was just cleared, and the next open would land on the last
+   second of the video. Used by the near-end report, by the ended state and by a
+   loop wrap, which restarts from 0. */
+function posEnded(id){
+  if(posLive&&posLive.id===id)posLive=null;
+  return posClear(id);
+}
+/* The frame is about to be replaced or taken down, so its last reported position
+   is the one worth keeping. `posLive` is dropped in the same call, so a later
+   flush can never write a position back over a video the user has since
+   restarted (a loop wrap, an end-of-video clear). */
+function posFlush(){
+  const p=posLive;posLive=null;
+  if(p)posPut(p.id,p.t);
+}
+posTrim();                            /* a blob from a newer build is bounded too */
+window.__ltResume=()=>({stored:S.pos,live:posLive,max:POS_MAX,min:POS_MIN,end:POS_END,
+  bytes:(()=>{try{return localStorage.getItem(SKEY).length}catch(e){return -1}})()});
 function loopGuardOff(){if(loopGuard){clearTimeout(loopGuard);loopGuard=0}}
 /* Taking a frame down is two steps, not one. Emptying `.art` detaches the embed,
    and a detached frame is not a stopped one: the <video> inside it keeps its
@@ -3221,6 +3279,7 @@ function loopGuardOff(){if(loopGuard){clearTimeout(loopGuard);loopGuard=0}}
    video changes, `closeAll()` closes the player (item 4.4). */
 function dropFrame(){
   pauseFrame();                            /* silence first, unload second (item 8.2) */
+  posFlush();                              /* keep where the video was (item 8.3) */
   frameKey='';loopGuardOff();
   const a=qs('.art','pl');
   const f=a&&qs('iframe',a);
@@ -3297,7 +3356,7 @@ function wireFrame(f){
    loader and the player never re-buffers for a video that never changed.
    `force` is for the one caller that wants the opposite — the loop fallback
    below, which rebuilds a frame the player has stopped answering. */
-function mount(id,title,force){
+function mount(id,title,force,noResume){
   stopSeq++;                          /* this mount owns the player (item 8.2) */
   ltOff('pl');
   const key=frameKeyOf(id);
@@ -3317,7 +3376,12 @@ function mount(id,title,force){
   }
   const box=dropFrame();
   if(!box)return;
-  box.innerHTML=LDRABS+'<iframe src="'+EMBED_BASE+esc(id)+'?autoplay=1&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&enablejsapi=1'+(S.opt.cc?'&cc_load_policy=1':'')+'" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="'+esc(title||'')+'"></iframe>';
+  /* A video the user was part way through opens where they left it (item 8.3).
+     `noResume` is the loop fallback's rebuild: that wrap restarts the video, so
+     sending it back to where the last one ended would be the one thing a wrap
+     must not do. */
+  const at=noResume?0:posOf(id);
+  box.innerHTML=LDRABS+'<iframe src="'+EMBED_BASE+esc(id)+'?autoplay=1&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&enablejsapi=1'+(S.opt.cc?'&cc_load_policy=1':'')+(at?'&start='+at:'')+'" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="'+esc(title||'')+'"></iframe>';
   const f=qs('iframe',box);
   if(!f)return;                            /* nothing to wire: the panel keeps its loader */
   frameKey=key;
@@ -3332,12 +3396,13 @@ function loopWrap(id,title){
   const a=qs('.art','pl');
   const f=a&&qs('iframe',a);
   if(f&&frameKey===frameKeyOf(id)&&cmdFrame(f,'seekTo',[0,true])){
+    posEnded(id);                       /* a wrap starts over: nothing to resume (8.3) */
     /* The wrap also unmutes: a frame that was paused by a sheet over the player
        was muted with it (item 8.2), and a wrap is a play. */
     cmdFrame(f,'unMute',[]);
     cmdFrame(f,'playVideo',[]);
     loopGuardOff();
-    loopGuard=setTimeout(()=>{loopGuard=0;if(cur&&cur.id===id)mount(id,title,true)},1800);
+    loopGuard=setTimeout(()=>{loopGuard=0;if(cur&&cur.id===id)mount(id,title,true,1)},1800);
     return;
   }
   mount(id,title);
@@ -3384,10 +3449,24 @@ function onYtMsg(e){
   const o=String(e.origin||'');
   if(!YT_ORIGIN_RE.test(o))return;
   let d=e.data;if(typeof d==='string'){try{d=JSON.parse(d)}catch(x){return}}
-  if(!d||d.event!=='onStateChange')return;
+  if(!d)return;
+  /* The player reports its clock while it plays (item 8.3). The newest report is
+     held in `posLive` and reaches storage only when the frame goes, so this is
+     one object write per report and no DOM work at all — it cannot cost a frame.
+     A report from inside the last POS_END seconds clears the stored position
+     instead, so a video watched to the end opens at the start next time. */
+  if(d.event==='infoDelivery'){
+    const i=d.info,id=cur&&cur.id;
+    if(!i||!id)return;
+    const t=i.currentTime,dur=i.duration;
+    if(typeof t==='number'&&isFinite(t))posLive={id,t};
+    if(typeof t==='number'&&isFinite(t)&&typeof dur==='number'&&isFinite(dur)&&dur>0&&t>dur-POS_END)posEnded(id);
+    return;
+  }
+  if(d.event!=='onStateChange')return;
   const st=+d.info;
   if(st===1||st===3)loopGuardOff();        /* playing or buffering: the wrap took */
-  if(st===0&&S.opt.loop&&cur)loopWrap(cur.id,cur.t);
+  if(st===0&&cur){posEnded(cur.id);if(S.opt.loop)loopWrap(cur.id,cur.t)}
 }
 
 /* ---------- channel sheet ---------- */
