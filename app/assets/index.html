@@ -128,6 +128,12 @@ img.ld{opacity:1;scale:1}
   .big img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 }
 .art{background:rgba(0,0,0,.28)}
+/* The one thing that is ever drawn inside `.art` other than the frame and its
+   loader: the player's own failure box (item 8.4). `.art` is a `.thumb`, so its
+   content box has no height — padding-top makes the 16:9 shape — and a plain
+   block child would spill out of it. Absolute, like `.ldr.abs`, so the sentence
+   and its button sit in the frame's place and nothing below them moves. */
+.art>.empty{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 16px}
 .skl{animation:rise .85s var(--bounce) backwards,skl 1.2s linear infinite}
 .skl:nth-child(2){animation-delay:.08s,0s}.skl:nth-child(3){animation-delay:.16s,0s}
 .car .skl{flex:none;width:86%;height:230px;border-radius:30px;margin-bottom:0}
@@ -1893,13 +1899,14 @@ window.__ltErrText=ekText;                     /* read by tools/error-text-check
    own loading state — the same skeletons the boot uses — so the button is gone
    before a second tap could reach it.
 
-   The registry is bounded (RTY_MAX keys, and the keys are a fixed set of eight:
-   feed, find, chip, sec.anime, sec.cartoon, sec.movies, ch.list, ch.info), so a
-   long session cannot grow it. Nothing here runs unless a failure box is drawn:
+   The registry is bounded (RTY_MAX keys, and the keys are a fixed set of nine:
+   feed, find, chip, sec.anime, sec.cartoon, sec.movies, ch.list, ch.info and,
+   since item 8.4, player — the frame that never loaded), so a long session
+   cannot grow it. Nothing here runs unless a failure box is drawn:
    no timer, no listener of its own — the tap rides the one delegated click
    handler the app already has. window.__ltRetry() is what
    tools/retry-affordance-check.js reads. */
-const RTY_MAX=8,RTY=Object.create(null);
+const RTY_MAX=9,RTY=Object.create(null);
 let rtyN=0;
 const RTY_ST={shown:0,taps:0,ran:0,miss:0};
 function ekRetryable(k){
@@ -3267,6 +3274,78 @@ function posFlush(){
 posTrim();                            /* a blob from a newer build is bounded too */
 window.__ltResume=()=>({stored:S.pos,live:posLive,max:POS_MAX,min:POS_MIN,end:POS_END,
   bytes:(()=>{try{return localStorage.getItem(SKEY).length}catch(e){return -1}})()});
+/* ---------- a player that never loads (item 8.4) ----------
+   Every other failure in this app ends in a box with a way out (5.8). The player
+   ended in a blank rectangle: `mount()` paints the loader and an iframe, and when
+   the embed document never arrived — a dropped radio, a captive portal, a host
+   the network refuses — the loader behind the frame hopped for ever over a frame
+   showing the WebView's own error page, and the only way to try that video again
+   was to close the player and start over from the feed. Nothing here changes what
+   a working player looks like: the box is written only after the frame has
+   already failed, and it is the app's own `.empty` sentence plus the same `.opt
+   glass` "Try again" pill every other dead surface draws — no new visual
+   language, and a real <button>, so TalkBack can reach it.
+
+   Two stages, because the two failures differ and a user should not wait out the
+   second to learn about the first:
+
+     load    the embed document itself never arrives            → PL_LOAD_MS
+             (PL_OFF_MS when the device reports no connection, where 12 s of
+             hopping loader is just a longer spinner in front of the same news)
+     ready   the document arrived but the player inside it never answered
+             → PL_READY_MS, armed by the frame's own `load` handler
+
+   "Answered" is any jsapi message from that frame's own window: the `listening`
+   handshake in `wireFrame` is what provokes `onReady`, the state changes the
+   loop listens for and the `infoDelivery` reports 8.3 already reads. That is the
+   point of the second stage — an error page fires `load` like a real document
+   does, so the load event alone proves nothing and a blocked host is caught by
+   the silence that follows it, not by a missing event.
+
+   The cost while things work is one timer per frame that is loading, cleared by
+   the first message the player posts; a video that is playing has no timer at
+   all. Every teardown disarms (`dropFrame`, `stopFrame`, a reused frame), the
+   timer never fires while the app is in the background (it re-arms instead of
+   blaming a player that was never given a chance to run), and the retry is
+   re-registered on every failure with the video it belongs to, so a tap that
+   lands after the user has moved on re-mounts nothing. */
+const PL_LOAD_MS=12000,PL_OFF_MS=3500,PL_READY_MS=10000;
+let plArmT=0,plFrame=null,plFails=0;
+function plOff(){
+  if(plArmT){clearTimeout(plArmT);plArmT=0}
+  plFrame=null;
+}
+function plArm(f,ms){
+  plOff();
+  if(!f)return;
+  plFrame=f;
+  plArmT=setTimeout(()=>{
+    plArmT=0;
+    if(plFrame!==f)return;                 /* a newer frame owns the wait */
+    if(document.hidden){plArm(f,ms);return} /* frozen in the background is not a failure */
+    plFrame=null;plFail();
+  },ms);
+}
+function plOnline(){try{return navigator.onLine!==false}catch(e){return true}}
+/* The document arrived. A player that never starts behind it is still a failure. */
+function plLoaded(f){if(f&&plFrame===f)plArm(f,PL_READY_MS)}
+/* Any message from the live frame is proof the player is running. */
+function plAlive(src){if(src&&plFrame&&src===plFrame.contentWindow)plOff()}
+function plFail(){
+  plOff();
+  const a=qs('.art','pl');
+  const id=cur&&cur.id,t=cur&&cur.t;
+  if(!a||!id)return;                       /* the panel went away: nothing to answer for */
+  frameKey='';loopGuardOff();              /* no frame is showing this video any more */
+  posFlush();                              /* keep whatever it last reported (8.3) */
+  const f=qs('iframe',a);
+  if(f){try{f.src='about:blank'}catch(e){}}  /* unload the error page, as dropFrame does */
+  rtySet('player',()=>{if(!cur||cur.id!==id)return;mount(id,t,1,0)});
+  plFails++;
+  a.innerHTML='<div class="empty" role="alert">Could not load the player.<br>Check your connection.'+rtyBtn('player',{kind:'network'})+'</div>';
+}
+window.__ltPlayer=()=>({armed:!!plFrame,fails:plFails,online:plOnline(),
+  ms:{load:PL_LOAD_MS,off:PL_OFF_MS,ready:PL_READY_MS}});
 function loopGuardOff(){if(loopGuard){clearTimeout(loopGuard);loopGuard=0}}
 /* Taking a frame down is two steps, not one. Emptying `.art` detaches the embed,
    and a detached frame is not a stopped one: the <video> inside it keeps its
@@ -3280,7 +3359,7 @@ function loopGuardOff(){if(loopGuard){clearTimeout(loopGuard);loopGuard=0}}
 function dropFrame(){
   pauseFrame();                            /* silence first, unload second (item 8.2) */
   posFlush();                              /* keep where the video was (item 8.3) */
-  frameKey='';loopGuardOff();
+  frameKey='';loopGuardOff();plOff();        /* nothing left to wait for (item 8.4) */
   const a=qs('.art','pl');
   const f=a&&qs('iframe',a);
   if(f){try{f.src='about:blank'}catch(e){}}
@@ -3329,6 +3408,7 @@ function pauseFrame(){
    pending stop, and the captured frame is checked again before it goes. */
 let stopT=0,stopSeq=0;
 function stopFrame(){
+  plOff();                            /* the player is on its way out (item 8.4) */
   const a=qs('.art','pl');
   const f=a&&qs('iframe',a);
   if(!f){dropFrame();return}          /* nothing to silence: drop what is there */
@@ -3348,7 +3428,10 @@ function stopFrame(){
    the player rather than at parse time, which is also one fewer listener on the
    document for the whole session for a user who never opens a video. */
 function wireFrame(f){
-  ltOn('pl',f,'load',()=>{try{f.contentWindow.postMessage(JSON.stringify({event:'listening'}),'*')}catch(e){}});
+  ltOn('pl',f,'load',()=>{
+    try{f.contentWindow.postMessage(JSON.stringify({event:'listening'}),'*')}catch(e){}
+    plLoaded(f);                     /* the document is here: now the player has to answer (8.4) */
+  });
   ltOn('pl',window,'message',onYtMsg);
 }
 /* `mount` is now safe to call for a video that is already playing: the frame is
@@ -3372,6 +3455,7 @@ function mount(id,title,force,noResume){
        player that is already playing costs nothing. */
     cmdFrame(live,'unMute',[]);
     cmdFrame(live,'playVideo',[]);
+    plOff();                         /* a frame that is already playing owes no wait (8.4) */
     return;
   }
   const box=dropFrame();
@@ -3386,6 +3470,7 @@ function mount(id,title,force,noResume){
   if(!f)return;                            /* nothing to wire: the panel keeps its loader */
   frameKey=key;
   wireFrame(f);
+  plArm(f,plOnline()?PL_LOAD_MS:PL_OFF_MS);   /* a frame that never answers gets a way out (8.4) */
 }
 /* A loop wrap. The frame is already showing this video, so it is seeked back to
    the start through the jsapi channel and played again instead of being thrown
@@ -3450,6 +3535,7 @@ function onYtMsg(e){
   if(!YT_ORIGIN_RE.test(o))return;
   let d=e.data;if(typeof d==='string'){try{d=JSON.parse(d)}catch(x){return}}
   if(!d)return;
+  plAlive(e.source);                       /* the player answered: the frame loaded (item 8.4) */
   /* The player reports its clock while it plays (item 8.3). The newest report is
      held in `posLive` and reaches storage only when the frame goes, so this is
      one object write per report and no DOM work at all — it cannot cost a frame.

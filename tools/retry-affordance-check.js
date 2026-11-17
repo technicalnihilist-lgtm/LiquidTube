@@ -219,7 +219,7 @@ async function clean(file) {
   ok('window.__ltRetry() is the session table', r && typeof r === 'object' && 'keys' in r);
   ok('nothing is offered before anything fails', r.shown === 0 && r.taps === 0, JSON.stringify(r));
   ok('the feed and the search are registered before the first box', r.keys.includes('feed') && r.keys.includes('find'), r.keys.join(','));
-  ok('the registry is bounded', r.keys.length <= r.max && r.max === 8, JSON.stringify(r));
+  ok('the registry is bounded', r.keys.length <= r.max && r.max === 9, JSON.stringify(r));   /* 8 surfaces + the player (item 8.4) */
   ok('the button is styled with the app\'s own pill, not a new one',
     /\.empty \.rty\{[^}]*\}/.test(fs.readFileSync(file, 'utf8')) && /\.opt\{height:48px/.test(fs.readFileSync(file, 'utf8')));
   env.dom.window.close();
@@ -478,7 +478,7 @@ async function bounded(file) {
   const r = env.w.__ltRetry();
   ok('the registry never grows past its bound', r.keys.length <= r.max, r.keys.join(','));
   ok('the keys are the fixed set the item names',
-    r.keys.every(k => ['feed', 'find', 'chip', 'ch.list', 'ch.info', 'sec.anime', 'sec.cartoon', 'sec.movies'].includes(k)), r.keys.join(','));
+    r.keys.every(k => ['feed', 'find', 'chip', 'ch.list', 'ch.info', 'sec.anime', 'sec.cartoon', 'sec.movies', 'player'].includes(k)), r.keys.join(','));
   ok('a repeated load does not add a key', r.keys.length === new Set(r.keys).size, r.keys.join(','));
   ok('no console error', env.errors.length === 0, env.errors.join(' | '));
   env.dom.window.close();
@@ -493,7 +493,7 @@ function source(file) {
   ok('the helper refuses a class a tap cannot fix', /if\(!ekRetryable\(ekKind\(e\)\)\)return ''/.test(src));
   ok('every failure surface registers before it draws',
     ['feed', 'find', 'chip', 'ch.list', 'ch.info', 'sec.'].every(k => new RegExp("rtySet\\('" + k.replace('.', '\\.')).test(src)));
-  ok('the registry is bounded by a constant', /const RTY_MAX=8/.test(src) && /if\(rtyN>=RTY_MAX\)return false/.test(src));
+  ok('the registry is bounded by a constant', /const RTY_MAX=9/.test(src) && /if\(rtyN>=RTY_MAX\)return false/.test(src));
   ok('a spent button cannot be spent twice', /if\(!btn\|\|btn\.disabled\)\{RTY_ST\.miss\+\+;return\}/.test(src));
   ok('the button rides the app\'s existing delegated click handler', (src.match(/\[data-r\]/g) || []).length === 1);
   ok('no new listener was added for it', !/addEventListener\('click'.*data-r/.test(src));
