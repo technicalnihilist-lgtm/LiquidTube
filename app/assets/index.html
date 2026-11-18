@@ -3219,6 +3219,9 @@ let frameKey='';
    teardown clears it, so a wrap that took costs nothing and one that did not
    still gets a fresh frame. */
 let loopGuard=0;
+/* What the live frame has been told about Loop (item 8.5): '1', '0', or '' while
+   that is unknown — a frame that has just been built has been told nothing. */
+let loopKey='',loopPosts=0;
 function frameKeyOf(id){return id+'|'+(S.opt.cc?'1':'0')}
 /* ---------- resume position (item 8.3) ----------
    Closing the player and opening the same video again started it from 0, so a
@@ -3337,6 +3340,7 @@ function plFail(){
   const id=cur&&cur.id,t=cur&&cur.t;
   if(!a||!id)return;                       /* the panel went away: nothing to answer for */
   frameKey='';loopGuardOff();              /* no frame is showing this video any more */
+  loopKey='';                              /* nor one that was told about Loop (8.5) */
   posFlush();                              /* keep whatever it last reported (8.3) */
   const f=qs('iframe',a);
   if(f){try{f.src='about:blank'}catch(e){}}  /* unload the error page, as dropFrame does */
@@ -3360,6 +3364,7 @@ function dropFrame(){
   pauseFrame();                            /* silence first, unload second (item 8.2) */
   posFlush();                              /* keep where the video was (item 8.3) */
   frameKey='';loopGuardOff();plOff();        /* nothing left to wait for (item 8.4) */
+  loopKey='';                               /* the frame that was told is gone (item 8.5) */
   const a=qs('.art','pl');
   const f=a&&qs('iframe',a);
   if(f){try{f.src='about:blank'}catch(e){}}
@@ -3374,6 +3379,40 @@ function cmdFrame(f,func,args){
   if(!f)return false;
   try{f.contentWindow.postMessage(JSON.stringify({event:'command',func,args:args||[]}),'*');return true}catch(e){return false}
 }
+/* Loop is a setting of the player, so it reaches the player the way every other
+   command does — a `setLoop` on the jsapi channel — and it reaches it when the
+   setting moves, not on the next video (item 8.5). Nothing goes into the embed
+   URL: no `loop=1`, no `playlist=` naming the video the frame is already showing.
+   That is the point. The URL is part of `frameKey`, so a loop parameter there
+   would have made every toggle a new frame — a fresh embed document, a cold
+   buffer and a restart from the top for a video that never changed, which is the
+   cost item 8.1 exists to avoid. Turning Loop on was also the one option that
+   did nothing at all until the next play.
+
+   `loopKey` is what the live frame has been told. A command posted to a player
+   that is still initialising is dropped, so the first message the player posts
+   back — the same proof of life item 8.4 waits for — is when the setting is
+   delivered; after that a post happens only when the setting moves, so a video
+   that is playing is sent nothing by this item and a frame that has already been
+   told costs one string compare.
+
+   Switching Loop off also drops a wrap that is already on its way: the fallback
+   timer in `loopWrap` would otherwise rebuild the frame for a loop the user has
+   just turned off. The wrap itself still runs off the player's own state change
+   (below), so Loop keeps working whether or not the player honours `setLoop`. */
+function loopSync(){
+  const on2=!!S.opt.loop;
+  if(!on2)loopGuardOff();                  /* a wrap on its way is a loop just switched off */
+  const a=qs('.art','pl');
+  const f=a&&qs('iframe',a);
+  if(!f)return false;                      /* no player on screen: nothing to tell */
+  const want=on2?'1':'0';
+  if(loopKey===want)return false;          /* already what this frame was told */
+  if(!cmdFrame(f,'setLoop',[on2]))return false;
+  loopKey=want;loopPosts++;
+  return true;
+}
+window.__ltLoop=()=>({setting:!!S.opt.loop,sent:loopKey,posts:loopPosts,guard:!!loopGuard});
 /* Stopping the player is not the same as taking its frame down (item 8.2).
    Detaching the frame frees the pipeline, but only once the `about:blank`
    navigation commits — until then the <video> inside keeps its audio route and
@@ -3536,6 +3575,7 @@ function onYtMsg(e){
   let d=e.data;if(typeof d==='string'){try{d=JSON.parse(d)}catch(x){return}}
   if(!d)return;
   plAlive(e.source);                       /* the player answered: the frame loaded (item 8.4) */
+  loopSync();                              /* and it can be told about Loop now (item 8.5) */
   /* The player reports its clock while it plays (item 8.3). The newest report is
      held in `posLive` and reaches storage only when the frame goes, so this is
      one object write per report and no DOM work at all — it cannot cost a frame.
@@ -3702,6 +3742,7 @@ $('shb').addEventListener('click',e=>{
   const o=e.target.closest('[data-opt]');
   if(o){const k=o.dataset.opt;S.opt[k]=S.opt[k]?0:1;save();if(k==='depth')applyDepth();
     if(k==='parallax')applyParallax();
+    if(k==='loop')loopSync();              /* the live player, not the next one (item 8.5) */
     o.textContent=({cc:'Captions',loop:'Loop',cmt:'Comments',depth:'3D depth',parallax:'Parallax'})[k]+': '+(S.opt[k]?'on':'off')}
 });
 $('shpost').onclick=()=>toast('Comments open on YouTube');
