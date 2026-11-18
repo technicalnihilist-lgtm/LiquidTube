@@ -73,6 +73,12 @@ public class MainActivity extends Activity {
     private View customView;
     private FrameLayout fullscreenHolder;
     private WebChromeClient.CustomViewCallback customViewCallback;
+    /**
+     * The decor view's system-UI flags as they were before the player took the screen,
+     * or -1 when nothing is fullscreen. Exiting puts these back instead of forcing
+     * {@code SYSTEM_UI_FLAG_VISIBLE}, so the window is left the way it was found.
+     */
+    private int preFullscreenUiFlags = -1;
     private Chrome chrome;
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -245,36 +251,49 @@ public class MainActivity extends Activity {
 
         @Override
         public void onShowCustomView(View view, CustomViewCallback callback) {
-            if (customView != null) {
-                callback.onCustomViewHidden();
+            if (view == null) {
+                if (callback != null) {
+                    callback.onCustomViewHidden();
+                }
                 return;
             }
-            fullscreenHolder = new FrameLayout(MainActivity.this);
-            fullscreenHolder.setBackgroundColor(Color.BLACK);
-            fullscreenHolder.addView(view, new FrameLayout.LayoutParams(
+            /* A second request while one video is already fullscreen is refused, as
+               before: the video on screen keeps playing instead of being torn down
+               under the user by a request that cannot be honoured. */
+            if (customView != null) {
+                if (callback != null) {
+                    callback.onCustomViewHidden();
+                }
+                return;
+            }
+            /* The video view can still be attached to the WebView's own hierarchy after
+               an interrupted transition, and addView() on an attached child throws
+               "The specified child already has a parent" — a crash in the middle of a
+               video. It is detached from wherever it is before it is adopted. */
+            ViewGroup parent = (ViewGroup) view.getParent();
+            if (parent != null) {
+                parent.removeView(view);
+            }
+            FrameLayout holder = new FrameLayout(MainActivity.this);
+            holder.setBackgroundColor(Color.BLACK);
+            holder.addView(view, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            root.addView(fullscreenHolder, new FrameLayout.LayoutParams(
+            root.addView(holder, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            /* The fields are set only once the view is really on screen, so a failure
+               above leaves no half-entered fullscreen state behind. */
+            fullscreenHolder = holder;
             customView = view;
             customViewCallback = callback;
-            web.setVisibility(View.GONE);
+            if (web != null) {
+                web.setVisibility(View.GONE);
+            }
             enterImmersive();
         }
 
         @Override
         public void onHideCustomView() {
-            if (customView == null) {
-                return;
-            }
-            root.removeView(fullscreenHolder);
-            fullscreenHolder = null;
-            customView = null;
-            web.setVisibility(View.VISIBLE);
-            if (customViewCallback != null) {
-                customViewCallback.onCustomViewHidden();
-                customViewCallback = null;
-            }
-            leaveImmersive();
+            exitFullscreen();
         }
 
         @Override
@@ -285,8 +304,66 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * The one way out of fullscreen, and safe to call when nothing is fullscreen.
+     *
+     * <p>Everything it needs is copied into locals and the fields are cleared first, so
+     * a second call — the Back key and the player's own exit button can both land in
+     * the same frame, and the Activity can be destroyed while the callback is still
+     * pending — finds nothing to do instead of a null holder to remove, and no field
+     * is left half-cleared for the next enter to trip over.</p>
+     *
+     * <p>Order matters. The bars come back while the WebView is still hidden, so the
+     * page is resized to the window it had before fullscreen and is already the right
+     * size the moment it becomes visible: no frame of the video sheet laid out under a
+     * bar that is still on its way in. The callback goes last, because it is what makes
+     * the WebView leave its own fullscreen element, and by then the surface it was
+     * drawing into is detached and the page is back.</p>
+     */
+    private void exitFullscreen() {
+        FrameLayout holder = fullscreenHolder;
+        View shown = customView;
+        WebChromeClient.CustomViewCallback callback = customViewCallback;
+        boolean wasFullscreen = holder != null || shown != null || callback != null;
+        fullscreenHolder = null;
+        customView = null;
+        customViewCallback = null;
+        if (!wasFullscreen) {
+            /* Nothing to undo, but a stray exit must still not leave the window
+               immersive: the flags are restored only if this app made it so. */
+            return;
+        }
+        leaveImmersive();
+        if (holder != null) {
+            /* Drop the video surface before the holder goes, so the decoder is released
+               with the view and not whenever the holder is collected. */
+            holder.removeAllViews();
+            if (holder.getParent() == root) {
+                root.removeView(holder);
+            }
+        } else if (shown != null && shown.getParent() == root) {
+            root.removeView(shown);
+        }
+        if (web != null) {
+            web.setVisibility(View.VISIBLE);
+        }
+        if (callback != null) {
+            try {
+                callback.onCustomViewHidden();
+            } catch (RuntimeException e) {
+                /* A WebView that is being destroyed can refuse the callback. The screen is
+                   already back to normal at this point, so this costs the embed's own
+                   fullscreen flag and nothing the user can see. */
+                Log.w(TAG, "lt-fullscreen exit callback refused", e);
+            }
+        }
+    }
+
     private void enterImmersive() {
         View d = getWindow().getDecorView();
+        if (preFullscreenUiFlags < 0) {
+            preFullscreenUiFlags = d.getSystemUiVisibility();
+        }
         d.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                 | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
@@ -296,8 +373,10 @@ public class MainActivity extends Activity {
     }
 
     private void leaveImmersive() {
-        View d = getWindow().getDecorView();
-        d.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+        int restore = preFullscreenUiFlags;
+        preFullscreenUiFlags = -1;
+        getWindow().getDecorView().setSystemUiVisibility(
+                restore < 0 ? View.SYSTEM_UI_FLAG_VISIBLE : restore);
     }
 
     @Override
@@ -308,8 +387,10 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (customView != null) {
-            chrome.onHideCustomView();
+        if (customView != null || fullscreenHolder != null) {
+            /* Back while a video is fullscreen leaves fullscreen, through the same exit
+               the player's own button and the destroy path use. */
+            exitFullscreen();
             return;
         }
         web.evaluateJavascript(BACK_JS, value -> {
@@ -386,6 +467,11 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        /* A WebView destroyed while still holding a fullscreen callback never gets its
+           exit: the holder, the video surface and the callback would outlive the
+           Activity, and the page would come back on the next launch still believing it
+           is fullscreen. The exit runs first, while there is still a WebView to tell. */
+        exitFullscreen();
         if (web != null) {
             root.removeView(web);
             web.destroy();
