@@ -68,6 +68,28 @@ public class MainActivity extends Activity {
             + "if(c){c.click();return 'player';}}"
             + "return 'none';})()";
 
+    /**
+     * Item 8.10: the player is given back when the app goes to the background and rebuilt when it
+     * comes back. {@code onPause}/{@code onResume} are the signals a WebView actually guarantees,
+     * so the page is driven from here instead of being left to {@code visibilitychange} alone; the
+     * page's own listener is the fallback and both sides are idempotent, so the two paths can
+     * neither free twice nor restore twice. Every call is guarded and swallows its own failure:
+     * a page that is not ready simply answers '0'.
+     */
+    private static final String BG_FREE_JS =
+            "(function(){try{return window.__ltBgFree&&window.__ltBgFree(1)?'1':'0'}catch(e){return '0'}})()";
+    private static final String BG_RESTORE_JS =
+            "(function(){try{return window.__ltBgRestore&&window.__ltBgRestore(1)?'1':'0'}catch(e){return '0'}})()";
+    /**
+     * Fullscreen hides the WebView while the app is still in front, so the document reports itself
+     * hidden with the video the user is watching on screen. The page refuses to free the player
+     * while this flag is up; it is raised before the WebView is hidden and lowered on the way out.
+     */
+    private static final String FS_JS =
+            "(function(){try{if(window.__ltFs)window.__ltFs(1)}catch(e){}})()";
+    private static final String UNFS_JS =
+            "(function(){try{if(window.__ltFs)window.__ltFs(0)}catch(e){}})()";
+
     private FrameLayout root;
     private WebView web;
     private View customView;
@@ -286,6 +308,9 @@ public class MainActivity extends Activity {
             customView = view;
             customViewCallback = callback;
             if (web != null) {
+                /* Raised first: hiding the WebView makes the page report itself hidden, and the
+                   player must not free itself under a video the user is watching (item 8.10). */
+                web.evaluateJavascript(FS_JS, null);
                 web.setVisibility(View.GONE);
             }
             enterImmersive();
@@ -345,6 +370,9 @@ public class MainActivity extends Activity {
             root.removeView(shown);
         }
         if (web != null) {
+            /* The flag comes down before the page is visible again: the video is the user's
+               again, so a later background is allowed to free it (item 8.10). */
+            web.evaluateJavascript(UNFS_JS, null);
             web.setVisibility(View.VISIBLE);
         }
         if (callback != null) {
@@ -403,6 +431,13 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        if (web != null && customView == null && fullscreenHolder == null) {
+            /* Before the WebView is paused: the player's frame, its decoder and its audio route
+               are given back now, so an app in the background is not holding a media pipeline
+               the system will reclaim first (item 8.10). Skipped in fullscreen, where the video
+               is on screen and the user is watching it. */
+            web.evaluateJavascript(BG_FREE_JS, null);
+        }
         web.onPause();
         web.pauseTimers();
     }
@@ -412,6 +447,10 @@ public class MainActivity extends Activity {
         super.onResume();
         web.onResume();
         web.resumeTimers();
+        if (web != null) {
+            /* The way back: the same video at the same position, playing only if it was (8.10). */
+            web.evaluateJavascript(BG_RESTORE_JS, null);
+        }
     }
 
     /**

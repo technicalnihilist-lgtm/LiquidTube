@@ -3261,10 +3261,19 @@ function frameKeyOf(id){return id+'|'+(S.opt.cc?'1':'0')}
    `mount()` is the only caller, and it calls this only when it is building a
    frame — a reused frame is never given a URL at all. */
 const EMBED_QS=[['autoplay','1'],['playsinline','1'],['rel','0'],['modestbranding','1'],['iv_load_policy','3'],['enablejsapi','1']];
-function embedUrl(id,at,cc){
+function embedUrl(id,at,cc,noAuto){
   const seen=Object.create(null),q=[];
   const add=(k,v)=>{if(seen[k])return false;seen[k]=1;q.push(k+'='+v);return true};
-  for(let i=0;i<EMBED_QS.length;i++)add(EMBED_QS[i][0],EMBED_QS[i][1]);
+  for(let i=0;i<EMBED_QS.length;i++){
+    /* `noAuto` is the one caller that wants the frame back without starting it
+       (item 8.10): the app came back from the background holding a video the
+       user had paused, and a rebuild must not turn that pause into a play. The
+       key is still written exactly once — `autoplay=0` in place of the base
+       list's `autoplay=1` — so the one-autoplay-per-URL invariant (8.7) holds
+       for every URL this function can produce. */
+    if(noAuto&&EMBED_QS[i][0]==='autoplay'){add('autoplay','0');continue}
+    add(EMBED_QS[i][0],EMBED_QS[i][1]);
+  }
   if(cc)add('cc_load_policy','1');
   if(at)add('start',at);
   return EMBED_BASE+esc(id)+'?'+q.join('&');
@@ -3412,7 +3421,7 @@ window.__ltResume=()=>({stored:S.pos,live:posLive,max:POS_MAX,min:POS_MIN,end:PO
    re-registered on every failure with the video it belongs to, so a tap that
    lands after the user has moved on re-mounts nothing. */
 const PL_LOAD_MS=12000,PL_OFF_MS=3500,PL_READY_MS=10000;
-let plArmT=0,plFrame=null,plFails=0;
+let plArmT=0,plFrame=null,plFails=0,plPlaying=false;
 function plOff(){
   if(plArmT){clearTimeout(plArmT);plArmT=0}
   plFrame=null;
@@ -3463,6 +3472,7 @@ function dropFrame(){
   pauseFrame();                            /* silence first, unload second (item 8.2) */
   posFlush();                              /* keep where the video was (item 8.3) */
   frameKey='';loopGuardOff();plOff();        /* nothing left to wait for (item 8.4) */
+  plPlaying=false;                          /* the frame that was playing is gone (item 8.10) */
   loopKey='';                               /* the frame that was told is gone (item 8.5) */
   const a=qs('.art','pl');
   const f=a&&qs('iframe',a);
@@ -3531,6 +3541,7 @@ function pauseFrame(){
   const a=qs('.art','pl');
   const f=a&&qs('iframe',a);
   if(!f)return false;
+  plPlaying=false;                    /* a frame that was paused is not one to bring back playing (8.10) */
   cmdFrame(f,'mute',[]);
   return cmdFrame(f,'pauseVideo',[]);
 }
@@ -3559,6 +3570,83 @@ function stopFrame(){
     if(a&&qs('iframe',a)===f)dropFrame();
   },60);
 }
+/* ---------- the player does not outlive the background (item 8.10) ----------
+   A paused WebView stops painting, but it does not stop decoding: a player left
+   open when the user switched apps kept its embed document, its <video>, its
+   decoder, its buffers and its audio route for as long as the app stayed away,
+   and on a low-RAM device that is the first thing the system reclaims — so the
+   way back was a reload of everything. The frame is given back when the app goes
+   away and rebuilt when it comes back:
+
+     free     the position is flushed, the frame is paused, navigated to
+              `about:blank` and emptied — the same teardown a close uses (4.4),
+              run synchronously because a backgrounded page cannot be relied on
+              to fire the 60 ms timer `stopFrame` waits on.
+     restore  `mount` rebuilds the same video at the stored position (8.3), and a
+              video that was playing is played again: the URL carries autoplay=1
+              as every mount does, and the first message the player posts is the
+              moment it can also be told (`plWantPlay`). A video the user had
+              paused comes back paused — `embedUrl` is asked for autoplay=0,
+              because a rebuild must not turn a pause into a play. Either way the
+              panel is the panel it was: the same loader, the same frame, the
+              same box, and the Loop setting, the resume position and the retry
+              path (8.4) behave exactly as they do after a normal mount.
+     skip     a sheet over the player: that player is already paused, and the
+              sheet's own close (`closeAll`) takes the player down with it, so
+              nothing can ever reveal the box behind it. It is left free instead
+              of being fetched again for a surface nobody can see.
+
+   Two things can say "the app went away". The page's own `visibilitychange`
+   covers a browser and is the fallback everywhere; `MainActivity.onPause` calls
+   these same two functions through `window.__ltBgFree`/`__ltBgRestore`, which is
+   the signal a WebView actually guarantees. Both are idempotent, so whichever
+   arrives first does the work and the other finds nothing left to do.
+
+   Fullscreen is the one case where the document goes hidden with the app still
+   in front: the player's fullscreen hands the video to a native view and hides
+   the WebView, so `MainActivity` raises `__ltFs` around that handover and the
+   free is refused while it is up — a video the user is watching must never be
+   torn down by its own fullscreen. */
+let bgHeld=null,fsOn=0,plWantPlay=0,bgFrees=0,bgRestores=0,bgSkips=0;
+window.__ltFs=v=>{fsOn=v?1:0};
+function bgFree(force){
+  if(!force&&!document.hidden)return false;  /* only a page that went away frees its player */
+  if(fsOn)return false;                      /* fullscreen hides the WebView, not the user */
+  if(!cur)return false;                      /* no video open: nothing to give back */
+  const p=$('pl');
+  if(!p||!p.classList.contains('on'))return false;
+  const a=qs('.art','pl');
+  const f=a&&qs('iframe',a);
+  if(!f)return false;                        /* nothing mounted */
+  bgHeld={id:cur.id,title:cur.t||'',playing:!!plPlaying};
+  dropFrame();                               /* pause, keep the position, unload, empty (4.4) */
+  bgFrees++;
+  return true;
+}
+function bgRestore(force){
+  const h=bgHeld;
+  if(!h)return false;
+  bgHeld=null;
+  if(!force&&document.hidden)return false;   /* still away: the way back restores */
+  if(fsOn)return false;
+  if(!cur||cur.id!==h.id)return false;       /* the player closed or moved on while away */
+  const p=$('pl');
+  if(!p||!p.classList.contains('on'))return false;
+  const sh=$('sheet');
+  if(sh&&sh.classList.contains('on')){bgSkips++;return false}   /* covered: closeAll owns it */
+  mount(h.id,h.title,0,0,!h.playing);
+  if(h.playing)plWantPlay=1;
+  bgRestores++;
+  return true;
+}
+window.__ltBgFree=bgFree;
+window.__ltBgRestore=bgRestore;
+window.__ltBg=()=>({held:bgHeld?{id:bgHeld.id,playing:!!bgHeld.playing}:null,fs:!!fsOn,
+  frees:bgFrees,restores:bgRestores,skips:bgSkips,playing:!!plPlaying,key:frameKey});
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden)bgFree(0);else bgRestore(0);
+});
+
 /* The player's two listeners belong to the player and are taken off with it:
    `ltOff('pl')` runs at the top of every mount (so a play, a replay or a loop
    wrap leaves the previous iframe's handler behind with the iframe) and in
@@ -3577,7 +3665,7 @@ function wireFrame(f){
    loader and the player never re-buffers for a video that never changed.
    `force` is for the one caller that wants the opposite — the loop fallback
    below, which rebuilds a frame the player has stopped answering. */
-function mount(id,title,force,noResume){
+function mount(id,title,force,noResume,noAuto){
   stopSeq++;                          /* this mount owns the player (item 8.2) */
   ltOff('pl');
   const key=frameKeyOf(id);
@@ -3593,6 +3681,7 @@ function mount(id,title,force,noResume){
        player that is already playing costs nothing. */
     cmdFrame(live,'unMute',[]);
     cmdFrame(live,'playVideo',[]);
+    plPlaying=true;                  /* the frame was just asked to play (item 8.10) */
     plOff();                         /* a frame that is already playing owes no wait (8.4) */
     return;
   }
@@ -3607,10 +3696,15 @@ function mount(id,title,force,noResume){
      and this is the only place in the app that writes a frame's `src`: the reuse
      branch above returns before this line, so a frame that is kept is never
      re-navigated and its `autoplay` is never written a second time. */
-  box.innerHTML=LDRABS+'<iframe src="'+embedUrl(id,at,S.opt.cc)+'" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="'+esc(title||'')+'"></iframe>';
+  /* `noAuto` is the background rebuild of a video the user had paused (item
+     8.10): the frame is built at the stored position without being started, so
+     coming back to the app never turns a pause into a play. Every other mount
+     leaves it false and gets exactly the URL it always got. */
+  box.innerHTML=LDRABS+'<iframe src="'+embedUrl(id,at,S.opt.cc,noAuto)+'" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="'+esc(title||'')+'"></iframe>';
   const f=qs('iframe',box);
   if(!f)return;                            /* nothing to wire: the panel keeps its loader */
   frameKey=key;
+  plPlaying=!noAuto;                       /* a frame built to autoplay is a playing video (8.10) */
   wireFrame(f);
   plArm(f,plOnline()?PL_LOAD_MS:PL_OFF_MS);   /* a frame that never answers gets a way out (8.4) */
 }
@@ -3628,6 +3722,7 @@ function loopWrap(id,title){
        was muted with it (item 8.2), and a wrap is a play. */
     cmdFrame(f,'unMute',[]);
     cmdFrame(f,'playVideo',[]);
+    plPlaying=true;                     /* a wrap is a play (item 8.10) */
     loopGuardOff();
     loopGuard=setTimeout(()=>{loopGuard=0;if(cur&&cur.id===id)mount(id,title,true,1)},1800);
     return;
@@ -3683,6 +3778,16 @@ function onYtMsg(e){
   if(!d)return;
   plAlive(e.source);                       /* the player answered: the frame loaded (item 8.4) */
   loopSync();                              /* and it can be told about Loop now (item 8.5) */
+  /* A player rebuilt on the way back from the background is asked to play here
+     rather than in `mount` (item 8.10): this is the first message it posts, so
+     it is the first moment it is listening, and the command is what makes the
+     resume independent of the embed honouring `autoplay=1`. One shot, and only
+     ever set for a video that was playing when the app went away. */
+  if(plWantPlay){
+    plWantPlay=0;
+    const pa=qs('.art','pl'),pf=pa&&qs('iframe',pa);
+    if(pf&&pf.contentWindow===e.source){cmdFrame(pf,'unMute',[]);cmdFrame(pf,'playVideo',[]);plPlaying=true}
+  }
   /* The player reports its clock while it plays (item 8.3). The newest report is
      held in `posLive` and reaches storage only when the frame goes, so this is
      one object write per report and no DOM work at all — it cannot cost a frame.
@@ -3698,7 +3803,11 @@ function onYtMsg(e){
   }
   if(d.event!=='onStateChange')return;
   const st=+d.info;
-  if(st===1||st===3)loopGuardOff();        /* playing or buffering: the wrap took */
+  /* Whether the video is playing is kept, because a rebuild cannot ask the frame
+     it just replaced (item 8.10). Buffering counts as playing: that is a video
+     the user started and expects to find running when they come back. */
+  plPlaying=(st===1||st===3);
+  if(plPlaying)loopGuardOff();             /* playing or buffering: the wrap took */
   if(st===0&&cur){posEnded(cur.id);if(S.opt.loop)loopWrap(cur.id,cur.t)}
 }
 
