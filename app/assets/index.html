@@ -45,17 +45,33 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 /* ===== bounce system: real spring curves (linear()) with safe fallbacks ===== */
 :root{--bounce:cubic-bezier(.34,1.56,.64,1);--bounce-soft:cubic-bezier(.25,1.25,.4,1)}
 @supports (transition-timing-function:linear(0,1)){:root{--bounce:linear(0,0.0425,0.1522,0.3038,0.4746,0.6461,0.8042,0.9394,1.0463,1.1231,1.1711,1.1935,1.1946,1.1797,1.1539,1.1219,1.0879,1.0551,1.0259,1.0017,0.9834,0.9709,0.9638,0.9614,0.9628,0.9668,0.9725,0.9791,0.9857,0.9919,0.9972,1.0014,1.0045,1.0065,1.0074,1.0075,1.007,1.006,1.0048,1.0035,1.0022,1.0011,1.0002,0.9994,1);--bounce-soft:linear(0,0.0207,0.0751,0.1527,0.2448,0.3442,0.4451,0.5432,0.6352,0.7191,0.7935,0.8578,0.912,0.9563,0.9915,1.0183,1.0379,1.0511,1.0591,1.0628,1.0631,1.0608,1.0567,1.0513,1.0452,1.0389,1.0325,1.0265,1.0208,1.0158,1.0113,1.0075,1.0043,1.0018,0.9998,0.9983,0.9972,0.9965,0.9961,0.996,0.9961,0.9962,0.9965,0.9969,1)}}
+/* ===== motion scale: every duration in one place (item 9.1) =====
+   Durations used to be written as raw times across forty `transition` and
+   `animation` declarations in two different sheets, so nothing could be audited
+   and three values had quietly drifted off the scale (.09 s, .26 s, .95 s).
+   The tokens below are that scale — one step per duration actually in use,
+   named by its value in milliseconds — and every transition and animation in
+   both sheets now names a token instead of a time. The three strays were
+   snapped to the nearest step (90 -> 80 ms on the lens drag, 260 -> 250 ms on
+   the thumbnail fade, 950 -> 900 ms on the page slide): under 10 ms each, so
+   nothing on screen changes. `tools/motion-audit-check.js` fails if a raw
+   duration ever comes back, or if a token is defined and never used.
+   A delay that has to equal a duration (the splash's visibility flip) uses the
+   same token, so the two cannot drift apart; stagger delays stay literal,
+   because they are choreography rather than duration. */
+:root{--t-80:80ms;--t-120:120ms;--t-180:180ms;--t-200:200ms;--t-250:250ms;--t-300:300ms;--t-350:350ms;--t-400:400ms;--t-450:450ms;--t-500:500ms;--t-550:550ms;--t-600:600ms;--t-750:750ms;--t-800:800ms;--t-850:850ms;--t-900:900ms;--t-1000:1000ms;--t-1100:1100ms;--t-1200:1200ms}
+
 /* ===== liquid glass ===== */
 .glass{position:relative;background:linear-gradient(135deg,var(--g1),var(--g2));backdrop-filter:blur(var(--glassBlur,16px)) saturate(190%) brightness(1.06);-webkit-backdrop-filter:blur(var(--glassBlur,16px)) saturate(190%) brightness(1.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.28),inset 0 1.5px 1px var(--rim),inset 0 -1.5px 1px rgba(255,255,255,.22),0 10px 30px var(--shade)}
 .glass::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(118deg,rgba(255,255,255,.6),rgba(255,255,255,0) 32%,rgba(255,255,255,0) 68%,rgba(255,255,255,.3));opacity:.5}
 /* pages */
-.page{position:absolute;inset:0;z-index:var(--z-page);overflow-y:auto;overflow-x:hidden;padding-bottom:150px;scrollbar-width:none;background:radial-gradient(70% 22% at 100% 6%,rgba(255,70,110,.22),transparent),radial-gradient(70% 20% at 0% 48%,rgba(70,120,255,.2),transparent),radial-gradient(70% 20% at 100% 85%,rgba(160,80,255,.18),transparent),var(--bg);transition:transform .95s var(--bounce-soft),opacity .45s ease}
+.page{position:absolute;inset:0;z-index:var(--z-page);overflow-y:auto;overflow-x:hidden;padding-bottom:150px;scrollbar-width:none;background:radial-gradient(70% 22% at 100% 6%,rgba(255,70,110,.22),transparent),radial-gradient(70% 20% at 0% 48%,rgba(70,120,255,.2),transparent),radial-gradient(70% 20% at 100% 85%,rgba(160,80,255,.18),transparent),var(--bg);transition:transform var(--t-900) var(--bounce-soft),opacity var(--t-450) ease}
 /* A page only moves while a tab change is sliding it, so the layer hint is a
    class the dock puts on for the length of that slide (see `pageHint`) instead
    of a permanent promise on all three pages. */
 .page.anim{will-change:transform,opacity}
 .page::-webkit-scrollbar{display:none}.drag .page{transition:none}
-.top{position:sticky;top:0;z-index:var(--z-top);padding:calc(env(safe-area-inset-top,0px) + 10px) 14px 8px;background:linear-gradient(var(--bg) 84%,color-mix(in srgb,var(--bg) 70%,transparent) 100%);-webkit-backdrop-filter:blur(18px) saturate(180%);backdrop-filter:blur(18px) saturate(180%);transition:transform .18s linear}
+.top{position:sticky;top:0;z-index:var(--z-top);padding:calc(env(safe-area-inset-top,0px) + 10px) 14px 8px;background:linear-gradient(var(--bg) 84%,color-mix(in srgb,var(--bg) 70%,transparent) 100%);-webkit-backdrop-filter:blur(18px) saturate(180%);backdrop-filter:blur(18px) saturate(180%);transition:transform var(--t-180) linear}
 .row{display:flex;align-items:center;justify-content:space-between}
 .logo{display:flex;align-items:center;gap:6px;font-weight:800;font-size:19px;letter-spacing:-.04em}
 .logo i{width:30px;height:21px;border-radius:6px;background:var(--red);position:relative}
@@ -63,7 +79,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .ic{display:flex;gap:8px}.ic button{width:38px;height:38px;border-radius:50%;display:grid;place-items:center}
 svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .chips{display:flex;gap:8px;overflow-x:auto;padding:12px 0 4px;scrollbar-width:none}.chips::-webkit-scrollbar{display:none}
-.chip{flex:none;padding:8px 16px;border-radius:99px;font-size:13.5px;font-weight:600;transition:background .3s,color .3s,scale .6s var(--bounce)}
+.chip{flex:none;padding:8px 16px;border-radius:99px;font-size:13.5px;font-weight:600;transition:background var(--t-300),color var(--t-300),scale var(--t-600) var(--bounce)}
 .chip.on{background:var(--ink);color:var(--bg);scale:1.06}
 h2{font-size:19px;font-weight:800;letter-spacing:-.03em;padding:14px 14px 8px}
 .page{background-attachment:local}
@@ -71,12 +87,12 @@ h2{font-size:19px;font-weight:800;letter-spacing:-.03em;padding:14px 14px 8px}
 .dock{position:absolute;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);display:flex;gap:10px;z-index:var(--z-dock);transform-style:flat}
 .tabs{flex:1;height:66px;position:relative;touch-action:pan-y;user-select:none;-webkit-user-select:none}
 .tabs .bg{position:absolute;inset:0;border-radius:99px}
-.lens{position:absolute;left:5px;top:5px;bottom:5px;width:calc((100% - 10px)/3);border-radius:99px;transition:transform .9s var(--bounce);--g1:rgba(255,255,255,.7);--g2:rgba(255,255,255,.22);pointer-events:none}
-.drag .lens{transition:transform .09s linear}
+.lens{position:absolute;left:5px;top:5px;bottom:5px;width:calc((100% - 10px)/3);border-radius:99px;transition:transform var(--t-900) var(--bounce);--g1:rgba(255,255,255,.7);--g2:rgba(255,255,255,.22);pointer-events:none}
+.drag .lens{transition:transform var(--t-80) linear}
 .tabrow{position:absolute;inset:5px;display:flex}
-.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:10.5px;font-weight:600;color:var(--mute);transition:color .3s,scale .55s var(--bounce)}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:10.5px;font-weight:600;color:var(--mute);transition:color var(--t-300),scale var(--t-550) var(--bounce)}
 .tab.on{color:var(--red)}.tab svg{width:22px;height:22px}
-.sbtn{width:66px;height:66px;border-radius:50%;display:grid;place-items:center;flex:none;transition:scale .6s var(--bounce)}.sbtn:active{scale:.86}
+.sbtn{width:66px;height:66px;border-radius:50%;display:grid;place-items:center;flex:none;transition:scale var(--t-600) var(--bounce)}.sbtn:active{scale:.86}
 @media(prefers-reduced-motion:reduce){:root{--bounce:cubic-bezier(.25,.9,.3,1);--bounce-soft:cubic-bezier(.25,.9,.3,1)}.skl{animation:none}}
 
 /* ---- overlays: off-screen until the deferred sheet lands ---- */
@@ -94,39 +110,39 @@ html[data-layout=tablet] .chips .chip{padding:9px 18px;font-size:15px}
 html[data-layout=full] body{background:var(--bg)}
 html[data-layout=full] .app{max-width:100%;height:100%;margin:0;border-radius:0;box-shadow:none}
 @media(min-width:500px){html[data-layout=full] .app{height:100%;margin:0;border-radius:0;box-shadow:none}}
-.skl{height:150px;border-radius:20px;margin-bottom:12px;background:linear-gradient(100deg,rgba(120,120,140,.12),rgba(120,120,140,.2),rgba(120,120,140,.12));background-size:200% 100%;animation:skl 1.2s infinite}
+.skl{height:150px;border-radius:20px;margin-bottom:12px;background:linear-gradient(100deg,rgba(120,120,140,.12),rgba(120,120,140,.2),rgba(120,120,140,.12));background-size:200% 100%;animation:skl var(--t-1200) infinite}
 @keyframes skl{to{background-position:-200% 0}}
 
 /* ---- bounce everywhere ---- */
-:where(button,.big){transition:scale .6s var(--bounce)}
+:where(button,.big){transition:scale var(--t-600) var(--bounce)}
 button:active,.big:active{scale:.93}
 .lens::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:radial-gradient(120% 90% at 30% 0%,rgba(255,255,255,.75),transparent 55%);opacity:.55}
 .tab:active{scale:.86}
-.tab.on svg{animation:tabpop .75s var(--bounce)}
+.tab.on svg{animation:tabpop var(--t-750) var(--bounce)}
 @keyframes tabpop{from{transform:scale(.55) translateY(5px)}to{transform:none}}
-.lens.jelly{animation:jelly .75s ease-out}
+.lens.jelly{animation:jelly var(--t-750) ease-out}
 @keyframes jelly{0%{scale:1 1}28%{scale:1.16 .88}58%{scale:.96 1.05}100%{scale:1 1}}
 @keyframes rise{from{opacity:0;transform:translateY(46px) scale(.92)}to{opacity:1;transform:none}}
-.dock{opacity:0}.app.ready .dock{animation:dockin 1.1s var(--bounce) .1s both}
+.dock{opacity:0}.app.ready .dock{animation:dockin var(--t-1100) var(--bounce) .1s both}
 @keyframes dockin{from{opacity:0;transform:translateY(120px) scale(.8)}to{opacity:1;transform:none}}
-.top .logo{animation:rise .9s var(--bounce) backwards}
+.top .logo{animation:rise var(--t-900) var(--bounce) backwards}
 .app:not(.ready) .top .logo,.app:not(.ready) .ic button{animation:none;opacity:0}
-.ic button{animation:rise .8s var(--bounce) backwards}.ic button:nth-child(2){animation-delay:.05s}.ic button:nth-child(3){animation-delay:.1s}.ic button:nth-child(4){animation-delay:.15s}
+.ic button{animation:rise var(--t-800) var(--bounce) backwards}.ic button:nth-child(2){animation-delay:.05s}.ic button:nth-child(3){animation-delay:.1s}.ic button:nth-child(4){animation-delay:.15s}
 
 /* ---- bounce loading + bounce content open ---- */
 .ldr{display:flex;gap:9px;justify-content:center;align-items:flex-end;height:36px;padding:8px 0}
-.ldr i{width:11px;height:11px;border-radius:50%;background:linear-gradient(135deg,var(--red),#ff7a5c);animation:hop2 1s infinite}
+.ldr i{width:11px;height:11px;border-radius:50%;background:linear-gradient(135deg,var(--red),#ff7a5c);animation:hop2 var(--t-1000) infinite}
 .ldr i:nth-child(2){animation-delay:.12s}.ldr i:nth-child(3){animation-delay:.24s}
 .ldr.abs{position:absolute;inset:0;align-items:center;height:auto;padding:0}
 @keyframes hop2{0%,100%{transform:translateY(0) scale(1.2,.8);animation-timing-function:cubic-bezier(.2,.7,.4,1)}45%{transform:translateY(-14px) scale(.92,1.1);animation-timing-function:cubic-bezier(.6,0,.8,.4)}}
 @keyframes hop{0%,100%{transform:translateY(0) scale(1.06,.94);animation-timing-function:cubic-bezier(.2,.7,.4,1)}45%{transform:translateY(-22px) scale(.97,1.05);animation-timing-function:cubic-bezier(.6,0,.8,.4)}}
-#splash{position:absolute;inset:0;z-index:var(--z-splash);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:34px;background:radial-gradient(70% 22% at 100% 6%,rgba(255,70,110,.22),transparent),radial-gradient(70% 20% at 0% 48%,rgba(70,120,255,.2),transparent),radial-gradient(70% 20% at 100% 85%,rgba(160,80,255,.18),transparent),var(--bg);transition:opacity .45s ease,scale .8s var(--bounce),visibility 0s .8s}
-#splash .logo{font-size:30px;gap:12px;animation:hop 1.1s infinite}
+#splash{position:absolute;inset:0;z-index:var(--z-splash);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:34px;background:radial-gradient(70% 22% at 100% 6%,rgba(255,70,110,.22),transparent),radial-gradient(70% 20% at 0% 48%,rgba(70,120,255,.2),transparent),radial-gradient(70% 20% at 100% 85%,rgba(160,80,255,.18),transparent),var(--bg);transition:opacity var(--t-450) ease,scale var(--t-800) var(--bounce),visibility 0s var(--t-800)}
+#splash .logo{font-size:30px;gap:12px;animation:hop var(--t-1100) infinite}
 #splash .logo i{scale:1.5;margin-right:6px}
 #splash.out{opacity:0;scale:1.25;visibility:hidden;pointer-events:none}
-img{opacity:0;scale:1.12;transition:opacity .45s ease,scale .9s var(--bounce)}
+img{opacity:0;scale:1.12;transition:opacity var(--t-450) ease,scale var(--t-900) var(--bounce)}
 img.ld{opacity:1;scale:1}
-.thumb iframe{position:absolute;inset:0;width:100%;height:100%;border:0;opacity:0;scale:.92;transition:opacity .45s ease,scale .9s var(--bounce)}
+.thumb iframe{position:absolute;inset:0;width:100%;height:100%;border:0;opacity:0;scale:.92;transition:opacity var(--t-450) ease,scale var(--t-900) var(--bounce)}
 .thumb iframe.ld{opacity:1;scale:1}
 /* ---- 6.8: a picture box is reserved before its file arrives ----
    `.thumb` (16:9) and `.big` (4:4.3) take their height from `aspect-ratio` in the
@@ -152,11 +168,11 @@ img.ld{opacity:1;scale:1}
    block child would spill out of it. Absolute, like `.ldr.abs`, so the sentence
    and its button sit in the frame's place and nothing below them moves. */
 .art>.empty{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 16px}
-.skl{animation:rise .85s var(--bounce) backwards,skl 1.2s linear infinite}
+.skl{animation:rise var(--t-850) var(--bounce) backwards,skl var(--t-1200) linear infinite}
 .skl:nth-child(2){animation-delay:.08s,0s}.skl:nth-child(3){animation-delay:.16s,0s}
 .car .skl{flex:none;width:86%;height:230px;border-radius:30px;margin-bottom:0}
 #feed .skl{height:230px;margin:6px 14px 18px;border-radius:24px}
-.vh,.desc,.chips>.chip,#sg>button,.sug>button{animation:rise .85s var(--bounce) backwards}
+.vh,.desc,.chips>.chip,#sg>button,.sug>button{animation:rise var(--t-850) var(--bounce) backwards}
 .chips>:nth-child(2),#sg>:nth-child(2),.sug>:nth-child(2){animation-delay:.05s}
 .chips>:nth-child(3),#sg>:nth-child(3),.sug>:nth-child(3){animation-delay:.1s}
 .chips>:nth-child(4),#sg>:nth-child(4),.sug>:nth-child(4){animation-delay:.15s}
@@ -169,7 +185,7 @@ img.ld{opacity:1;scale:1}
  <div class="top"><div class="row"><div class="logo"><i></i>LiquidTube</div>
   <div class="ic"><button class="glass" data-ic="plus" data-do="plus" aria-label="Create"></button><button class="glass" data-ic="cast" data-do="cast" aria-label="Cast"></button><button class="glass" data-ic="bell" data-do="bell" aria-label="Notifications"></button><button class="glass" id="you" data-ic="user" data-do="you" aria-label="You"></button></div></div>
   <div class="chips" id="chips"></div></div>
- <div id="feed" style="padding-top:12px;transition:opacity .2s"><div class="ldr"><i></i><i></i><i></i></div><div class="skl"></div><div class="skl"></div><div class="skl"></div></div>
+ <div id="feed" style="padding-top:12px;transition:opacity var(--t-200)"><div class="ldr"><i></i><i></i><i></i></div><div class="skl"></div><div class="skl"></div><div class="skl"></div></div>
 </section>
 <section class="page" id="p-explore"><div class="top"><div class="row"><div class="logo">Explore</div><div class="ic"><button class="glass" data-ic="cast" data-do="cast" aria-label="Cast"></button><button class="glass" data-ic="more" data-do="more" aria-label="More"></button></div></div></div><div id="ex"></div></section>
 <section class="page" id="p-subs"><div class="top"><div class="logo">Subscriptions</div></div><div class="sg" id="sg"></div><h2 id="subh">Latest</h2><div id="subfeed"></div></section>
@@ -5820,7 +5836,7 @@ render(true);
    on state is the same declaration it always was. Nothing on screen changes:
    with parallax on the picture is still scaled 1.14 and still eases over .12 s,
    and with parallax off it is still the plain, unscaled, un-eased box. */
-html[data-parallax=on] .thumb img{transform:scale(1.14);transition:transform .12s linear}
+html[data-parallax=on] .thumb img{transform:scale(1.14);transition:transform var(--t-120) linear}
 /* 6.7: a thumbnail is held at `opacity:0` until the engine has decoded it, then
    fades in. `opacity` only — no width, no height, no layout — so the reserved
    box never moves and the tilt layer's own transform transition is carried
@@ -5832,8 +5848,8 @@ html[data-parallax=on] .thumb img{transform:scale(1.14);transition:transform .12
    beside it only while the tilt layer exists, so there is no `!important` and no
    second rule cancelling the first. */
 .thumb img[data-fd="0"]{opacity:0}
-.thumb img[data-fd="1"]{opacity:1;transition:opacity .26s ease}
-html[data-parallax=on] .thumb img[data-fd="1"]{transition:transform .12s linear,opacity .26s ease}
+.thumb img[data-fd="1"]{opacity:1;transition:opacity var(--t-250) ease}
+html[data-parallax=on] .thumb img[data-fd="1"]{transition:transform var(--t-120) linear,opacity var(--t-250) ease}
 /* will-change is a promise about the near future, and a promise kept costs a
    compositor layer for as long as it is kept: a feed card and its thumbnail are
    each a full-size texture (412x287 at 2x), so a feed of two dozen held ~50 of
@@ -5869,11 +5885,11 @@ html[data-anim=on][data-parallax=on] .thumb img{will-change:transform}
    focused or found by find-in-page. */
 .card{margin:6px 14px 18px;text-align:left;display:block;width:calc(100% - 28px);
   transform-style:preserve-3d;transform:translateZ(0);
-  transition:transform .55s var(--bounce),box-shadow .35s ease;
+  transition:transform var(--t-550) var(--bounce),box-shadow var(--t-350) ease;
   content-visibility:auto;contain-intrinsic-size:auto 287px}
 /* The tilt is the only gesture that moves a card under its own transition, so it
    is the only state that carries the hint. */
-.card.tilt{transition:transform .08s linear,box-shadow .2s ease;will-change:transform}
+.card.tilt{transition:transform var(--t-80) linear,box-shadow var(--t-200) ease;will-change:transform}
 .card .thumb{transform:translateZ(0)}
 .card .meta{transform:translateZ(18px)}
 .card.tilt .thumb{box-shadow:0 26px 46px -18px rgba(10,12,26,.45)}
@@ -5892,14 +5908,14 @@ html[data-depth=off] .card,html[data-depth=off] .card .meta{transform:none!impor
 .big b{font-size:17px;line-height:1.25;display:block}.big small{font-size:12px;opacity:.75}
 .big .play{position:absolute;right:14px;bottom:14px;z-index:3;padding:8px 15px;border-radius:99px;font-size:13px;font-weight:700;color:#fff;display:flex;gap:5px;align-items:center}
 .big .play svg{width:13px;height:13px;fill:#fff}
-.dots{display:flex;gap:6px;justify-content:center;padding:6px}.dots i{width:6px;height:6px;border-radius:50%;background:var(--mute);opacity:.4;transition:.25s}.dots i.on{opacity:1;background:var(--ink);transform:scale(1.25)}
+.dots{display:flex;gap:6px;justify-content:center;padding:6px}.dots i{width:6px;height:6px;border-radius:50%;background:var(--mute);opacity:.4;transition:var(--t-250)}.dots i.on{opacity:1;background:var(--ink);transform:scale(1.25)}
 input[type=range]{width:100%;appearance:none;-webkit-appearance:none;height:5px;border-radius:9px;background:linear-gradient(90deg,var(--ink) var(--p,0%),rgba(128,128,140,.35) var(--p,0%));outline:0;position:relative;z-index:1}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 2px 8px #0006,inset 0 -2px 3px #0002}
 input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radius:50%;background:#fff}
 .sg{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:6px 14px 10px}
-.sg button{text-align:center;font-size:11.5px;font-weight:600}.sg i{display:block;width:100%;aspect-ratio:1;border-radius:50%;margin-bottom:6px;box-shadow:0 6px 16px var(--shade);transition:transform .3s,outline-color .3s;outline:3px solid transparent;outline-offset:2px}.sg .on i{outline-color:var(--red);transform:scale(.92)}
+.sg button{text-align:center;font-size:11.5px;font-weight:600}.sg i{display:block;width:100%;aspect-ratio:1;border-radius:50%;margin-bottom:6px;box-shadow:0 6px 16px var(--shade);transition:transform var(--t-300),outline-color var(--t-300);outline:3px solid transparent;outline-offset:2px}.sg .on i{outline-color:var(--red);transform:scale(.92)}
 /* ===== overlays ===== */
-#search{position:absolute;inset:0;z-index:var(--z-search);background:var(--bg);opacity:0;pointer-events:none;transform:translateY(80px) scale(.94);transition:transform .85s var(--bounce),opacity .3s ease;padding:calc(env(safe-area-inset-top,0px) + 14px) 14px;overflow:auto}
+#search{position:absolute;inset:0;z-index:var(--z-search);background:var(--bg);opacity:0;pointer-events:none;transform:translateY(80px) scale(.94);transition:transform var(--t-850) var(--bounce),opacity var(--t-300) ease;padding:calc(env(safe-area-inset-top,0px) + 14px) 14px;overflow:auto}
 #search.on{opacity:1;pointer-events:auto;transform:none}
 .sbar{display:flex;gap:10px;align-items:center}.sbar label{flex:1;display:flex;gap:8px;align-items:center;height:46px;border-radius:99px;padding:0 14px}
 .sbar input{flex:1;background:none;border:0;outline:0;font:inherit;color:inherit;font-size:16px;min-width:0}
@@ -5908,8 +5924,8 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 .res{display:flex;gap:12px;padding:10px 0;text-align:left;width:100%}.res .thumb{width:44%;flex:none;border-radius:16px}.res b{font-size:14px;line-height:1.3}
 .empty{padding:40px 10px;text-align:center;color:var(--mute);font-size:14px}
 .empty .rty{display:block;margin:16px auto 0;padding:0 26px;min-width:148px;font-size:14px;color:var(--ink)}
-#scrim{position:absolute;inset:0;z-index:var(--z-scrim);background:#0006;opacity:0;pointer-events:none;transition:opacity .35s}#scrim.on{opacity:1;pointer-events:auto}
-#pl,#sheet{position:absolute;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);z-index:var(--z-pl);padding:16px;border-radius:34px;display:flex;flex-direction:column;gap:8px;text-align:left;transform:translateY(125%);transition:transform .9s var(--bounce)}
+#scrim{position:absolute;inset:0;z-index:var(--z-scrim);background:#0006;opacity:0;pointer-events:none;transition:opacity var(--t-350)}#scrim.on{opacity:1;pointer-events:auto}
+#pl,#sheet{position:absolute;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);z-index:var(--z-pl);padding:16px;border-radius:34px;display:flex;flex-direction:column;gap:8px;text-align:left;transform:translateY(125%);transition:transform var(--t-900) var(--bounce)}
 /* The overlays slide for .85-.9 s when their `.on` class changes, and at no other
    time; `slideHint` adds `.slide` for the length of that slide and takes it off
    after it. `will-change:transform` here cannot change what is drawn: while the
@@ -5920,9 +5936,9 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 #pl.on,#sheet.on{transform:none}
 #pl b{font-size:16px;line-height:1.3}#pl>span,.tm{font-size:12.5px;color:var(--mute)}.tm{display:flex;justify-content:space-between}
 .prow{display:flex;gap:10px;margin-top:4px}.prow button{flex:1;height:46px;border-radius:99px;font-weight:700}
-nav.dock{transition:transform .5s var(--bounce),box-shadow .4s ease}
+nav.dock{transition:transform var(--t-500) var(--bounce),box-shadow var(--t-400) ease}
 nav.dock:active{transform:scale(.985)}
-#sheet{z-index:var(--z-sheet);transform-origin:50% 100%;transform:translateY(14px) rotateX(9deg) scale(.97);opacity:0;transition:transform .6s var(--bounce),opacity .35s ease}
+#sheet{z-index:var(--z-sheet);transform-origin:50% 100%;transform:translateY(14px) rotateX(9deg) scale(.97);opacity:0;transition:transform var(--t-600) var(--bounce),opacity var(--t-350) ease}
 #sheet.on{transform:none;opacity:1}
 html[data-depth=off] nav.dock,html[data-depth=off] #sheet{transform:none!important}
 #sheet{max-height:84%;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 84px)}#sheet h3{font-size:17px;text-align:center;padding-bottom:4px}
@@ -5932,14 +5948,14 @@ html[data-depth=off] nav.dock,html[data-depth=off] #sheet{transform:none!importa
 .opt{height:48px;border-radius:99px;font-weight:700}
 #shi{display:none;gap:8px}#shi.on{display:flex}#shi input{flex:1;height:44px;border-radius:99px;padding:0 16px;border:0;outline:0;font:inherit;font-size:15px;color:inherit}
 #shi button{padding:0 18px;border-radius:99px;font-weight:700;color:var(--red)}
-#toast{position:absolute;top:calc(env(safe-area-inset-top,0px) + 12px);left:50%;transform:translate(-50%,-90px);z-index:var(--z-toast);padding:11px 18px;border-radius:99px;font-size:13.5px;font-weight:600;transition:transform .85s var(--bounce);white-space:nowrap;max-width:90%}
+#toast{position:absolute;top:calc(env(safe-area-inset-top,0px) + 12px);left:50%;transform:translate(-50%,-90px);z-index:var(--z-toast);padding:11px 18px;border-radius:99px;font-size:13.5px;font-weight:600;transition:transform var(--t-850) var(--bounce);white-space:nowrap;max-width:90%}
 #toast.on{transform:translate(-50%,0)}
 /* ---- settings rows ---- */
 .setrow{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;border-radius:16px;background:rgba(120,120,140,.10);margin-bottom:10px;font-size:14px}
 .setrow input[type=range]{-webkit-appearance:none;appearance:none;width:58%;height:6px;border-radius:99px;background:linear-gradient(90deg,var(--red) var(--p,45%),rgba(120,120,140,.25) var(--p,45%));outline:none}
 .setrow input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.25);border:0}
 .laychips{display:flex;gap:8px;margin:2px 0 14px}
-.laychips button{flex:1;padding:11px 8px;border-radius:14px;background:rgba(120,120,140,.12);font-size:13px;font-weight:700;color:var(--ink);transition:background .3s,color .3s,scale .55s var(--bounce)}
+.laychips button{flex:1;padding:11px 8px;border-radius:14px;background:rgba(120,120,140,.12);font-size:13px;font-weight:700;color:var(--ink);transition:background var(--t-300),color var(--t-300),scale var(--t-550) var(--bounce)}
 .laychips button.on{background:#111;color:#fff}
 /* ---- LiquidTube additions (same language as the shell) ---- */
 .thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
@@ -5970,7 +5986,7 @@ html[data-depth=off] nav.dock,html[data-depth=off] #sheet{transform:none!importa
 #sg::-webkit-scrollbar{display:none}
 #shb{padding-bottom:10px}
 .card:active{scale:.97}
-.card,.big,.res,.cm,.setrow,.laychips,.opt,.about,.chh,.empty{animation:rise .85s var(--bounce) backwards}
+.card,.big,.res,.cm,.setrow,.laychips,.opt,.about,.chh,.empty{animation:rise var(--t-850) var(--bounce) backwards}
 .card{animation-delay:calc(var(--i,0)*60ms)}
 .car>:nth-child(2),#shb>:nth-child(2),#results>:nth-child(2){animation-delay:.06s}
 .car>:nth-child(3),#shb>:nth-child(3),#results>:nth-child(3){animation-delay:.12s}
@@ -5978,7 +5994,7 @@ html[data-depth=off] nav.dock,html[data-depth=off] #sheet{transform:none!importa
 #shb>:nth-child(5),#results>:nth-child(5){animation-delay:.24s}
 #shb>:nth-child(6),#results>:nth-child(6){animation-delay:.3s}
 #shb>:nth-child(n+7),#results>:nth-child(n+7){animation-delay:.36s}
-input[type=range]::-webkit-slider-thumb{transition:scale .4s var(--bounce)}
+input[type=range]::-webkit-slider-thumb{transition:scale var(--t-400) var(--bounce)}
 input[type=range]:active::-webkit-slider-thumb{scale:1.3}
 .prow{flex-wrap:wrap}.prow button{min-width:calc(33% - 8px);font-size:13px;padding:0 6px}</script>
 <script>
