@@ -3241,6 +3241,44 @@ let loopGuard=0;
    that is unknown — a frame that has just been built has been told nothing. */
 let loopKey='',loopPosts=0;
 function frameKeyOf(id){return id+'|'+(S.opt.cc?'1':'0')}
+/* ---------- the embed URL, composed once (item 8.7) ----------
+   The player's URL used to be a hand-concatenated string inside `mount()`: the
+   fixed parameters as a literal, then `&cc_load_policy=1` and `&start=<n>`
+   appended when the options asked for them. Nothing appended `autoplay` there
+   today, but the string had no guard against it, and the reuse path (item 8.1)
+   is one edit away from writing `src` again "to make it play" — which is exactly
+   how a frame ends up navigated with `?autoplay=1&...&autoplay=1`. A second
+   `autoplay` is not cosmetic: it re-navigates a frame that was already playing,
+   so the embed document is fetched again and playback restarts from a cold
+   buffer, the cost 8.1 exists to avoid, and the two keys disagree about who
+   wins.
+
+   So the URL is built here, once, from one ordered list, and every parameter
+   goes through `add()`, which refuses a key it has already written. `autoplay`
+   is in the base list, so it is emitted exactly once and cannot be added again
+   by any caller; `cc_load_policy` and `start` are the only conditional ones.
+   `mount()` is the only caller, and it calls this only when it is building a
+   frame — a reused frame is never given a URL at all. */
+const EMBED_QS=[['autoplay','1'],['playsinline','1'],['rel','0'],['modestbranding','1'],['iv_load_policy','3'],['enablejsapi','1']];
+function embedUrl(id,at,cc){
+  const seen=Object.create(null),q=[];
+  const add=(k,v)=>{if(seen[k])return false;seen[k]=1;q.push(k+'='+v);return true};
+  for(let i=0;i<EMBED_QS.length;i++)add(EMBED_QS[i][0],EMBED_QS[i][1]);
+  if(cc)add('cc_load_policy','1');
+  if(at)add('start',at);
+  return EMBED_BASE+esc(id)+'?'+q.join('&');
+}
+/* The census: what a fresh URL looks like with and without the optional
+   parameters, and how many times `autoplay` appears in each. One every time is
+   the invariant; anything else is the bug this item removes. */
+window.__ltEmbed=()=>{
+  const one=(at,cc)=>{const u=embedUrl('vAAAAAAAAAA',at,cc);
+    return {url:u,autoplay:(u.match(/[?&]autoplay=/g)||[]).length,
+      dupes:(()=>{const k=(u.split('?')[1]||'').split('&').filter(Boolean).map(x=>x.split('=')[0]),
+        seen=Object.create(null),d=[];k.forEach(x=>{if(seen[x])d.push(x);seen[x]=1});return d})()}};
+  return {plain:one(0,0),cc:one(0,1),resume:one(42,0),both:one(42,1),
+    base:EMBED_QS.length};
+};
 /* ---------- resume position (item 8.3) ----------
    Closing the player and opening the same video again started it from 0, so a
    half-watched video had to be scrubbed back by hand every time: the position
@@ -3522,7 +3560,11 @@ function mount(id,title,force,noResume){
      sending it back to where the last one ended would be the one thing a wrap
      must not do. */
   const at=noResume?0:posOf(id);
-  box.innerHTML=LDRABS+'<iframe src="'+EMBED_BASE+esc(id)+'?autoplay=1&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&enablejsapi=1'+(S.opt.cc?'&cc_load_policy=1':'')+(at?'&start='+at:'')+'" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="'+esc(title||'')+'"></iframe>';
+  /* The URL comes from `embedUrl`, which emits each parameter once (item 8.7),
+     and this is the only place in the app that writes a frame's `src`: the reuse
+     branch above returns before this line, so a frame that is kept is never
+     re-navigated and its `autoplay` is never written a second time. */
+  box.innerHTML=LDRABS+'<iframe src="'+embedUrl(id,at,S.opt.cc)+'" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen title="'+esc(title||'')+'"></iframe>';
   const f=qs('iframe',box);
   if(!f)return;                            /* nothing to wire: the panel keeps its loader */
   frameKey=key;
