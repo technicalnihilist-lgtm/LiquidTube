@@ -247,7 +247,8 @@ const APIKEY='AIzaSyBF449ShoVt-1qsWhO8VUdHU7v_2E72lNA';
    The two Intl formatters are built on first use, so boot pays nothing for them. */
 const API_BASE='https://www.googleapis.com/youtube/v3/';
 const THUMB_BASE='https://i.ytimg.com/vi/';
-const EMBED_BASE='https://www.youtube-nocookie.com/embed/';
+const EMBED_ORIGIN='https://www.youtube-nocookie.com';
+const EMBED_BASE=EMBED_ORIGIN+'/embed/';
 const DEC_RE=[/&amp;/g,/&quot;/g,/&#39;/g,/&lt;/g,/&gt;/g];
 const DEC_TO=['&','"',"'",'<','>'];
 const DUR_RE=/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/;
@@ -3268,6 +3269,48 @@ function embedUrl(id,at,cc){
   if(at)add('start',at);
   return EMBED_BASE+esc(id)+'?'+q.join('&');
 }
+/* ---------- warming the embed origin (item 8.8) ----------
+   The player talks to the third and last origin this app uses, and it was the
+   only one nothing warmed: `www.googleapis.com` and `i.ytimg.com` are preconnected
+   in the head (item 1.7), so the feed's fetch and the first thumbnails skip their
+   DNS lookup and handshake, but `www.youtube-nocookie.com` was contacted for the
+   very first time at the instant a video was opened. The embed document is the
+   one thing the player cannot start without, so that first play paid a cold
+   lookup + TCP + TLS in front of the request itself, with the panel's loader
+   spinning over it. `EMBED_ORIGIN` is defined once, above, and both the warm and
+   every embed URL read it, so the warmed host cannot drift from the played one.
+
+   When: the same post-first-paint idle slot that binds the deferred input
+   listeners (item 1.6) — nothing before that frame can play a video, and warming
+   there keeps the handshake off the boot's critical path — plus a guard at the
+   top of `play()`, which covers the one case the idle slot cannot: a tap that
+   lands before the slot runs. That second call is the reason the flag is set
+   before any work: a warm that has already happened is a property read, so a
+   burst of taps issues nothing.
+
+   What it is not: it sends no request, asks for no document and changes nothing
+   the app fetches. `dns-prefetch` is the pair's other half because a host
+   lookup is the part every engine honours, and preconnect is a hint an engine is
+   free to ignore — exactly the reasoning of item 1.7. One pair per session, and
+   `warmEmbed()` is idempotent by construction (the `embedwarm` selfcheck probe
+   calls it twice and expects one link). Offline there is nothing to connect to,
+   so the warm is skipped and the player's own error path (8.4) owns that case. */
+let embedWarm=0;
+function warmEmbed(){
+  if(embedWarm)return;
+  if(navigator.onLine===false)return;          /* nothing to reach: 8.4 reports the play instead */
+  const h=document.head||document.documentElement;
+  if(!h)return;                                /* no head yet: the next call warms */
+  embedWarm=1;
+  const link=(rel)=>{
+    const l=document.createElement('link');
+    l.rel=rel;l.href=EMBED_ORIGIN;l.setAttribute('data-warm','embed');
+    h.appendChild(l);
+  };
+  link('dns-prefetch');
+  link('preconnect');
+  mark('embedwarm');
+}
 /* The census: what a fresh URL looks like with and without the optional
    parameters, and how many times `autoplay` appears in each. One every time is
    the invariant; anything else is the bug this item removes. */
@@ -3595,6 +3638,10 @@ function play(id){
   const v=V[id];if(!v)return;
   if(isShort(v)){toast('Shorts are turned off');return}
   cur=v;
+  /* The embed origin is warmed before the frame that needs it exists (item 8.8):
+     after the boot's idle slot this is one flag read, and before it, it is the
+     handshake started one task earlier than the navigation instead of with it. */
+  warmEmbed();
   $('sheet').classList.remove('on');
   S.hist=S.hist.filter(x=>x!==id);S.hist.unshift(id);capHead(S.hist);
   S.vd[id]={id,t:v.t,c:v.c,ch:v.ch,pub:v.pub,views:v.views};
@@ -4676,6 +4723,16 @@ const SC=[
     }finally{Object.assign(SEA_F,JSON.parse(had))}
   }],
   ['preconnect',()=>qsa('link[rel="preconnect"]').length>=2],
+  /* the embed origin is warmed once and only once (8.8): two calls, one pair of
+     links for the one host every embed URL is built from. Offline there is
+     nothing to warm, so the probe is not a failure there. */
+  ['embedwarm',()=>{
+    if(navigator.onLine===false)return true;
+    const n=()=>qsa('link[rel="preconnect"]').filter(l=>l.getAttribute('href')===EMBED_ORIGIN).length;
+    warmEmbed();const a=n();warmEmbed();const b=n();
+    return a===1&&b===1&&EMBED_BASE.indexOf(EMBED_ORIGIN+'/embed/')===0&&
+      qsa('link[rel="dns-prefetch"]').some(l=>l.getAttribute('href')===EMBED_ORIGIN);
+  }],
   ['doc',()=>document.documentElement.lang==='en'&&!!qs('meta[name="viewport"]')],
   /* the settings object a render reads is shaped as every render assumes */
   ['state',()=>S_OBJ(S)&&S_OBJ(S.opt)&&typeof S.opt.depth==='number'&&typeof S.opt.pdepth==='number'],
@@ -5477,9 +5534,15 @@ function bindInput(){
    gesture with nothing said. It is wrapped once, here, so a failure is counted
    and logged and the rest of the boot carries on (item 5.1). */
 function bindInputSafe(){try{bindInput()}catch(e){asSafe('input.bind',e)}}
+/* The one idle slot the boot defers work into: the deferred listeners (1.6) and
+   the embed origin's warmup (8.8), which is the first moment a play can follow
+   from. The warm runs first and is wrapped, so a throw there cannot cost the
+   listeners — and a throw in the listeners cannot cost a later warm, because
+   `warmEmbed` leaves its flag clear until the links are in. */
+function bootIdle(){try{warmEmbed()}catch(e){asSafe('embed.warm',e)}bindInputSafe()}
 function scheduleInput(){
-  if(window.requestIdleCallback)requestIdleCallback(bindInputSafe,{timeout:600});
-  else setTimeout(bindInputSafe,0);
+  if(window.requestIdleCallback)requestIdleCallback(bootIdle,{timeout:600});
+  else setTimeout(bootIdle,0);
 }
 if(window.__ltFirstFrame)asGuard('boot.firstframe',()=>window.__ltFirstFrame()).then(scheduleInput);
 else scheduleInput();
